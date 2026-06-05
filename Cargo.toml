@@ -1,125 +1,51 @@
-[package]
-name = "polygone"
+[workspace]
+resolver = "2"
+members = [
+    "crates/common",
+    "crates/app",
+    "polygone",
+    "crates/polygone-msg",
+    "crates/polygone-drive",
+    "crates/polygone-hide",
+    "crates/polygone-mesh",
+    "crates/polygone-brain",
+]
+
+# The legacy single-crate project (pre-Phase 1 refactor) lives in the
+# root `polygone/` directory and exposes the existing Computer, IPC,
+# web, services, tui, crypto, network, protocol modules. The new
+# workspace structure mirrors the spec's 6 specialized crates (common,
+# app, msg, drive, hide, mesh, brain). Code will be migrated crate by
+# crate; until then, specialized crates are stubs.
+
+[workspace.package]
 version = "1.0.0"
 edition = "2021"
-authors = ["Lévy <polygone@proton.me>"]
-description = "Post-quantum ephemeral privacy network — ML-KEM-1024 · Shamir 4-of-7 · AES-256-GCM"
+authors = ["L-VS <l-vs@polygone.local>"]
 license = "MIT"
-repository = "https://github.com/lvs0/Polygone-Network"
-keywords = ["post-quantum", "p2p", "privacy", "cryptography", "ephemeral"]
-categories = ["cryptography", "network-programming", "command-line-utilities"]
+publish = false
 rust-version = "1.75"
 
-# ── Profiles ──────────────────────────────────────────────────────────────────
+[workspace.dependencies]
+tokio = { version = "1.36", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive", "env"] }
+anyhow = "1.0"
+thiserror = "1.0"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+pqc_kyber = "0.7"
+aes-gcm = "0.10"
+sha2 = "0.10"
+rand = "0.8"
+hex = "0.4"
+libp2p = { version = "0.55", features = ["kad", "noise", "tcp", "yamux", "mdns", "identify"] }
 
 [profile.release]
 opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
+lto = "thin"
 strip = true
-
-[profile.dev]
-opt-level = 1
-
-# ── Library ───────────────────────────────────────────────────────────────────
-
-[lib]
-name = "polygone"
-path = "src/lib.rs"
-
-# ── Binaries ──────────────────────────────────────────────────────────────────
-
-[[bin]]
-name = "polygone"
-path = "src/main.rs"
-
-[[bin]]
-name = "polygone-server"
-path = "src/bin/polygone-server.rs"
-
-[[bin]]
-name = "polygone-install"
-path = "src/bin/polygone-install.rs"
-
-# ── Dependencies ──────────────────────────────────────────────────────────────
-
-[dependencies]
-# ── Post-Quantum KEM (ML-KEM-1024, FIPS 203) ─────────────────────────────────
-pqcrypto-mlkem    = "0.1"
-pqcrypto-traits   = "0.3"
-
-# ── Post-Quantum Signatures (ML-DSA-87, FIPS 204) ────────────────────────────
-pqcrypto-mldsa    = "0.1"
-
-# ── Symmetric Encryption (AES-256-GCM) ───────────────────────────────────────
-aes-gcm          = { version = "0.10", features = ["aes"] }
-
-# ── Hashing (BLAKE3) ─────────────────────────────────────────────────────────
-blake3           = "1"
-
-# ── Zeroize (secure memory clearing) ─────────────────────────────────────────
-zeroize          = { version = "1", features = ["derive"] }
-subtle           = "2"
-
-# ── Ed25519 Signatures (ML-DSA swap-ready via trait) ─────────────────────────
-ed25519-dalek    = { version = "2", features = ["rand_core"] }
-
-# ── Shamir Secret Sharing ────────────────────────────────────────────────────
-sharks           = { version = "0.5", default-features = false }
-rand             = "0.8"
-getrandom        = "0.2"
-
-# ── Async Runtime ─────────────────────────────────────────────────────────────
-tokio            = { version = "1", features = ["full"] }
-async-trait      = "0.1"
-
-# ── Serialization ─────────────────────────────────────────────────────────────
-serde            = { version = "1", features = ["derive"] }
-serde_json       = "1"
-toml             = "0.5"
-bincode          = "1"
-hex              = "0.4"
-
-# ── Error Handling ────────────────────────────────────────────────────────────
-thiserror        = "1"
-anyhow           = "1"
-
-# ── CLI & Logging ─────────────────────────────────────────────────────────────
-clap             = { version = "4", features = ["derive", "env"] }
-tracing          = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# ── System ────────────────────────────────────────────────────────────────────
-dirs             = "5"
-
-# ── HTTP (for health endpoint and keepalive) ──────────────────────────────────
-reqwest          = { version = "0.12", features = ["json"] }
-
-# ── TUI (Ratatui) ────────────────────────────────────────────────────────────
-ratatui          = "0.30"
-crossterm        = "0.27"
-
-# ── P2P Network (libp2p) ─────────────────────────────────────────────────────
-libp2p           = { version = "0.53", features = [
-    "tokio",
-    "tcp",
-    "dns",
-    "noise",
-    "yamux",
-    "kad",
-    "request-response",
-    "cbor",
-    "identify",
-    "gossipsub",
-    "mdns",
-    "autonat",
-    "relay",
-    "dcutr",
-    "ping"
-] }
-
-# ── Dev Dependencies ──────────────────────────────────────────────────────────
-
-[dev-dependencies]
-criterion        = { version = "0.5", features = ["html_reports"] }
+codegen-units = 1

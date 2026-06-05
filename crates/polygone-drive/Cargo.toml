@@ -1,0 +1,17 @@
+[package]
+name = "polygone-drive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "polygone-drive — distributed encrypted storage with local web admin UI"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }

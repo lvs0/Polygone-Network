@@ -1,0 +1,311 @@
+   POLYGONE / MSH
+   SPÉCIFICATIONS ARCHITECTURALES & VISION FONDATRICE INTÉGRALE
+
+
+
+
+DOCUMENT TECHNIQUE MAÎTRE DE SPÉCIFICATION
+Destiné exclusivement à l'Agent de Développement Hermès.
+
+
+  « Rendre l'écosystème intuitif, simple, minimaliste, révolutionnaire, malin. Un
+  produit complet, fonctionnel et béton, accessible en une seule commande globale
+  dans le terminal. »
+
+
+
+
+AUTEUR : L-VS (Lévy Verpoort Scherpereel)
+VERSION : 1.0.0 (Vision Originelle Purifiée)
+CIBLE : Implémentation complète et autonome sous Rust
+SÉCURITÉ : Post-Quantique / Zéro-Trust / Souveraineté Totale
+
+
+
+
+POLYGONE ARCHITECTURE SPEC v1.0.0                                                   1
+1. VISION PHILOSOPHIQUE & RÉVOLUTION TECHNOLOGIQUE
+
+L'écosystème Polygone (nom de code réseau et protocole : msh) n'est pas un simple
+outil de chiffrement ou une surcouche logicielle de plus. Il s'agit d'une rupture
+technologique     majeure,    conçue     pour   réformer   la   nature   même   de   la   souveraineté
+numérique et de la vie privée sur le réseau global. L'objectif fondamental est de
+proposer un environnement informatique décentralisé capable de faire trembler les
+géants de la tech en garantissant une immunité absolue aux utilisateurs face à la
+surveillance de masse, à l'analyse de données et aux ruptures d'infrastructures.
+
+La règle d'or architecturale de Polygone est d'une pureté radicale : il ne s'agit pas
+uniquement de rendre le contenu d'une communication illisible, mais d'effacer et de
+dissimuler l'acte même de communication. Le système est intrinsèquement "zero-trust"
+et    "zero-knowledge",      éliminant    par   sa   conception    structurelle      toute   forme   de
+télémétrie, de suivi ou de dépendance à un tiers de confiance.
+
+
+     Note cruciale pour Hermès : Ce document compile et structure l'intégralité des
+     prompts bruts, des décisions de conception et des maquettes logiques validées.
+     Aucune infrastructure cloud centralisée tierce n'est acceptée. Le produit doit
+     fonctionner de manière fluide, autonome et standardisée sur les trois
+     plateformes majeures : Linux (Fedora/Ubuntu), macOS et Windows.
+
+
+
+2. FONDATIONS CRYPTOGRAPHIQUES ET RÉSISTANCE POST-QUANTIQUE
+
+L'implémentation de la sécurité au sein du cœur de Polygone (polygone-core ou common)
+doit interdire strictement l'utilisation de code non vérifié (compilation blindée par
+la directive #![forbid(unsafe_code)]). Les primitives mathématiques reposent sur les
+standards les plus avancés de la cryptographie moderne et future :
+
+• Chiffrement Post-Quantique : Intégration native de l'algorithme ML-KEM-1024
+     (standardisé FIPS 203) pour l'échange de clés, garantissant une étanchéité totale
+     face aux futures capacités de décodage des ordinateurs quantiques.
+• Chiffrement Symétrique : Recours exclusif à AES-256-GCM (ou ChaCha20-Poly1305)
+     pour la confidentialité et l'intégrité des flux de paquets de données.
+• Éclatement et Dispersion Sémantique : Utilisation rigoureuse du Partage de Secret
+     de Shamir (schéma à seuil k parmi n, configuré en 4 parmi 7). Tout fichier ou
+     message entrant est instantanément découpé mathématiquement en 7 fragments
+     distincts. La reconstruction exige la réunion d'au moins 4 fragments. Aucun
+     fragment isolé ne permet de déduire la moindre information sur le secret
+     d'origine.
+• Éphémérité Réseau : Injection d'un cycle de vie ultra-court pour les paquets
+     circulant sur le réseau. Les fragments de données non consolidés se désintègrent
+     automatiquement de la mémoire volatile des nœuds après un délai strict de 30
+     secondes.
+
+
+
+POLYGONE ARCHITECTURE SPEC v1.0.0                                                                     2
+3. ARCHITECTURE MODULAIRE DU WORKSPACE RUST (MSH)
+
+Pour   prévenir   les   dépendances   circulaires   et   garantir   un   développement   propre,
+l'architecture globale est structurée sous la forme d'un Workspace Cargo unifié. Le
+binaire central orchestre les services spécialisés sous forme de démons légers en
+sous-processus.
+
+
+
+ ~/Polygone/
+ ├── Cargo.toml (Workspace Racine)
+ └── crates/
+     ├── common/          # Types partagés (Packet, SessionKey, NodeId), sérialisation
+     ├── app/             # Point d'entrée principal (Binaire unifié 'polygone')
+     ├── polygone-msg/    # Messagerie éphémère P2P de bout en bout
+     ├── polygone-drive/ # Stockage distribué chiffré par Shamir avec UI Web locale
+     ├── polygone-hide/   # Proxy SOCKS5 anonymisant intégré
+     ├── polygone-mesh/   # Routage local, distribution de charge, Wi-Fi / Bluetooth
+     └── polygone-brain/ # IA locale légère & fallback d'inférence (Petals)
+
+
+
+SPÉCIFICATION DES CRATES ET RÔLES INTERNES :
+
+ NOM DU MODULE                PÉRIMÈTRE D'EXÉCUTION TECHNIQUE
+
+                              Structure de données immuable. Gère la sérialisation/
+                              désérialisation rapide des paquets réseau (Packet), la
+ common
+                              gestion des identités cryptographiques des nœuds et les
+                              structures d'échange.
+
+                              Réseau de messagerie P2P asynchrone s'appuyant sur libp2p
+                              et une table de hachage distribuée (Kademlia DHT).
+ polygone-msg
+                              Transmission des messages éclatés en fragments de façon
+                              transparente.
+
+                              Système de stockage persistant, distribué et chiffré.
+                              Découpe les fichiers, distribue les fragments chiffrés sur
+ polygone-drive
+                              les nœuds disponibles et expose une interface
+                              d'administration web locale.
+
+                              Couche réseau d'anonymisation bas niveau. Établit un proxy
+ polygone-hide                local SOCKS5 pour masquer le routage et interdire
+                              l'identification de l'origine physique des paquets.
+
+                              Gestionnaire de transport multi-protocole local. Scanne et
+                              interconnecte les machines de l'environnement proche en
+ polygone-mesh
+                              utilisant le Wi-Fi (via mDNS) et le Bluetooth pour
+                              mutualiser les ressources.
+
+                              Moteur d'intelligence artificielle locale. Intègre un
+ polygone-brain
+                              modèle de langage hautement quantifié capable de tourner
+
+
+
+POLYGONE ARCHITECTURE SPEC v1.0.0                                                              3
+ NOM DU MODULE               PÉRIMÈTRE D'EXÉCUTION TECHNIQUE
+
+                             sur de petites configurations matérielles (ex: PC portable,
+                             configurations à ressources contraintes).
+
+
+
+4. L'INTERFACE UTILISATEUR TERMINAL (TUI) UNIFIÉE
+
+La commande unique polygone instancie une interface graphique en mode texte (TUI)
+codée en Rust. Elle doit être rapide, visuellement irréprochable, minimaliste et
+navigable au clavier (flèches directionnelles et touches numériques de 1 à 4).
+L'organisation logique s'articule impérativement autour de 4 onglets majeurs :
+
+
+ONGLET 1 — ACCUEIL (DASHBOARD GÉNÉRAL)
+
+• Statut du Nœud : Indicateur visuel d'activité (Actif / En pause / Inactif)
+  accompagné de l'Uptime précis (durée depuis le lancement).
+• Identité Écosystème : Affichage du pseudonyme de l'utilisateur (configuré lors de
+  l'installation ou généré automatiquement de façon cryptographique).
+• Économie POLY : Solde disponible en jetons POLY (système de comptabilité local
+  stocké de manière sécurisée dans ~/.polygone/poly.toml sans recours à une
+  blockchain). Affichage de la consommation courante exprimée en temps réel (ex: 0.1
+  POLY / min).
+• Actions Rapides (Raccourcis clavier directs) :
+  - [P] Mettre en pause le nœud
+  - [R] Redémarrer les services
+  - [U] Forcer la mise à jour / Réinstallation
+  - [Q] Quitter proprement l'interface
+
+
+ONGLET 2 — FAVORIS
+
+• Liste des Services : Vue d'ensemble filtrée des modules prioritaires marqués par
+  l'utilisateur.
+• Statut Individuel : État opérationnel en direct de chaque service favori.
+• Gestion : Possibilité de basculer rapidement l'état d'un favori ou d'accéder à sa
+  configuration dédiée.
+
+
+ONGLET 3 — SERVICES
+
+• Contrôle Temporel de Pause : Configuration fine de la suspension d'activité avec
+  sélection de durées prédéfinies : 10 min, 30 min, 1h, 2h, 4h.
+• Interrupteurs Généraux : Activation et désactivation à la volée de chaque brique
+  (Drive, Msg, Hide, Mesh, Brain).
+• Persistance Visuelle : Le solde POLY et le taux de consommation restent affichés
+  en permanence en zone fixe supérieure ou inférieure pour surveiller l'état de la
+  ressource.
+
+
+
+
+POLYGONE ARCHITECTURE SPEC v1.0.0                                                          4
+ONGLET 4 — PARAMÈTRES
+
+• Configuration Réseau : URL d'écoute, ports d'affectation (par défaut 8080 pour
+    l'interface locale, 9050 pour le proxy anonyme). Fonctions intégrées pour ouvrir
+    instantanément les logs consolidés ou inspecter le terminal de débogage.
+• Statut Drive : Espace disque consommé et disponible (ex: 10 GB / ∞), incluant un
+    raccourci de lancement de l'interface d'administration Web locale.
+• Mises à Jour : Activation/Désactivation des mises à jour automatiques du système.
+
+Note d'optimisation TUI : Afin d'économiser les cycles CPU sur les configurations
+matérielles légères, aucun rafraîchissement automatique agressif par boucle (polling
+continu)    n'est   toléré.   L'interface   utilise    une   réévaluation   événementielle    ou
+déclenchée manuellement par l'utilisateur via la touche d'action [R] (Rafraîchir),
+affichant un indicateur discret "Dernière mise à jour il y a X secondes".
+
+
+
+5. L'INSTALLATEUR AUTONOME "GENIUS" CROSS-PLATFORM
+
+L'installateur est la porte d'entrée du produit. Il doit être entièrement autonome,
+masquant   la   complexité    technique   sous   une   séquence   d'initialisation   propre   et
+intelligente, sans requérir l'installation préalable de l'écosystème Rust sur la
+machine de l'utilisateur final. Il est configuré pour accomplir les étapes suivantes
+:
+
+    1. Détection de l'Environnement : Identification automatique de l'architecture
+       logicielle et du système d'exploitation hôte (Windows, macOS, Linux).
+    2. Choix de la Langue & Configuration Initiale : Sélection de la langue de travail
+       de l'écosystème, saisie optionnelle d'un pseudonyme utilisateur (avec génération
+       d'une identité cryptographique aléatoire par défaut si le champ reste vide).
+    3. Sélection des Modules Démonisés : Liste interactive permettant à l'utilisateur
+       de cocher les services qu'il souhaite voir s'exécuter immédiatement en tâche de
+       fond dès le démarrage du système.
+    4. Optimisation Fine du Système Hôte : Lors de l'installation, le script analyse
+       les capacités physiques de la machine et configure de manière optimale les
+       paramètres bas niveau du système (ajustement du gouverneur CPU, activation de la
+       ZRAM, paramétrage de l'ordonnanceur d'E/S BFQ si applicable).
+    5. Gestion des Connectivités Réseau Local (Mesh) : Activation optionnelle des
+       pilotes de communication de proximité, offrant le choix d'intégrer le Wi-Fi
+       local et les protocoles Bluetooth pour l'interconnexion instantanée des machines
+       de confiance présentes dans l'environnement direct (ex: maillage de PC locaux
+       pour créer une grappe distribuée).
+
+
+
+
+POLYGONE ARCHITECTURE SPEC v1.0.0                                                              5
+6. FONCTIONNALITÉS AVANCÉES DES SERVICES DISTRIBUES
+
+POLYGONE DRIVE (STOCKAGE & STREAMING ÉPHÉMÈRE) :
+
+Le module Drive ne se limite pas à un simple serveur de stockage de fichiers
+statiques. L'interface d'administration, accessible directement depuis le navigateur
+Web sur le réseau local, implémente nativement :
+
+• Le Streaming Multimédia : Capacité de décoder et de lire des flux de données audio
+  et vidéo à la volée, sans exiger le téléchargement préalable complet du fichier
+  chiffré de part et d'autre du réseau.
+• La Création de Liens Publics Éphémères : Génération instantanée de jetons d'accès
+  temporaires pour des partages tiers, programmés pour expirer de manière stricte et
+  irréversible après une durée définie (ex: expiration absolue après 24 heures).
+
+
+POLYGONE MESH (DISTRIBUTION DYNAMIQUE DE LA CHARGE) :
+
+Le protocole réseau msh intègre un répartiteur de charge intelligent s'adaptant à la
+puissance brute de chaque nœud physique interconnecté. Si une tâche d'inférence, de
+calcul   ou   de    traitement   de   données   lourde   est   soumise   à   un   nœud   disposant   de
+ressources limitées (ex: machine ancienne ou à faible processeur), le module Mesh
+fragmente automatiquement la tâche.
+
+Ces fragments algorithmiques sont distribués de façon chiffrée sur les machines
+disponibles    au    sein   de   la   grappe    locale   (comme   un   regroupement      de   plusieurs
+ordinateurs dans une même pièce), collectant la puissance cumulée du réseau maillé
+sans qu'aucune donnée brute ou intelligible ne soit transmise en clair.
+
+
+
+7. FEUILLE DE ROUTE DU DÉVELOPPEMENT POUR HERMÈS
+
+Pour rebâtir proprement le projet ou finaliser son implémentation en partant d'une
+configuration saine, Hermès doit impérativement exécuter le plan de développement
+structuré en 5 phases opérationnelles distinctes :
+
+• Phase 1 — Consolidation du Core & Workspace : Centralisation des types et des
+  structures au sein de la crate common. Élimination drastique de toutes les
+  dépendances circulaires. Validation des tests unitaires isolés sur les briques
+  cryptographiques fondamentales (Shamir, ML-KEM, AES-GCM).
+• Phase 2 — Développement de la TUI Maître : Intégration complète de l'interface
+  utilisateur terminal sur le module app. Remplacement de l'affichage basique actuel
+  par les 4 onglets interactifs décrits dans les spécifications visuelles, avec
+  gestion complète des touches d'action clavier.
+• Phase 3 — Intégration des Services P2P et Drive : Activation de la couche de
+  transport libp2p et de la DHT Kademlia. Connexion des démons en tâche de fond pour
+  la transmission de messages éphémères et l'éclatement des données du Drive,
+  couplée au serveur de l'interface Web locale.
+
+
+
+
+POLYGONE ARCHITECTURE SPEC v1.0.0                                                                     6
+• Phase 4 — Activation du Protocole Mesh de Proximité : Implémentation de la
+  découverte réseau locale par mDNS via Wi-Fi et développement de la couche de
+  liaison Bluetooth pour le partage transparent de ressources physiques.
+• Phase 5 — Moteur d'IA Locale (Brain) : Finalisation de l'intégration du moteur
+  d'inférence local quantifié et interconnexion avec les services de calcul répartis
+  pour clore l'écosystème.
+
+
+
+
+                 [ FIN DU DOCUMENT DE SPÉCIFICATION — POLYGONE / MSH v1.0.0 ]
+
+
+
+
+POLYGONE ARCHITECTURE SPEC v1.0.0                                                  7
+

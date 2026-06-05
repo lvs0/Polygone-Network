@@ -1,0 +1,24 @@
+[package]
+name = "polygone-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "polygone-app — unified binary entrypoint (the single-command spec vision)"
+
+[[bin]]
+name = "polygone"
+path = "src/main.rs"
+
+[dependencies]
+polygone-common = { path = "../common" }
+polygone-msg = { path = "../polygone-msg" }
+polygone-drive = { path = "../polygone-drive" }
+polygone-hide = { path = "../polygone-hide" }
+polygone-mesh = { path = "../polygone-mesh" }
+polygone-brain = { path = "../polygone-brain" }
+tokio = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

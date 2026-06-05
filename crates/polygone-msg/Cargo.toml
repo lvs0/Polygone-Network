@@ -1,0 +1,17 @@
+[package]
+name = "polygone-msg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Polygone-msg — ephemeral end-to-end P2P messaging over libp2p + Kademlia DHT"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
