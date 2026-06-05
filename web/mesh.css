@@ -1,0 +1,113 @@
+/* ──────────────────────────────────────────────────────────────────
+   Polygone — Mesh visualization styles
+   ────────────────────────────────────────────────────────────────── */
+
+.mesh {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 12px;
+  min-height: 520px;
+}
+@media (max-width: 900px) {
+  .mesh { grid-template-columns: 1fr; }
+}
+
+.mesh__main {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.mesh__canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 8 / 5;
+}
+.mesh__canvas canvas {
+  width: 100%; height: 100%;
+  display: block;
+}
+.mesh__legend {
+  position: absolute;
+  bottom: 12px; left: 12px;
+  display: flex; gap: 16px;
+  font: 11px var(--mono);
+  color: var(--text-dim);
+  background: rgba(10, 14, 23, 0.7);
+  padding: 6px 10px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+}
+.mesh__legend i {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; margin-right: 6px; vertical-align: middle;
+}
+
+.mesh__side {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  overflow-y: auto;
+  max-height: 600px;
+}
+
+/* ── Peers list ────────────────────────────────────────────────── */
+.peers { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.peer {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-radius: 4px;
+  transition: background 160ms;
+  cursor: pointer;
+}
+.peer:hover { background: var(--bg-3); }
+.peer__dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green);
+}
+.peer__dot--off    { background: var(--text-faint); }
+.peer__dot--busy   { background: var(--amber); }
+.peer__dot--bt     { background: var(--violet); }
+
+.peer__name {
+  font-size: 13px; color: var(--text-hi);
+  font-weight: 500; margin-bottom: 2px;
+}
+.peer__addr {
+  font: 11px var(--mono); color: var(--text-faint);
+}
+.peer__metrics {
+  display: flex; gap: 8px;
+  font: 11px var(--mono); color: var(--text-dim);
+}
+.peer__metric {
+  background: var(--bg-3);
+  padding: 2px 6px;
+  border-radius: 3px;
+  min-width: 38px; text-align: right;
+}
+
+/* ── Tasks legend ──────────────────────────────────────────────── */
+.tasks { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.task {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.task__icon { font-size: 16px; }
+.task__name { font-size: 13px; color: var(--text-hi); font-weight: 500; }
+.task__hint { font: 11px var(--mono); color: var(--text-dim); margin-top: 2px; }
+
+.task--light   { border-left: 2px solid var(--text-faint); }
+.task--medium  { border-left: 2px solid var(--green); }
+.task--heavy   { border-left: 2px solid var(--amber); }
+.task--massive { border-left: 2px solid var(--violet); }

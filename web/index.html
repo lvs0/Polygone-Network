@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Polygone — Confidentialité post-quantique</title>
+<meta name="description" content="Polygone. Écosystème P2P souverain. Chiffré de bout en bout. Résistant à l'informatique quantique. Open source. Zéro serveur central." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ─── Top nav ────────────────────────────────────────────────────── -->
+<header class="nav">
+  <div class="nav__inner">
+    <a class="brand" href="#">
+      <svg viewBox="0 0 32 32" class="brand__mark" aria-hidden="true">
+        <polygon points="16,2 30,10 30,22 16,30 2,22 2,10" fill="none" stroke="currentColor" stroke-width="2" />
+        <polygon points="16,8 24,12.5 24,19.5 16,24 8,19.5 8,12.5" fill="none" stroke="currentColor" stroke-width="1.2" />
+      </svg>
+      <span>Polygone</span>
+    </a>
+    <nav>
+      <a href="#modules">Modules</a>
+      <a href="#crypto">Crypto</a>
+      <a href="#install">Installer</a>
+      <a href="#network">Réseau</a>
+      <a href="https://github.com/lvs0/Polygone" target="_blank" rel="noopener">GitHub →</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ─── Hero ──────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero__grid"></div>
+  <div class="hero__inner">
+    <p class="eyebrow">v1.0 · open source · MIT</p>
+    <h1>
+      Une <em>sphère</em> privée<br />
+      dans un monde surveillé.
+    </h1>
+    <p class="lede">
+      Polygone est un écosystème P2P auto-hébergé. Messagerie, fichiers,
+      tunnel, IA — chiffrés, fragmentés, distribués. Aucun serveur ne voit
+      tes données. Aucun observateur ne peut prouver qu'elles existent.
+    </p>
+    <div class="cta">
+      <a class="btn btn--primary" href="#install">polygone install</a>
+      <a class="btn btn--ghost" href="#modules">Voir les modules</a>
+    </div>
+    <ul class="hero__pills">
+      <li>ML-KEM-1024</li>
+      <li>Shamir 4-of-7</li>
+      <li>AES-256-GCM</li>
+      <li>BLAKE3</li>
+      <li>libp2p</li>
+      <li>Rust</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ─── Modules ───────────────────────────────────────────────────── -->
+<section id="modules" class="section">
+  <h2 class="section__title">Cinq modules. <span>Un écosystème.</span></h2>
+  <div class="grid">
+
+    <article class="card">
+      <div class="card__icon">💬</div>
+      <h3>Msg</h3>
+      <p>Messagerie E2E éphémère. Chaque message éclate en sept fragments. Quatre suffisent à le lire — même si trois pairs disparaissent.</p>
+      <span class="card__version">v0.1</span>
+    </article>
+
+    <article class="card">
+      <div class="card__icon">👻</div>
+      <h3>Hide</h3>
+      <p>Proxy SOCKS5 chiffré en local. Sortie par n'importe quel nœud du réseau. Aucune trace côté fournisseur d'accès.</p>
+      <span class="card__version">v0.1</span>
+    </article>
+
+    <article class="card">
+      <div class="card__icon">📁</div>
+      <h3>Drive</h3>
+      <p>Stockage distribué chiffré. Drag &amp; drop, liens éphémères, expiration automatique, interface web locale sur <code>:8080</code>.</p>
+      <span class="card__version">v0.5</span>
+    </article>
+
+    <article class="card">
+      <div class="card__icon">🔗</div>
+      <h3>Mesh</h3>
+      <p>Réseau local P2P entre tes machines. Découverte mDNS WiFi ou Bluetooth BLE. Calcul distribué adaptatif.</p>
+      <span class="card__version">v0.3</span>
+    </article>
+
+    <article class="card">
+      <div class="card__icon">🧠</div>
+      <h3>Brain</h3>
+      <p>IA locale avec fallback automatique. Petals distribué en priorité, puis Ollama, Groq, OpenRouter. Ton prompt ne quitte jamais ton réseau si tu veux.</p>
+      <span class="card__version">α</span>
+    </article>
+
+  </div>
+</section>
+
+<!-- ─── Crypto ────────────────────────────────────────────────────── -->
+<section id="crypto" class="section section--alt">
+  <h2 class="section__title">Cryptographie. <span>Pas de marketing.</span></h2>
+  <p class="section__lede">
+    Chaque primitive est un standard reconnu. Aucune n'est maison. Aucune n'est en bêta.
+  </p>
+
+  <div class="crypto">
+    <div class="crypto__row">
+      <div class="crypto__name">ML-KEM-1024</div>
+      <div class="crypto__tag">FIPS 203 · NIST 2024</div>
+      <div class="crypto__desc">Échange de clés post-quantique. Le standard que le NIST a sélectionné après six ans de compétition internationale.</div>
+    </div>
+    <div class="crypto__row">
+      <div class="crypto__name">Shamir SSS 4-of-7</div>
+      <div class="crypto__tag">Shamir 1979</div>
+      <div class="crypto__desc">Partage de secret. Le message est coupé en sept parts — quatre reconstruisent, trois sont inutiles seules. Tolérance aux nœuds morts.</div>
+    </div>
+    <div class="crypto__row">
+      <div class="crypto__name">AES-256-GCM</div>
+      <div class="crypto__tag">NIST SP 800-38D</div>
+      <div class="crypto__desc">Chiffrement authentifié. Nonce unique par opération, tag d'intégrité de 128 bits. Lecture impossible sans la clé.</div>
+    </div>
+    <div class="crypto__row">
+      <div class="crypto__name">BLAKE3</div>
+      <div class="crypto__tag">RFC draft · Aumasson 2020</div>
+      <div class="crypto__desc">Hachage rapide, sûr, parallélisable. Utilisé pour la dérivation de clés et la vérification d'intégrité des fragments.</div>
+    </div>
+    <div class="crypto__row">
+      <div class="crypto__name">Ed25519</div>
+      <div class="crypto__tag">RFC 8032</div>
+      <div class="crypto__desc">Signatures compactes. Authentifie l'origine de chaque paquet circulant sur le réseau.</div>
+    </div>
+    <div class="crypto__row">
+      <div class="crypto__name">libp2p · Noise · Yamux</div>
+      <div class="crypto__tag">Protocol Labs · Trevor Perrin</div>
+      <div class="crypto__desc">Transport P2P. Multiplexage de flux, découverte Kademlia DHT, gossip pubsub. La même stack qu'Ethereum et IPFS.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Install ───────────────────────────────────────────────────── -->
+<section id="install" class="section">
+  <h2 class="section__title">Une commande. <span>Trois OS.</span></h2>
+
+  <div class="install">
+    <div class="install__tab install__tab--active" data-os="unix">
+      <span>Linux · macOS</span>
+    </div>
+    <div class="install__tab" data-os="win">
+      <span>Windows</span>
+    </div>
+    <pre class="install__code" data-os="unix"><code>curl -fsSL https://raw.githubusercontent.com/lvs0/Polygone/main/installer/install.sh | bash</code></pre>
+    <pre class="install__code" data-os="win" hidden><code>irm https://raw.githubusercontent.com/lvs0/Polygone/main/installer/install.ps1 | iex</code></pre>
+  </div>
+
+  <p class="install__note">
+    Détecte ton OS, ton architecture, propose sudo, installe le service système,
+    lance l'assistant de configuration en huit étapes. Aucun fichier caché,
+    aucune télémétrie. <code>polygone</code> apparaît dans ton PATH.
+  </p>
+</section>
+
+<!-- ─── Network ───────────────────────────────────────────────────── -->
+<section id="network" class="section section--alt">
+  <h2 class="section__title">Le réseau. <span>Personne au centre.</span></h2>
+
+  <div class="network">
+    <svg viewBox="0 0 600 280" class="network__svg" aria-hidden="true">
+      <defs>
+        <radialGradient id="g1" cx="50%" cy="50%">
+          <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.6" />
+          <stop offset="100%" stop-color="#22d3ee" stop-opacity="0" />
+        </radialGradient>
+      </defs>
+
+      <!-- Connection lines -->
+      <line x1="300" y1="140" x2="120" y2="80"  stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
+      <line x1="300" y1="140" x2="480" y2="80"  stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
+      <line x1="300" y1="140" x2="100" y2="220" stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
+      <line x1="300" y1="140" x2="500" y2="220" stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
+      <line x1="300" y1="140" x2="220" y2="240" stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
+      <line x1="300" y1="140" x2="380" y2="240" stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
+      <line x1="120" y1="80"  x2="220" y2="240" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="1" />
+      <line x1="480" y1="80"  x2="380" y2="240" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="1" />
+      <line x1="100" y1="220" x2="380" y2="240" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="1" />
+      <line x1="500" y1="220" x2="220" y2="240" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="1" />
+
+      <!-- Center node (you) -->
+      <circle cx="300" cy="140" r="38" fill="url(#g1)" />
+      <circle cx="300" cy="140" r="14" fill="#22d3ee" />
+      <text x="300" y="195" fill="#cbd5e1" font-size="12" text-anchor="middle" font-family="ui-monospace">toi</text>
+
+      <!-- Peers -->
+      <circle cx="120" cy="80"  r="6" fill="#34d399" />
+      <circle cx="480" cy="80"  r="6" fill="#34d399" />
+      <circle cx="100" cy="220" r="6" fill="#a78bfa" />
+      <circle cx="500" cy="220" r="6" fill="#a78bfa" />
+      <circle cx="220" cy="240" r="6" fill="#34d399" />
+      <circle cx="380" cy="240" r="6" fill="#fbbd24" />
+    </svg>
+  </div>
+
+  <p class="network__lede">
+    Ton nœud ne contacte jamais un serveur central. Il découvre ses pairs
+    par gossip et Kademlia DHT. Chaque fragment transite par trois chemins
+    indépendants. Coupe trois pairs au hasard, ton message reste lisible.
+  </p>
+</section>
+
+<!-- ─── Footer ────────────────────────────────────────────────────── -->
+<footer class="footer">
+  <div>
+    <p class="footer__brand">⬡ Polygone</p>
+    <p>MIT · Pas d'investisseur · Pas de token · Pas de télémétrie.</p>
+  </div>
+  <div class="footer__links">
+    <a href="https://github.com/lvs0/Polygone" target="_blank" rel="noopener">Code source</a>
+    <a href="./node.html">Dashboard</a>
+    <a href="./drive.html">Drive</a>
+    <a href="./mesh.html">Mesh</a>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
