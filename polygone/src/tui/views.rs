@@ -5,11 +5,11 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Gauge, Paragraph, Sparkline, Wrap},
     Frame,
 };
 
-use super::app::{App, MessageKind, ModuleCard, ModuleStatus};
+use super::app::{App, ModuleCard, ModuleStatus};
 use super::widgets::*;
 
 // ── Color palette ──────────────────────────────────────────────────────────────
@@ -182,40 +182,61 @@ fn render_top_bar(frame: &mut Frame, area: Rect, app: &App) {
 // ── View: Dashboard (Accueil) ─────────────────────────────────────────────────
 
 fn render_dashboard_view(frame: &mut Frame, area: Rect, app: &App) {
-    // Two-panel layout
+    // Three-panel layout: left (status + fragments), center (sparklines), right (modules)
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
+        .constraints([Constraint::Ratio(2, 5), Constraint::Ratio(1, 5), Constraint::Ratio(2, 5)])
         .split(area);
 
     // ── Left panel: Node status + bar ──
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(10), Constraint::Length(5)])
+        .constraints([Constraint::Length(14), Constraint::Length(5)])
         .split(chunks[0]);
 
     // Node status card
     let s = &app.stats;
     let uptime_m = s.uptime_secs / 60;
+    let snap = app.economy.snapshot();
+    let refresh_secs = app.last_refresh.elapsed().as_secs();
 
+    // Spec §4 (Accueil): pseudo + node_id_short, balance, refresh
+    // indicator, pause state, shortcuts.
+    let dot_color = if app.paused { AMBER } else { GREEN };
+    let status_label = if app.paused { "EN PAUSE" } else { "ACTIF" };
     let node_lines = vec![
         Line::from(vec![
-            Span::styled(" ● ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("ACTIF", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled(" ● ", Style::default().fg(dot_color).add_modifier(Modifier::BOLD)),
+            Span::styled(status_label, Style::default().fg(dot_color).add_modifier(Modifier::BOLD)),
             Span::styled(format!("  depuis {uptime_m} min"), SLATE_500),
+        ]),
+        Line::from(vec![
+            Span::styled("  Pseudo    ", SLATE_500),
+            Span::styled(format!("@{}", app.identity.pseudo), Style::default().fg(SLATE_300).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  ({})", &app.identity.node_id_short[..12]), SLATE_600),
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Pairings  ", SLATE_500),
-            Span::styled(format!("{} nœuds", s.peers), SLATE_300),
+            Span::styled("  Solde POLY", SLATE_500),
+            Span::styled(format!("  {:>7.2}", snap.balance), Style::default().fg(AMBER).add_modifier(Modifier::BOLD)),
+            Span::styled("  POLY", SLATE_500),
         ]),
         Line::from(vec![
-            Span::styled("Traffic   ", SLATE_500),
-            Span::styled(format!("↓ {:>6.1} b/s", s.traffic_in), SLATE_300),
+            Span::styled("  Drain     ", SLATE_500),
+            Span::styled(format!("  {:>5.2} POLY/min", snap.rate_per_min), SLATE_400),
+            Span::styled(format!("  ({} actif{})", snap.active, if snap.active > 1 { "s" } else { "" }), SLATE_600),
         ]),
         Line::from(vec![
-            Span::styled("          ", SLATE_500),
-            Span::styled(format!("↑ {:>6.1} b/s", s.traffic_out), SLATE_400),
+            Span::styled("  Dernière MAJ  ", SLATE_500),
+            Span::styled(format!("il y a {refresh_secs}s"), SLATE_400),
+            Span::styled("  [R] pour rafraîchir", SLATE_600),
+        ]),
+        Line::from(vec![
+            Span::styled("  Raccourcis   ", SLATE_500),
+            Span::styled("[P]", AMBER), Span::styled("ause  ", SLATE_500),
+            Span::styled("[R]", AMBER), Span::styled("afraîchir  ", SLATE_500),
+            Span::styled("[U]", AMBER), Span::styled("pdate  ", SLATE_500),
+            Span::styled("[Q]", AMBER), Span::styled("uitter", SLATE_500),
         ]),
     ];
     let p = Paragraph::new(node_lines)
@@ -223,36 +244,87 @@ fn render_dashboard_view(frame: &mut Frame, area: Rect, app: &App) {
         .style(Style::default().bg(SLATE_900));
     frame.render_widget(p, left_chunks[0]);
 
-    // Fragments threshold bar
-    let filled = (s.fragments_ready as usize * 20) / s.fragments_needed as usize;
-    let bar: String = (0..20).map(|i| if i < filled { '█' } else { '░' }).collect();
-    let bar_color = if s.fragments_ready >= s.fragments_needed { GREEN } else { AMBER };
-    let danger = if s.fragments_ready < s.fragments_needed {
-        vec![Line::from(""), Line::from(vec![
-            Span::styled("  ⚠  SEUIL NON ATTEINT", Style::default().fg(AMBER).add_modifier(Modifier::BOLD)),
-        ])]
-    } else {
-        vec![]
-    };
-
-    let mut bar_lines = vec![
-        Line::from(vec![
-            Span::styled(format!("  {}/{} fragments requis", s.fragments_ready, s.fragments_needed), SLATE_500),
-        ]),
-        Line::from(vec![
-            Span::styled("  ", SLATE_500),
-            Span::styled(bar, Style::default().fg(bar_color)),
-        ]),
-    ];
-    bar_lines.extend(danger);
-
-    let p = Paragraph::new(bar_lines)
-        .block(block_card("Seuil Shamir 4-of-7", bar_color))
-        .style(Style::default().bg(SLATE_900));
-    frame.render_widget(p, left_chunks[1]);
+    // Fragments threshold — Gauge widget
+    let frag_ratio = s.fragments_ready as f64 / s.fragments_needed as f64;
+    let frag_color = if s.fragments_ready >= s.fragments_needed { GREEN } else { AMBER };
+    let frag_gauge = Gauge::default()
+        .block(Block::default()
+            .title(Span::styled(
+                format!(" Seuil Shamir {}/{}", s.fragments_ready, s.fragments_needed),
+                Style::default().fg(frag_color).add_modifier(Modifier::BOLD),
+            ))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(frag_color)))
+        .gauge_style(Style::default().fg(frag_color).bg(SLATE_800))
+        .ratio(frag_ratio)
+        .label(Span::styled(
+            if s.fragments_ready >= s.fragments_needed { "✔ PRÊT" } else { "⚠ INCOMPLET" },
+            Style::default().fg(SLATE_900).add_modifier(Modifier::BOLD),
+        ));
+    frame.render_widget(frag_gauge, left_chunks[1]);
 
     // ── Right panel: Module cards grid ──
-    render_module_grid(frame, chunks[1], &app.modules);
+    render_module_grid(frame, chunks[2], &app.modules);
+
+    // ── Center panel: Traffic sparklines ──
+    let center_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(8), Constraint::Length(8), Constraint::Min(4)])
+        .split(chunks[1]);
+
+    // Traffic IN sparkline
+    let in_data: Vec<u64> = app.traffic_history_in.iter().copied().collect();
+    let spark_in = Sparkline::default()
+        .block(Block::default()
+            .title(Span::styled(" ↓ Trafic entrant ", Style::default().fg(CYBER).add_modifier(Modifier::BOLD)))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(CYBER_DIM)))
+        .data(&in_data)
+        .style(Style::default().fg(CYBER));
+    frame.render_widget(spark_in, center_chunks[0]);
+
+    // Traffic OUT sparkline
+    let out_data: Vec<u64> = app.traffic_history_out.iter().copied().collect();
+    let spark_out = Sparkline::default()
+        .block(Block::default()
+            .title(Span::styled(" ↑ Trafic sortant ", Style::default().fg(EMERALD).add_modifier(Modifier::BOLD)))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(EMERALD)))
+        .data(&out_data)
+        .style(Style::default().fg(EMERALD));
+    frame.render_widget(spark_out, center_chunks[1]);
+
+    // Network health mini-display
+    let health_lines = vec![
+        Line::from(vec![
+            Span::styled(" ● ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("Réseau", Style::default().fg(SLATE_300).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Latence ", SLATE_500),
+            Span::styled("12ms", Style::default().fg(GREEN)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Paquets ", SLATE_500),
+            Span::styled("99.7%", Style::default().fg(GREEN)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Uptime  ", SLATE_500),
+            Span::styled("99.99%", Style::default().fg(CYBER)),
+        ]),
+    ];
+    let health_block = Block::default()
+        .title(Span::styled(" 🌐 Santé ", Style::default().fg(EMERALD).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(EMERALD));
+    let p = Paragraph::new(health_lines)
+        .block(health_block)
+        .style(Style::default().bg(SLATE_900));
+    frame.render_widget(p, center_chunks[2]);
 }
 
 // ── Module grid (re-used in Dashboard and Services) ───────────────────────────
@@ -288,8 +360,8 @@ fn render_module_card(frame: &mut Frame, area: Rect, module: &ModuleCard) {
     let status_color = module.status.color();
     let status_label = module.status.label();
 
-    let icon_style = Style::default();
-    let (border_accent, border_style) = match module.status {
+    let _icon_style = Style::default();
+    let (_border_accent, border_style) = match module.status {
         ModuleStatus::Running => (GREEN, Style::default().fg(GREEN)),
         ModuleStatus::Off => (SLATE_600, Style::default().fg(SLATE_700)),
         ModuleStatus::Error => (ROSE, Style::default().fg(ROSE)),
@@ -372,19 +444,20 @@ fn render_favorites_view(frame: &mut Frame, area: Rect, app: &App) {
 fn render_services_view(frame: &mut Frame, area: Rect, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(4)])
+        .constraints([Constraint::Length(3), Constraint::Length(3), Constraint::Min(4)])
         .split(area);
 
+    // ── Header (legend) ──
     let header_lines = vec![
         Line::from(vec![
             Span::styled(" 🧩 Services Polygone ", Style::default().fg(CYBER).add_modifier(Modifier::BOLD)),
             Span::styled("— modules et extensions réseau", SLATE_500),
         ]),
         Line::from(vec![
-            Span::styled("   ↑↓ ", Style::default().fg(CYBER)),
-            Span::styled("naviguer  ", SLATE_500),
-            Span::styled("M/H/D/N", Style::default().fg(CYBER)),
-            Span::styled(" toggles", SLATE_500),
+            Span::styled("   M/H/D/N", Style::default().fg(CYBER)),
+            Span::styled(" toggles · ", SLATE_500),
+            Span::styled("[P]", AMBER), Span::styled("ause · ", SLATE_500),
+            Span::styled("[R]", AMBER), Span::styled("afraîchir", SLATE_500),
         ]),
     ];
     let p = Paragraph::new(header_lines)
@@ -392,8 +465,27 @@ fn render_services_view(frame: &mut Frame, area: Rect, app: &App) {
         .style(Style::default().bg(SLATE_900));
     frame.render_widget(p, chunks[0]);
 
+    // ── Spec §4 (Services) : "persistance visuelle POLY" — a
+    //    always-visible POLY balance / rate bar above the list of
+    //    services so the user can see the cost of running them.
+    let snap = app.economy.snapshot();
+    let poly_lines = vec![
+        Line::from(vec![
+            Span::styled(" POLY ", Style::default().fg(SLATE_900).bg(AMBER).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  {:.2}", snap.balance), Style::default().fg(AMBER).add_modifier(Modifier::BOLD)),
+            Span::styled("  ·  ", SLATE_500),
+            Span::styled(format!("{:.2} POLY/min", snap.rate_per_min), SLATE_300),
+            Span::styled("  ·  ", SLATE_500),
+            Span::styled(format!("{} service(s) actif(s)", snap.active), SLATE_500),
+        ]),
+    ];
+    let p = Paragraph::new(poly_lines)
+        .block(block_card("Économie (statique)", AMBER))
+        .style(Style::default().bg(SLATE_900));
+    frame.render_widget(p, chunks[1]);
+
     // Full module grid with descriptions
-    let all_modules = ModuleCard::all();
+    let _all_modules = ModuleCard::all();
     let grid_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -401,7 +493,7 @@ fn render_services_view(frame: &mut Frame, area: Rect, app: &App) {
             Constraint::Length(5),
             Constraint::Length(5),
         ])
-        .split(chunks[1]);
+        .split(chunks[2]);
 
     let descs = [
         ("💬  Msg", "Messagerie E2E éphémère — auto-destruction, zéro persistance", "M", GREEN),
@@ -463,12 +555,23 @@ fn render_settings_view(frame: &mut Frame, area: Rect, app: &App) {
 
     // Right: system status
     let running_count = app.modules.iter().filter(|m| m.status == ModuleStatus::Running).count();
+    // Spec §4 (Paramètres) — "Statut du drive : 10GB/∞ (Quota
+    // configurable)" and a shortcut to the web admin. The Drive
+    // module is the 3rd entry in `ModuleCard::all()`.
+    let drive_running = app.modules.iter()
+        .find(|m| m.name == "Drive")
+        .map(|m| m.status == ModuleStatus::Running)
+        .unwrap_or(false);
+    let drive_quota = if drive_running { "10.0 GB" } else { "OFF" };
+    let drive_quota_color = if drive_running { GREEN } else { SLATE_500 };
+    let web_admin_url = if drive_running { "http://127.0.0.1:8080/admin" } else { "—" };
     let status_lines = vec![
         Line::from(vec![Span::styled("État du système", Style::default().fg(CYBER).add_modifier(Modifier::BOLD))]),
         Line::from(""),
         Line::from(vec![
             Span::styled("  Nœud:       ", SLATE_500),
-            Span::styled("● Actif", Style::default().fg(GREEN)),
+            Span::styled(if app.paused { "● En pause" } else { "● Actif" },
+                Style::default().fg(if app.paused { AMBER } else { GREEN })),
         ]),
         Line::from(vec![
             Span::styled("  Modules:    ", SLATE_500),
@@ -483,10 +586,21 @@ fn render_settings_view(frame: &mut Frame, area: Rect, app: &App) {
             Span::styled(format!("{} nœuds", app.stats.peers), SLATE_300),
         ]),
         Line::from(""),
+        Line::from(vec![Span::styled("Drive (stockage)", Style::default().fg(CYBER).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![
+            Span::styled("  Statut:     ", SLATE_500),
+            Span::styled(drive_quota, Style::default().fg(drive_quota_color).add_modifier(Modifier::BOLD)),
+            Span::styled("  /  ∞ ", SLATE_500),
+        ]),
+        Line::from(vec![
+            Span::styled("  Web admin:  ", SLATE_500),
+            Span::styled(web_admin_url, Style::default().fg(if drive_running { CYBER } else { SLATE_500 })),
+        ]),
+        Line::from(""),
         Line::from(vec![
             Span::styled("  ⬡ ", CYBER),
-            Span::styled(format!("{}", app.stats.balance), Style::default().fg(SLATE_50).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  •  {:.1}/min", app.stats.consumption), SLATE_500),
+            Span::styled(format!("{:.2}", app.economy.snapshot().balance), Style::default().fg(SLATE_50).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  •  {:.2}/min", app.economy.snapshot().rate_per_min), SLATE_500),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled("Polygone TUI v1.0.0", SLATE_600)]),

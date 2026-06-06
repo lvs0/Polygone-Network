@@ -3,11 +3,11 @@
 //! Provides peer discovery logic using Kademlia DHT and mDNS
 
 use libp2p::{
-    kad::{QueryResult, GetRecordOk, Record},
+    kad::QueryResult,
     PeerId,
 };
 use std::collections::HashSet;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// DiscoveryResult contains discovered peer information
 #[derive(Debug, Clone)]

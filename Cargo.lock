@@ -3392,6 +3392,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "sharks",
  "subtle",
  "thiserror 1.0.69",
@@ -3443,12 +3444,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "polygone-compute"
+version = "1.0.0"
+dependencies = [
+ "rand 0.9.4",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "polygone-drive"
 version = "1.0.0"
 dependencies = [
  "async-trait",
+ "hex",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tracing",
 ]
@@ -3480,6 +3494,28 @@ name = "polygone-msg"
 version = "1.0.0"
 dependencies = [
  "async-trait",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "polygone-nodeos"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "polygone-search"
+version = "1.0.0"
+dependencies = [
  "serde",
  "serde_json",
  "tokio",

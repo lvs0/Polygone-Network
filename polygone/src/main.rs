@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use polygone::web::{self as webmod, NodeState, WebConfig};
 
-mod tui;
+use polygone::tui;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -87,6 +87,61 @@ fn run_self_test() {
     println!("  ✔ Tous les tests passent. Polygone est opérationnel.");
 }
 
+fn print_splash() {
+    use std::thread;
+    use std::time::Duration;
+
+    let logo = [
+        r"    ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡",
+        r"    ⬡                                 ⬡",
+        r"    ⬡   ░██████╗░██████╗██╗░░░░░██╗░░░██╗   ⬡",
+        r"    ⬡   ██╔════╝██╔════╝██║░░░░░╚██╗░██╔╝   ⬡",
+        r"    ⬡   ╚█████╗░╚█████╗░██║░░░░░░╚████╔╝░   ⬡",
+        r"    ⬡   ░╚═══██╗░╚═══██╗██║░░░░░░░╚██╔╝░░   ⬡",
+        r"    ⬡   ██████╔╝██████╔╝███████╗░░░██║░░░   ⬡",
+        r"    ⬡   ╚═════╝░╚═════╝░╚══════╝░░░╚═╝░░░   ⬡",
+        r"    ⬡                                 ⬡",
+        r"    ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡",
+    ];
+
+    let stages = [
+        "Initialisation du noyau crypto...",
+        "Génération des clés ML-KEM-1024...",
+        "Chiffrement AES-256-GCM...",
+        "Fragmentation Shamir 4-of-7...",
+        "Démarrage du réseau P2P...",
+        "Prêt.",
+    ];
+
+    // Clear screen
+    print!("\x1B[2J\x1B[1;1H");
+
+    // Print logo with color
+    for line in &logo {
+        println!("\x1B[36m{}\x1B[0m", line);
+        thread::sleep(Duration::from_millis(30));
+    }
+    println!();
+
+    // Print loading stages
+    for (i, stage) in stages.iter().enumerate() {
+        let bar_width = 30;
+        let filled = (i + 1) * bar_width / stages.len();
+        let bar: String = (0..bar_width)
+            .map(|j| if j < filled { '█' } else { '░' })
+            .collect();
+        print!("\r  \x1B[33m{}\x1B[0m \x1B[36m{}\x1B[0m", bar, stage);
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+        thread::sleep(Duration::from_millis(200));
+    }
+    println!();
+    println!();
+
+    // Brief pause then clear for TUI
+    thread::sleep(Duration::from_millis(300));
+    print!("\x1B[2J\x1B[1;1H");
+}
+
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
@@ -102,6 +157,8 @@ fn main() -> io::Result<()> {
             Ok(())
         }
         Cmd::Menu { tab } => {
+            // Splash screen animation
+            print_splash();
             let initial_view = match tab {
                 2 => tui::View::Favorites,
                 3 => tui::View::Services,

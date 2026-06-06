@@ -1,14 +1,16 @@
 /* ──────────────────────────────────────────────────────────────────
    Polygone — node dashboard logic
-   Fetches /api/status every 3s, renders live stats.
-   Falls back to a deterministic local simulation when offline.
+   Features: WebSocket live updates, mini charts, theme toggle,
+   improved sparklines, module progress bars, animated transitions.
    ────────────────────────────────────────────────────────────────── */
 
 (() => {
   "use strict";
 
   const ENDPOINT = "/api/status";
+  const WS_ENDPOINT = `ws://${location.host}/ws`;
   const POLL_MS = 3000;
+  const SPARK_MAX = 40;
 
   // ── State ────────────────────────────────────────────────────────
   const state = {
@@ -25,7 +27,7 @@
       { name: "Hide",  icon: "👻", status: "running", label: "Running" },
       { name: "Drive", icon: "📁", status: "off",     label: "Off" },
       { name: "Mesh",  icon: "🔗", status: "off",     label: "Off" },
-      { name: "Brain", icon: "🧠", status: "soon",    label: "Soon" },
+      { name: "Brain", icon: "🧠", status: "soon",    label: "Soon", progress: 35 },
     ],
     log: [
       { t: 1080, kind: "success", msg: "⬡ Polygone v1.0.0 démarré" },
@@ -37,6 +39,8 @@
     ],
     spark_in: [],
     spark_out: [],
+    wsConnected: false,
+    theme: localStorage.getItem("polygone-theme") || "cyber",
   };
 
   // ── DOM refs ─────────────────────────────────────────────────────
@@ -71,6 +75,26 @@
     return `${(n / 1024 / 1024).toFixed(2)} MB/s`;
   };
 
+  // ── Theme management ────────────────────────────────────────────
+  const applyTheme = (theme) => {
+    state.theme = theme;
+    document.body.className = theme === "cyber" ? "" : `theme-${theme}`;
+    localStorage.setItem("polygone-theme", theme);
+    const toggle = document.querySelector(".theme-toggle");
+    if (toggle) {
+      const icons = { cyber: "🔮", solarized: "☀️", dracula: "🧛" };
+      toggle.querySelector(".theme-toggle__icon").textContent = icons[theme] || "🔮";
+      toggle.querySelector(".theme-toggle__label").textContent =
+        theme === "cyber" ? "Cyber" : theme === "solarized" ? "Solarized" : "Dracula";
+    }
+  };
+
+  const cycleTheme = () => {
+    const themes = ["cyber", "solarized", "dracula"];
+    const idx = themes.indexOf(state.theme);
+    applyTheme(themes[(idx + 1) % themes.length]);
+  };
+
   // ── Render functions ─────────────────────────────────────────────
   const renderBanner = () => {
     elUptime.textContent = fmtUptime(state.uptime);
@@ -78,10 +102,17 @@
   };
 
   const renderStats = () => {
-    elTrafficIn.firstChild.textContent  = fmtBytes(state.traffic_in).replace(/ b\/s$/, "");
-    elTrafficIn.querySelector("span").textContent = "b/s";
-    elTrafficOut.firstChild.textContent = fmtBytes(state.traffic_out).replace(/ b\/s$/, "");
-    elTrafficOut.querySelector("span").textContent = "b/s";
+    const inText = fmtBytes(state.traffic_in);
+    const outText = fmtBytes(state.traffic_out);
+
+    // Parse the formatted text to split number and unit
+    const inParts = inText.split(" ");
+    const outParts = outText.split(" ");
+
+    elTrafficIn.firstChild.textContent = inParts[0] + " ";
+    elTrafficIn.querySelector("span").textContent = inParts.slice(1).join(" ");
+    elTrafficOut.firstChild.textContent = outParts[0] + " ";
+    elTrafficOut.querySelector("span").textContent = outParts.slice(1).join(" ");
     elFragReady.textContent = state.frag_ready;
     elFragNeed.textContent  = state.frag_needed;
     elFragBar.style.width   = `${Math.min(100, (state.frag_ready / state.frag_needed) * 100)}%`;
@@ -108,6 +139,19 @@
       node.querySelector(".module__icon").textContent   = m.icon;
       node.querySelector(".module__name").textContent   = m.name;
       node.querySelector(".module__status").textContent = m.label;
+
+      // Add progress bar for "soon" modules
+      if (m.status === "soon" && m.progress != null) {
+        const progressEl = document.createElement("div");
+        progressEl.className = "module__progress";
+        progressEl.innerHTML = `
+          <div class="module__progress-bar">
+            <div class="module__progress-fill" style="width: ${m.progress}%"></div>
+          </div>
+        `;
+        node.appendChild(progressEl);
+      }
+
       elModules.appendChild(node);
     });
   };
@@ -126,12 +170,133 @@
     });
   };
 
+  // ── Mini chart renderer ──────────────────────────────────────────
+  const renderMiniChart = (canvasId, data, color) => {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width = canvas.offsetWidth * 2;
+    const h = canvas.height = canvas.offsetHeight * 2;
+    ctx.clearRect(0, 0, w, h);
+
+    if (data.length < 2) return;
+
+    const max = Math.max(...data, 1);
+    const step = w / (data.length - 1);
+
+    // Draw fill gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, h);
+    gradient.addColorStop(0, color + "40");
+    gradient.addColorStop(1, color + "05");
+
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    data.forEach((v, i) => {
+      const x = i * step;
+      const y = h - (v / max) * h * 0.85 - 2;
+      if (i === 0) ctx.lineTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Draw line
+    ctx.beginPath();
+    data.forEach((v, i) => {
+      const x = i * step;
+      const y = h - (v / max) * h * 0.85 - 2;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    // Draw latest point
+    if (data.length > 0) {
+      const lastX = (data.length - 1) * step;
+      const lastY = h - (data[data.length - 1] / max) * h * 0.85 - 2;
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 8, 0, Math.PI * 2);
+      ctx.fillStyle = color + "30";
+      ctx.fill();
+    }
+  };
+
   const render = () => {
     renderBanner();
     renderStats();
     renderSpark();
     renderModules();
     renderLog();
+
+    // Render mini charts
+    renderMiniChart("chart-in", state.spark_in, "#22c55e");
+    renderMiniChart("chart-out", state.spark_out, "#22d3ee");
+  };
+
+  // ── WebSocket connection ─────────────────────────────────────────
+  let ws = null;
+  let wsReconnectTimer = null;
+
+  const connectWebSocket = () => {
+    try {
+      ws = new WebSocket(WS_ENDPOINT);
+
+      ws.onopen = () => {
+        state.wsConnected = true;
+        updateWsStatus();
+        console.log("[ws] connected");
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "status") {
+            Object.assign(state, data.payload);
+            render();
+          } else if (data.type === "log") {
+            state.log.push(data.payload);
+            if (state.log.length > 30) state.log.shift();
+            renderLog();
+          }
+        } catch (e) {
+          console.warn("[ws] parse error:", e);
+        }
+      };
+
+      ws.onclose = () => {
+        state.wsConnected = false;
+        updateWsStatus();
+        console.log("[ws] disconnected, reconnecting in 5s...");
+        wsReconnectTimer = setTimeout(connectWebSocket, 5000);
+      };
+
+      ws.onerror = () => {
+        state.wsConnected = false;
+        updateWsStatus();
+      };
+    } catch (e) {
+      console.warn("[ws] connection failed:", e);
+      state.wsConnected = false;
+      updateWsStatus();
+    }
+  };
+
+  const updateWsStatus = () => {
+    const el = document.querySelector(".ws-status");
+    if (el) {
+      el.dataset.connected = state.wsConnected;
+      el.querySelector(".ws-status__label").textContent =
+        state.wsConnected ? "WebSocket" : "Polling";
+    }
   };
 
   // ── Local simulation (fallback) ──────────────────────────────────
@@ -146,8 +311,14 @@
     state.traffic_out = Math.max(0, state.traffic_out + step());
     state.spark_in.push(state.traffic_in);
     state.spark_out.push(state.traffic_out);
-    if (state.spark_in.length > 40)  state.spark_in.shift();
-    if (state.spark_out.length > 40) state.spark_out.shift();
+    if (state.spark_in.length > SPARK_MAX)  state.spark_in.shift();
+    if (state.spark_out.length > SPARK_MAX) state.spark_out.shift();
+
+    // Animate Brain progress
+    const brain = state.modules.find(m => m.name === "Brain");
+    if (brain && brain.progress != null && brain.progress < 100) {
+      brain.progress = Math.min(100, brain.progress + Math.random() * 0.3);
+    }
 
     // Random log entries
     if (Math.random() < 0.15) {
@@ -156,6 +327,8 @@
         { kind: "success", msg: "Fragment transmis" },
         { kind: "info",    msg: "Ping pair distant" },
         { kind: "warn",    msg: "Latence élevée sur 1 pair" },
+        { kind: "success", msg: "Shamir reconstruction réussie" },
+        { kind: "info",    msg: "KDF BLAKE3 — clé dérivée" },
       ];
       state.log.push({ t: state.uptime, ...pool[Math.floor(Math.random() * pool.length)] });
       if (state.log.length > 30) state.log.shift();
@@ -165,7 +338,7 @@
   // ── Network fetch (with fallback) ────────────────────────────────
   let online = false;
   const fetchStatus = async () => {
-    if (online) return; // already polling endpoint
+    if (online || state.wsConnected) return;
     try {
       const res = await fetch(ENDPOINT, { cache: "no-store" });
       if (!res.ok) throw new Error(res.status);
@@ -173,13 +346,24 @@
       Object.assign(state, data);
       online = true;
     } catch {
-      online = false; // stay in simulation
+      online = false;
     }
   };
 
   // ── Init ─────────────────────────────────────────────────────────
+  applyTheme(state.theme);
+
+  // Theme toggle click handler
+  const themeToggle = document.querySelector(".theme-toggle");
+  if (themeToggle) {
+    themeToggle.addEventListener("click", cycleTheme);
+  }
+
   render();
   setInterval(() => { tick(); render(); }, 1000);
   setInterval(fetchStatus, POLL_MS);
   fetchStatus();
+
+  // Try WebSocket, fall back to polling
+  connectWebSocket();
 })();

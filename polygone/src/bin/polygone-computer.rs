@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use polygone::computer::Computer;
-use polygone::services::Service;
 
 const SOCKET_PATH_DEFAULT: &str = "/tmp/polygone-computer.sock";
 const STATUS_FILE_DEFAULT: &str = "/tmp/polygone-status.json";

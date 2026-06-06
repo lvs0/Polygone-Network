@@ -1,8 +1,9 @@
 //! Main TUI application loop — Polygone dashboard.
 //! Arrow-key navigation between tabs, live state, module toggles.
 
+use std::collections::VecDeque;
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -12,6 +13,8 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 
 use super::views::{render_view, View};
+use crate::economy::Ticker;
+use crate::identity::{load_or_create as load_identity, Identity};
 
 /// Severity level for log messages.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -159,6 +162,20 @@ pub struct App {
     pub tick: u64,
     pub stats: NodeStats,
     pub modules: Vec<ModuleCard>,
+
+    // ── Spec §4 / §5 : ecosystem identity, POLY economy, refresh,
+    //    pause, dirty-flag (event-driven rendering per spec).
+    pub identity: Identity,
+    pub economy: Ticker,
+    /// `true` after any state change that requires a re-draw. Reset
+    /// by the render loop after drawing. Spec §4 forbids continuous
+    /// polling; we redraw only on event or on explicit `[R]` press.
+    pub dirty: bool,
+    pub last_refresh: Instant,
+    pub paused: bool,
+    /// Traffic history for sparklines (last 30 samples, each = 1 second)
+    pub traffic_history_in: VecDeque<u64>,
+    pub traffic_history_out: VecDeque<u64>,
 }
 
 impl App {
@@ -177,6 +194,14 @@ impl App {
             tick: 0,
             stats: NodeStats::default(),
             modules: ModuleCard::all(),
+
+            identity: load_identity(),
+            economy: Ticker::load(),
+            dirty: true,    // Force first draw.
+            last_refresh: Instant::now(),
+            paused: false,
+            traffic_history_in: VecDeque::with_capacity(30),
+            traffic_history_out: VecDeque::with_capacity(30),
         }
     }
 
@@ -196,6 +221,34 @@ impl App {
             }
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
                 self.should_quit = true;
+                return;
+            }
+            // Spec §4 : no continuous polling, explicit refresh
+            // (Accueil and global). Reset the last-refresh clock and
+            // mark the frame dirty so the renderer picks it up.
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                self.last_refresh = Instant::now();
+                self.economy.tick();
+                self.dirty = true;
+                self.push_msg(MessageKind::Info, "Rafraîchi (POLY drainé)");
+                return;
+            }
+            // Spec §4 : `[P]` pause node (suspends all services)
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                self.paused = !self.paused;
+                let state = if self.paused { "en pause" } else { "repris" };
+                self.economy.set_active(if self.paused { 0 } else {
+                    self.modules.iter().filter(|m| m.status == ModuleStatus::Running).count() as u32
+                });
+                self.push_msg(MessageKind::Warn, format!("Nœud {state}"));
+                self.dirty = true;
+                return;
+            }
+            // Spec §4 : `[U]` update (stub — would call the updater
+            // service in a real install).
+            KeyCode::Char('u') | KeyCode::Char('U') => {
+                self.push_msg(MessageKind::Info, "Mise à jour : v1.0.0 (canal stable)");
+                self.dirty = true;
                 return;
             }
             // Tab navigation (left/right arrows)
@@ -277,22 +330,45 @@ pub fn run_tui(initial_view: View) -> io::Result<()> {
     app.current_view = initial_view;
 
     loop {
-        terminal.draw(|frame| {
-            render_view(frame, &app);
-        })?;
+        // Spec §4: redraw only on event (no continuous polling). The
+        // dirty flag is set by `handle_key` whenever the state
+        // changes. We also drain POLY once a second while the user
+        // isn't pausing — that's the only background work, and it
+        // never blocks event delivery.
+        if app.dirty {
+            terminal.draw(|frame| {
+                render_view(frame, &app);
+            })?;
+            app.dirty = false;
+        }
 
-        if event::poll(Duration::from_millis(100))? {
+        // 1s heartbeat: tick POLY and uptime, mark dirty if something
+        // visibly changed.
+        if event::poll(Duration::from_millis(1000))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     app.handle_key(key.code, key.modifiers);
                 }
             }
-        }
-
-        app.tick = app.tick.wrapping_add(1);
-        // Simulate uptime
-        if app.tick % 10 == 0 {
-            app.stats.uptime_secs += 1;
+        } else {
+            // Timeout — tick background work, no event.
+            if !app.paused {
+                app.economy.tick();
+                app.stats.uptime_secs = app.stats.uptime_secs.wrapping_add(1);
+                // Simulate traffic variation for sparkline demo
+                let base_in = 128.0 + (app.tick as f64 * 7.3).sin() * 64.0;
+                let base_out = 96.0 + (app.tick as f64 * 5.1).cos() * 48.0;
+                app.stats.traffic_in = base_in.max(0.0);
+                app.stats.traffic_out = base_out.max(0.0);
+                app.traffic_history_in.push_back(app.stats.traffic_in as u64);
+                app.traffic_history_out.push_back(app.stats.traffic_out as u64);
+                if app.traffic_history_in.len() > 30 {
+                    app.traffic_history_in.pop_front();
+                    app.traffic_history_out.pop_front();
+                }
+                app.tick = app.tick.wrapping_add(1);
+                app.dirty = true;
+            }
         }
 
         if app.should_quit {

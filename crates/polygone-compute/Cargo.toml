@@ -1,19 +1,14 @@
 [package]
-name = "polygone-drive"
+name = "polygone-compute"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "polygone-drive — distributed encrypted storage with local web admin UI"
-
-[lib]
-path = "src/lib.rs"
+description = "polygone-compute — Polygone v2 extended service"
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-hex = { workspace = true }
-sha2 = { workspace = true }
 tokio = { workspace = true }
-async-trait = { workspace = true }
 tracing = { workspace = true }
+rand = "0.9"

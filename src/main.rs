@@ -37,7 +37,7 @@ struct Cli {
 enum Cmd {
     /// Launch the interactive TUI dashboard (default)
     Menu {
-        /// Start with a specific tab: 1=Dashboard, 2=Favorites, 3=Services, 4=Settings
+        /// Start with a specific tab: 1=Dashboard, 2=Favorites, 3=Services, 4=Composer, 5=Settings
         #[arg(long, default_value = "1")]
         tab: usize,
     },
@@ -105,7 +105,8 @@ fn main() -> io::Result<()> {
             let initial_view = match tab {
                 2 => tui::View::Favorites,
                 3 => tui::View::Services,
-                4 => tui::View::Settings,
+                4 => tui::View::Composer,
+                5 => tui::View::Settings,
                 _ => tui::View::Dashboard,
             };
             tui::run_tui(initial_view)

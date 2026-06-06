@@ -24,6 +24,15 @@
       <a href="drive.html">Drive</a>
       <a href="mesh.html">Mesh</a>
     </nav>
+    <div class="toolbar__spacer"></div>
+    <div class="ws-status" data-connected="false">
+      <span class="ws-status__dot"></span>
+      <span class="ws-status__label">Polling</span>
+    </div>
+    <button class="theme-toggle" aria-label="Changer de thème">
+      <span class="theme-toggle__icon">🔮</span>
+      <span class="theme-toggle__label">Cyber</span>
+    </button>
   </div>
 </header>
 
@@ -52,12 +61,14 @@
       <div class="stat__label">Trafic entrant</div>
       <div class="stat__value" id="traffic-in">0 <span>b/s</span></div>
       <div class="stat__spark"><svg viewBox="0 0 100 24" preserveAspectRatio="none" id="spark-in"><polyline points="" fill="none" stroke="currentColor" stroke-width="1.2" /></svg></div>
+      <canvas id="chart-in" class="mini-chart" style="display:none"></canvas>
     </div>
 
     <div class="stat">
       <div class="stat__label">Trafic sortant</div>
       <div class="stat__value" id="traffic-out">0 <span>b/s</span></div>
       <div class="stat__spark"><svg viewBox="0 0 100 24" preserveAspectRatio="none" id="spark-out"><polyline points="" fill="none" stroke="currentColor" stroke-width="1.2" /></svg></div>
+      <canvas id="chart-out" class="mini-chart" style="display:none"></canvas>
     </div>
 
     <div class="stat">

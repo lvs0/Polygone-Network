@@ -1,22 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
+    "polygone",
     "crates/common",
     "crates/app",
-    "polygone",
     "crates/polygone-msg",
     "crates/polygone-drive",
     "crates/polygone-hide",
     "crates/polygone-mesh",
     "crates/polygone-brain",
+    "crates/polygone-search",
+    "crates/polygone-compute",
+    "crates/polygone-nodeos",
 ]
-
-# The legacy single-crate project (pre-Phase 1 refactor) lives in the
-# root `polygone/` directory and exposes the existing Computer, IPC,
-# web, services, tui, crypto, network, protocol modules. The new
-# workspace structure mirrors the spec's 6 specialized crates (common,
-# app, msg, drive, hide, mesh, brain). Code will be migrated crate by
-# crate; until then, specialized crates are stubs.
 
 [workspace.package]
 version = "1.0.0"
