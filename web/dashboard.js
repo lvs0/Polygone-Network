@@ -350,6 +350,84 @@
     }
   };
 
+  // ── Topology visualization ───────────────────────────────────────
+  const topoCanvas = document.getElementById("topo-canvas");
+  let topoCtx = null;
+  let topoNodes = []; // {x, y, type: "self"|"peer"|"relay", label, vx, vy}
+
+  function initTopology() {
+    if (!topoCanvas) return;
+    topoCtx = topoCanvas.getContext("2d");
+    // Create initial nodes
+    topoNodes = [
+      { x: 300, y: 150, type: "self", label: "lvs0", vx: 0, vy: 0 },
+      { x: 150, y: 80, type: "peer", label: "peer-1", vx: 0.3, vy: 0.2 },
+      { x: 450, y: 100, type: "peer", label: "peer-2", vx: -0.2, vy: 0.3 },
+      { x: 200, y: 220, type: "relay", label: "relay-1", vx: 0.1, vy: -0.2 },
+      { x: 400, y: 230, type: "peer", label: "peer-3", vx: -0.3, vy: 0.1 },
+    ];
+    renderTopology();
+  }
+
+  function renderTopology() {
+    if (!topoCtx || !topoCanvas) return;
+    const W = topoCanvas.width;
+    const H = topoCanvas.height;
+    const ctx = topoCtx;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Update positions (gentle floating)
+    for (const n of topoNodes) {
+      if (n.type === "self") continue; // self stays centered
+      n.x += n.vx;
+      n.y += n.vy;
+      // Bounce off edges
+      if (n.x < 40 || n.x > W - 40) n.vx *= -1;
+      if (n.y < 40 || n.y > H - 40) n.vy *= -1;
+      n.x = Math.max(40, Math.min(W - 40, n.x));
+      n.y = Math.max(40, Math.min(H - 40, n.y));
+    }
+
+    // Draw connections
+    const self = topoNodes[0];
+    for (let i = 1; i < topoNodes.length; i++) {
+      const peer = topoNodes[i];
+      ctx.beginPath();
+      ctx.moveTo(self.x, self.y);
+      ctx.lineTo(peer.x, peer.y);
+      ctx.strokeStyle = peer.type === "relay"
+        ? "rgba(245, 158, 11, 0.3)"
+        : "rgba(34, 211, 238, 0.3)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Draw nodes
+    const colors = { self: "#22c55e", peer: "#22d3ee", relay: "#f59e0b" };
+    const sizes = { self: 10, peer: 6, relay: 5 };
+    for (const n of topoNodes) {
+      // Glow for self
+      if (n.type === "self") {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, 16, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(34, 197, 94, 0.1)";
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, sizes[n.type], 0, Math.PI * 2);
+      ctx.fillStyle = colors[n.type];
+      ctx.fill();
+      // Label
+      ctx.font = "10px monospace";
+      ctx.fillStyle = "#94a3b8";
+      ctx.textAlign = "center";
+      ctx.fillText(n.label, n.x, n.y + sizes[n.type] + 14);
+    }
+  }
+
   // ── Init ─────────────────────────────────────────────────────────
   applyTheme(state.theme);
 
@@ -359,8 +437,9 @@
     themeToggle.addEventListener("click", cycleTheme);
   }
 
+  initTopology();
   render();
-  setInterval(() => { tick(); render(); }, 1000);
+  setInterval(() => { tick(); render(); renderTopology(); }, 1000);
   setInterval(fetchStatus, POLL_MS);
   fetchStatus();
 

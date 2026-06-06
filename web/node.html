@@ -100,6 +100,21 @@
       </ol>
     </div>
   </section>
+
+  <!-- ── Network Topology ────────────────────────────────────────── -->
+  <section class="topology-section">
+    <div class="panel">
+      <h2 class="panel__title">🌐 Topologie Réseau</h2>
+      <div class="topology">
+        <canvas id="topo-canvas" width="600" height="300"></canvas>
+        <div class="topology__legend">
+          <span class="topo-item"><span class="topo-dot topo-dot--self"></span> Vous</span>
+          <span class="topo-item"><span class="topo-dot topo-dot--peer"></span> Pair actif</span>
+          <span class="topo-item"><span class="topo-dot topo-dot--relay"></span> Relais</span>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <template id="module-template">

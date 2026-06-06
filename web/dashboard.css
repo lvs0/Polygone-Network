@@ -53,6 +53,29 @@
   0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+/* ── Topology visualization ──────────────────────────────────── */
+.topology-section { margin-top: 16px; }
+.topology {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: 20px;
+}
+#topo-canvas {
+  width: 100%; max-width: 600px; height: 300px;
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+}
+.topology__legend {
+  display: flex; gap: 24px; font: 12px/1 var(--mono); color: var(--text-dim);
+}
+.topo-item { display: flex; align-items: center; gap: 6px; }
+.topo-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+.topo-dot--self { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.topo-dot--peer { background: var(--cyan); }
+.topo-dot--relay { background: var(--amber); }
+
 @media (prefers-reduced-motion: reduce) {
   .banner__dot { animation: none; }
   .stat, .panel, .module, .log__entry { animation: none !important; }
