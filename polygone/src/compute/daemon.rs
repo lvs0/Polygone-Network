@@ -313,8 +313,7 @@ pub fn daemon_is_running() -> bool {
     let pid_path = daemon_pid_path();
     if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
         if let Ok(pid) = pid_str.trim().parse::<u32>() {
-            // Check if process exists (Linux)
-            return std::path::Path::new(&format!("/proc/{pid}")).exists();
+            return super::idle::platform::pid_exists(pid);
         }
     }
     false
