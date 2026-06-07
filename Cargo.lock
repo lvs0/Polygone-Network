@@ -3383,6 +3383,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.2.17",
  "hex",
+ "libc",
  "libp2p",
  "pqcrypto-mldsa",
  "pqcrypto-mlkem",

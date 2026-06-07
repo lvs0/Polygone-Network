@@ -4,6 +4,9 @@
 //!   - Detects idle CPU/RAM resources
 //!   - Automatically enables/disables power lending based on user activity
 //!   - Integrates with Ollama for local inference sharing
+//!   - Tracks POLY token income from lending
+//!   - Supports stealth mode for invisible operation
+//!   - Negotiates resource sharing with peers via protocol
 //!   - Shows status in the TUI
 //!
 //! Smart detection: if user is active (keyboard/mouse input), pause lending.
@@ -14,6 +17,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::idle::{IdleDetector, SystemMetrics};
+use super::lending::{ResourceScheduler, ResourceLimits, LendingStats};
+use super::stealth::{StealthMode, StealthConfig, stealth_log};
+use super::protocol::{ComputeMessage, CapabilityAnnounce, now_ms};
+use crate::economy;
 use crate::Result;
 
 /// Configuration for the compute daemon.
@@ -33,6 +40,16 @@ pub struct ComputeConfig {
     pub poll_interval_sec: u64,
     /// Listen address for the compute status server
     pub status_listen: String,
+    /// Stealth mode configuration
+    pub stealth: StealthConfig,
+    /// Resource lending limits
+    pub resource_limits: ResourceLimits,
+    /// Whether resource lending is enabled
+    pub lending_enabled: bool,
+    /// POLY earned per CPU core-hour (default: 10.0)
+    pub poly_per_core_hour: f64,
+    /// POLY earned per GB RAM-hour (default: 5.0)
+    pub poly_per_gb_ram_hour: f64,
 }
 
 impl Default for ComputeConfig {
@@ -45,6 +62,11 @@ impl Default for ComputeConfig {
             ollama_enabled: true,
             poll_interval_sec: 10,
             status_listen: "127.0.0.1:4002".to_string(),
+            stealth: StealthConfig::default(),
+            resource_limits: ResourceLimits::default(),
+            lending_enabled: true,
+            poly_per_core_hour: 10.0,
+            poly_per_gb_ram_hour: 5.0,
         }
     }
 }
@@ -60,6 +82,8 @@ pub enum LendingState {
     LendingActive,
     /// Ollama integration active
     OllamaActive,
+    /// Stealth mode active — minimal footprint
+    StealthActive,
     /// Daemon stopped
     Stopped,
 }
@@ -71,12 +95,13 @@ impl LendingState {
             Self::PausedResourceLow => "⏸ Paused (resources low)",
             Self::LendingActive     => "● Lending",
             Self::OllamaActive      => "◆ Ollama Active",
+            Self::StealthActive     => "👁 Stealth",
             Self::Stopped           => "○ Stopped",
         }
     }
 
     pub fn is_active(&self) -> bool {
-        matches!(self, Self::LendingActive | Self::OllamaActive)
+        matches!(self, Self::LendingActive | Self::OllamaActive | Self::StealthActive)
     }
 }
 
@@ -90,8 +115,18 @@ pub struct ComputeStatus {
     pub models_available: Vec<String>,
     /// Energy contributed (rough estimate in joules)
     pub energy_contributed_j: u64,
-    /// Credits earned (rough estimate)
-    pub credits_earned: f64,
+    /// POLY earned from lending
+    pub poly_earned: f64,
+    /// POLY spent on renting
+    pub poly_spent: f64,
+    /// Current POLY balance (from economy ledger)
+    pub poly_balance: f64,
+    /// Lending stats
+    pub lending_stats: LendingStats,
+    /// Whether stealth mode is active
+    pub stealth_active: bool,
+    /// Active resource allocations count
+    pub active_allocations: u32,
 }
 
 impl Default for ComputeStatus {
@@ -110,7 +145,12 @@ impl Default for ComputeStatus {
             ollama_running: false,
             models_available: Vec::new(),
             energy_contributed_j: 0,
-            credits_earned: 0.0,
+            poly_earned: 0.0,
+            poly_spent: 0.0,
+            poly_balance: 0.0,
+            lending_stats: LendingStats::default(),
+            stealth_active: false,
+            active_allocations: 0,
         }
     }
 }
@@ -126,10 +166,20 @@ pub struct ComputeDaemon {
     ollama_models: Vec<String>,
     /// Rough energy estimate (watts_used * uptime_seconds / 1000 = kJ)
     watts_used: f64,
+    /// Resource scheduler for lending
+    scheduler: ResourceScheduler,
+    /// Stealth mode controller
+    stealth: StealthMode,
+    /// POLY ticker for economy tracking
+    poly_ticker: economy::Ticker,
 }
 
 impl ComputeDaemon {
     pub fn new(config: ComputeConfig) -> Self {
+        let scheduler = ResourceScheduler::new(config.resource_limits.clone());
+        let stealth = StealthMode::new(config.stealth.clone());
+        let poly_ticker = economy::Ticker::load();
+
         Self {
             idle_detector: IdleDetector::new(config.idle_threshold_sec),
             config,
@@ -139,6 +189,9 @@ impl ComputeDaemon {
             ollama_checked: false,
             ollama_models: Vec::new(),
             watts_used: 0.0,
+            scheduler,
+            stealth,
+            poly_ticker,
         }
     }
 
@@ -186,12 +239,40 @@ impl ComputeDaemon {
             return LendingState::PausedResourceLow;
         }
 
+        // Stealth mode takes priority when enabled
+        if self.config.stealth.enabled {
+            return LendingState::StealthActive;
+        }
+
         // Ollama active?
         if self.ollama_checked && !self.ollama_models.is_empty() {
             return LendingState::OllamaActive;
         }
 
         LendingState::LendingActive
+    }
+
+    /// Build a capability announcement for the network.
+    fn build_announcement(&self, metrics: &SystemMetrics) -> CapabilityAnnounce {
+        let total_ram_mb = metrics.ram_total / (1024 * 1024);
+        let free_ram_mb = (metrics.ram_total - metrics.ram_used) / (1024 * 1024);
+        let lendable_ram = (total_ram_mb as f32 * self.config.max_ram_fraction) as u64;
+
+        CapabilityAnnounce {
+            node_id: crate::identity::load_or_create().node_id_short,
+            node_name: crate::identity::load_or_create().pseudo,
+            available_ram_mb: free_ram_mb.min(lendable_ram),
+            available_cpu_cores: ((100.0 - metrics.cpu_usage) / 100.0 * 8.0) as u32,
+            available_storage_gb: 0, // not tracked yet
+            available_gpu_units: 0,
+            price_ram_per_mb_hour: self.config.poly_per_gb_ram_hour / 1024.0,
+            price_cpu_per_core_hour: self.config.poly_per_core_hour,
+            price_storage_per_gb_hour: 0.001,
+            uptime_secs: self.started_at.elapsed().as_secs(),
+            reputation: 85,
+            timestamp_ms: now_ms(),
+            ttl_secs: 300,
+        }
     }
 
     /// Run the daemon until stopped.
@@ -201,19 +282,38 @@ impl ComputeDaemon {
 
         self.state = LendingState::LendingActive;
 
-        println!("⬡ POLYGONE-COMPUTE — Power Lending Daemon");
-        println!();
-        println!("  Idle threshold : {:.0}s", self.config.idle_threshold_sec);
-        println!("  Max RAM fraction: {:.0}%", self.config.max_ram_fraction * 100.0);
-        println!("  Max CPU fraction: {:.0}%", self.config.max_cpu_fraction);
-        println!("  Ollama enabled  : {}", self.config.ollama_enabled);
-        println!("  Status listen   : {}", self.config.status_listen);
-        println!();
-        println!("  ✔ Lending daemon started — contributing resources to the network");
-        println!("  Press Ctrl+C to stop gracefully.");
-        println!();
+        // Initialize stealth mode if enabled
+        self.stealth.initialize();
+
+        let banner = if self.config.stealth.enabled && self.config.stealth.silent_mode {
+            // In silent stealth mode, only log to file
+            stealth_log(&self.config.stealth, "⬡ POLYGONE-COMPUTE — Power Lending Daemon (stealth mode)");
+            stealth_log(&self.config.stealth, &format!("  Idle threshold: {:.0}s", self.config.idle_threshold_sec));
+            stealth_log(&self.config.stealth, &format!("  Lending enabled: {}", self.config.lending_enabled));
+            stealth_log(&self.config.stealth, &format!("  Status listen: {}", self.config.status_listen));
+            stealth_log(&self.config.stealth, "  ✔ Stealth lending daemon started");
+            false
+        } else {
+            println!("⬡ POLYGONE-COMPUTE — Power Lending Daemon");
+            println!();
+            println!("  Idle threshold : {:.0}s", self.config.idle_threshold_sec);
+            println!("  Max RAM fraction: {:.0}%", self.config.max_ram_fraction * 100.0);
+            println!("  Max CPU fraction: {:.0}%", self.config.max_cpu_fraction);
+            println!("  Ollama enabled  : {}", self.config.ollama_enabled);
+            println!("  Lending enabled : {}", self.config.lending_enabled);
+            println!("  Stealth mode    : {}", self.config.stealth.enabled);
+            println!("  Status listen   : {}", self.config.status_listen);
+            println!();
+            println!("  ✔ Lending daemon started — contributing resources to the network");
+            println!("  Press Ctrl+C to stop gracefully.");
+            println!();
+            true
+        };
 
         let poll = Duration::from_secs(self.config.poll_interval_sec);
+
+        // Set low priority for lending processes
+        super::lending::set_lending_nice();
 
         loop {
             // Check stop flag
@@ -229,49 +329,115 @@ impl ComputeDaemon {
 
             // Get system metrics
             let metrics = self.idle_detector.metrics();
+
+            // Stealth mode: throttle if CPU too high
+            if self.config.stealth.enabled && self.stealth.should_throttle(metrics.cpu_usage) {
+                // Back off — double the poll interval temporarily
+                std::thread::sleep(Duration::from_secs(30));
+                continue;
+            }
+
             let new_state = self.compute_state(&metrics);
             let prev_state = self.state;
             self.state = new_state;
 
             // State transition logging
             if new_state != prev_state {
-                match new_state {
+                let msg = match new_state {
                     LendingState::LendingActive => {
-                        println!("  {} Lending resumed — system idle for {:.0}s",
-                            chrono_display(), metrics.idle_seconds);
+                        format!("  {} Lending resumed — system idle for {:.0}s",
+                            chrono_display(), metrics.idle_seconds)
                     }
                     LendingState::PausedUserActive => {
-                        println!("  {} Lending paused — user activity detected", chrono_display());
+                        format!("  {} Lending paused — user activity detected", chrono_display())
                     }
                     LendingState::PausedResourceLow => {
-                        println!("  {} Lending paused — resources low ({:.0}% RAM, {:.0}% CPU)",
-                            chrono_display(), metrics.ram_fraction()*100.0, metrics.cpu_usage);
+                        format!("  {} Lending paused — resources low ({:.0}% RAM, {:.0}% CPU)",
+                            chrono_display(), metrics.ram_fraction()*100.0, metrics.cpu_usage)
                     }
                     LendingState::OllamaActive => {
-                        println!("  {} Ollama inference sharing active", chrono_display());
+                        format!("  {} Ollama inference sharing active", chrono_display())
                     }
-                    LendingState::Stopped => {}
+                    LendingState::StealthActive => {
+                        format!("  {} Stealth lending active — minimal footprint", chrono_display())
+                    }
+                    LendingState::Stopped => String::new(),
+                };
+
+                if self.config.stealth.silent_mode && self.config.stealth.enabled {
+                    stealth_log(&self.config.stealth, &msg);
+                } else if banner {
+                    println!("{}", msg);
+                    io::stdout().flush().ok();
                 }
-                io::stdout().flush().ok();
             }
+
+            // Process resource scheduler
+            if self.config.lending_enabled && new_state.is_active() {
+                let new_allocs = self.scheduler.schedule(&metrics);
+                for alloc in &new_allocs {
+                    let msg = format!("  {} New allocation: {} ({} {})",
+                        chrono_display(),
+                        alloc.allocation_id,
+                        alloc.request.amount,
+                        alloc.request.resource_type.label()
+                    );
+                    if self.config.stealth.silent_mode && self.config.stealth.enabled {
+                        stealth_log(&self.config.stealth, &msg);
+                    } else if banner {
+                        println!("{}", msg);
+                    }
+                }
+
+                // Update POLY ticker with active allocation count
+                let active_count = self.scheduler.active_allocations().len() as u32;
+                self.poly_ticker.set_active(active_count);
+            } else {
+                // Cancel all allocations when not lending
+                self.scheduler.cancel_all();
+                self.poly_ticker.set_active(0);
+            }
+
+            // Tick the POLY economy (drain tokens for active services)
+            let _balance = self.poly_ticker.tick();
 
             // Update energy estimate
             if new_state.is_active() {
                 self.watts_used += 15.0 * (poll.as_secs_f64() / 3600.0); // ~15W extra during lending
             }
 
-            std::thread::sleep(poll);
+            // Stealth mode uses longer polling
+            let actual_poll = if self.config.stealth.enabled {
+                self.stealth.poll_interval()
+            } else {
+                poll
+            };
+
+            std::thread::sleep(actual_poll);
         }
 
+        // Cleanup: cancel all allocations, stop poly ticker
+        self.scheduler.cancel_all();
+        self.poly_ticker.set_active(0);
+        self.stealth.deactivate();
         self.state = LendingState::Stopped;
-        println!();
-        println!("  ✔ Lending daemon stopped cleanly.");
+
+        let msg = "  ✔ Lending daemon stopped cleanly.";
+        if self.config.stealth.silent_mode && self.config.stealth.enabled {
+            stealth_log(&self.config.stealth, msg);
+        } else {
+            println!();
+            println!("{}", msg);
+        }
         Ok(())
     }
 
     /// Get current status snapshot.
     pub fn status(&self) -> ComputeStatus {
         let uptime = self.started_at.elapsed().as_secs();
+        let poly_snapshot = self.poly_ticker.snapshot();
+        let lending_stats = self.scheduler.stats().clone();
+
         ComputeStatus {
             state: self.state,
             metrics: self.idle_detector.last_metrics(),
@@ -279,7 +445,12 @@ impl ComputeDaemon {
             ollama_running: self.ollama_checked && !self.ollama_models.is_empty(),
             models_available: self.ollama_models.clone(),
             energy_contributed_j: (self.watts_used * 1000.0) as u64,
-            credits_earned: self.watts_used * 0.001 * 10.0, // rough estimate: 10 credits per kJ
+            poly_earned: lending_stats.total_poly_earned,
+            poly_spent: lending_stats.total_poly_spent,
+            poly_balance: poly_snapshot.balance,
+            lending_stats,
+            stealth_active: self.stealth.is_active(),
+            active_allocations: self.scheduler.active_allocations().len() as u32,
         }
     }
 
@@ -291,6 +462,21 @@ impl ComputeDaemon {
     /// Get a stop flag clone for IPC.
     pub fn stop_flag(&self) -> Arc<AtomicBool> {
         self.stop_flag.clone()
+    }
+
+    /// Get the resource scheduler (for external queries).
+    pub fn scheduler(&self) -> &ResourceScheduler {
+        &self.scheduler
+    }
+
+    /// Get the stealth mode state.
+    pub fn is_stealth(&self) -> bool {
+        self.stealth.is_active()
+    }
+
+    /// Get the lending stats.
+    pub fn lending_stats(&self) -> &LendingStats {
+        self.scheduler.stats()
     }
 }
 
