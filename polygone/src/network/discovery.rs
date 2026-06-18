@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn test_discovery_service() {
-        let mut service = DiscoveryService::new();
+        let service = DiscoveryService::new();
         assert_eq!(service.peer_count(), 0);
         assert!(!service.has_peers());
     }

@@ -26,7 +26,7 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Protocol version for compute sharing.
 pub const COMPUTE_PROTOCOL_VERSION: &str = "/polygone/compute/1.0.0";

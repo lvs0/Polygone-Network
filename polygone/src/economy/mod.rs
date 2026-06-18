@@ -79,13 +79,17 @@ fn now_ms() -> u64 {
 
 /// Load the ledger from disk, creating it with defaults if missing.
 pub fn load() -> Ledger {
-    let p = ledger_path();
+    load_from(&ledger_path())
+}
+
+/// Load the ledger from a specific path, creating it with defaults if missing.
+pub fn load_from(p: &PathBuf) -> Ledger {
     if !p.exists() {
         let l = Ledger::default();
-        let _ = save(&l);
+        let _ = save_to(&l, p);
         return l;
     }
-    std::fs::read_to_string(&p)
+    std::fs::read_to_string(p)
         .ok()
         .and_then(|s| toml::from_str::<Ledger>(&s).ok())
         .unwrap_or_default()
@@ -93,7 +97,11 @@ pub fn load() -> Ledger {
 
 /// Persist the ledger to disk (atomic — write to .tmp then rename).
 pub fn save(ledger: &Ledger) -> std::io::Result<()> {
-    let p = ledger_path();
+    save_to(ledger, &ledger_path())
+}
+
+/// Persist the ledger to a specific path (atomic — write to .tmp then rename).
+pub fn save_to(ledger: &Ledger, p: &PathBuf) -> std::io::Result<()> {
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -241,6 +249,22 @@ pub struct LendingSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    /// Isolated ledger path for tests — avoids polluting the real ledger.
+    fn test_ledger_path() -> PathBuf {
+        let id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        std::env::temp_dir().join(format!("polygone_test_econ_{}.toml", id))
+    }
+
+    /// Create a Ticker backed by an isolated test file.
+    fn test_ticker() -> Ticker {
+        let p = test_ledger_path();
+        let ledger = load_from(&p);
+        Ticker { ledger, last_tick: Instant::now() }
+    }
 
     #[test]
     fn default_ledger_has_100_poly() {
@@ -271,7 +295,7 @@ mod tests {
     fn ticker_drains_polynomialy() {
         // We can't actually wait minutes in a test, but we can validate
         // the math: with 0 active services, tick() doesn't drain.
-        let mut t = Ticker::load();
+        let mut t = test_ticker();
         let before = t.ledger.balance;
         let _ = t.tick();
         let after = t.ledger.balance;
@@ -281,7 +305,7 @@ mod tests {
 
     #[test]
     fn snapshot_has_required_fields() {
-        let t = Ticker::load();
+        let t = test_ticker();
         let s = t.snapshot();
         assert!(s.balance >= 0.0);
         assert!(s.rate_per_min >= 0.0);
@@ -289,19 +313,24 @@ mod tests {
 
     #[test]
     fn save_and_load_roundtrip() {
+        let dir = std::env::temp_dir().join("polygone_test_economy");
+        let _ = std::fs::create_dir_all(&dir);
+        let test_path = dir.join("poly_test.toml");
+
         let mut l = Ledger::default();
         l.balance = 42.5;
         l.active_services = 2;
-        save(&l).expect("save");
-        // Load via load_or_create() — should match what we saved.
-        let restored = load();
+        save_to(&l, &test_path).expect("save");
+        // Load via load_from() — should match what we saved.
+        let restored = load_from(&test_path);
         assert_eq!(restored.balance, 42.5);
         assert_eq!(restored.active_services, 2);
+        let _ = std::fs::remove_file(&test_path);
     }
 
     #[test]
     fn record_lending_income() {
-        let mut t = Ticker::load();
+        let mut t = test_ticker();
         let before = t.ledger.balance;
         let _ = t.record_lending_income(5.0);
         let after = t.ledger.balance;
@@ -312,7 +341,7 @@ mod tests {
 
     #[test]
     fn record_renting_expense() {
-        let mut t = Ticker::load();
+        let mut t = test_ticker();
         t.ledger.balance = 100.0;
         let _ = t.record_renting_expense(3.0);
         assert!((t.ledger.balance - 97.0).abs() < 1e-6);
@@ -321,7 +350,7 @@ mod tests {
 
     #[test]
     fn renting_expense_capped_at_balance() {
-        let mut t = Ticker::load();
+        let mut t = test_ticker();
         t.ledger.balance = 2.0;
         let balance = t.record_renting_expense(10.0);
         assert!((balance).abs() < 1e-6); // balance should be 0
@@ -330,7 +359,7 @@ mod tests {
 
     #[test]
     fn calculate_lending_income() {
-        let t = Ticker::load();
+        let t = test_ticker();
         // 4 CPU cores for 1 hour = 40 POLY
         let income = t.calculate_lending_income("cpu", 4, 3600);
         assert!((income - 40.0).abs() < 1e-6);
@@ -341,7 +370,7 @@ mod tests {
 
     #[test]
     fn lending_summary() {
-        let t = Ticker::load();
+        let t = test_ticker();
         let s = t.lending_summary();
         assert!(s.balance >= 0.0);
         assert!(s.total_earned >= 0.0);

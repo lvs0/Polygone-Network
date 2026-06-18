@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use super::idle::{IdleDetector, SystemMetrics};
 use super::lending::{ResourceScheduler, ResourceLimits, LendingStats};
 use super::stealth::{StealthMode, StealthConfig, stealth_log};
-use super::protocol::{ComputeMessage, CapabilityAnnounce, now_ms};
+use super::protocol::{CapabilityAnnounce, now_ms};
 use crate::economy;
 use crate::Result;
 
@@ -253,6 +253,7 @@ impl ComputeDaemon {
     }
 
     /// Build a capability announcement for the network.
+    #[allow(dead_code)]
     fn build_announcement(&self, metrics: &SystemMetrics) -> CapabilityAnnounce {
         let total_ram_mb = metrics.ram_total / (1024 * 1024);
         let free_ram_mb = (metrics.ram_total - metrics.ram_used) / (1024 * 1024);

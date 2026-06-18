@@ -10,18 +10,6 @@ keywords = ["post-quantum", "p2p", "privacy", "cryptography", "ephemeral"]
 categories = ["cryptography", "network-programming", "command-line-utilities"]
 rust-version = "1.75"
 
-# ── Profiles ──────────────────────────────────────────────────────────────────
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
-
-[profile.dev]
-opt-level = 1
-
 # ── Library ───────────────────────────────────────────────────────────────────
 
 [lib]
