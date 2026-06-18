@@ -152,7 +152,7 @@ mod tests {
     use super::*;
     use crate::services::{Health, Metric, Phase, Service, ServiceInfo};
     use async_trait::async_trait;
-    use std::collections::HashMap;
+    
     use tokio::sync::RwLock;
 
     struct Stub {

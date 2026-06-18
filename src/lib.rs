@@ -27,7 +27,10 @@
 pub mod compute;
 pub mod computer;
 pub mod crypto;
+pub mod economy;
+pub mod identity;
 pub mod ipc;
+pub mod msg;
 pub mod network;
 pub mod protocol;
 pub mod server;

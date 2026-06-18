@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::time::interval;
 
 use crate::crypto::error::{PolygoneError, PolyResult};
-use crate::services::{Health, Phase, Service, ServiceEvent, ServiceInfo, ServiceStatus};
+use crate::services::{Health, Phase, Service, ServiceEvent, ServiceStatus};
 
 /// The orchestrator. Cheap to clone (Arc).
 pub struct Computer {

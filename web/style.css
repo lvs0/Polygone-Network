@@ -3,7 +3,6 @@
    Palette: cyber cyan, slate scale, single accent green
    Grid: 12-col, 1rem gutter, max-width 1080px
    Type: system stack for instant load, monospace for code
-   Themes: Cyber (default), Solarized Dark, Dracula
    ────────────────────────────────────────────────────────────────── */
 
 :root {
@@ -29,53 +28,16 @@
   --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
-/* ── Theme overrides ────────────────────────────────────────────── */
-body.theme-dracula {
-  --bg:        #282a36;
-  --bg-2:      #343746;
-  --bg-3:      #21222c;
-  --line:      #44475a;
-  --line-2:    #6272a4;
-  --text:      #f8f8f2;
-  --text-dim:  #6272a4;
-  --text-faint:#44475a;
-  --text-hi:   #f8f8f2;
-  --cyber:     #ff79c6;
-  --cyber-dim: #bd93f9;
-  --green:     #50fb75;
-  --violet:    #bd93f9;
-  --amber:     #ffb86c;
-  --rose:      #ff5555;
-}
-
-body.theme-solarized {
-  --bg:        #002b36;
-  --bg-2:      #073642;
-  --bg-3:      #002029;
-  --line:      #073642;
-  --line-2:    #586e75;
-  --text:      #93a1a1;
-  --text-dim:  #839496;
-  --text-faint:#657b83;
-  --text-hi:   #fdf6ec;
-  --cyber:     #2aaab2;
-  --cyber-dim: #076e73;
-  --green:     #859900;
-  --violet:    #6c71c4;
-  --amber:     #b58900;
-  --rose:      #dc322f;
-}
-
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+
 body {
   background: var(--bg);
   color: var(--text);
   font: 15px/1.6 var(--sans);
   font-feature-settings: "ss01", "cv11";
   overflow-x: hidden;
-  transition: background 300ms ease, color 300ms ease;
 }
 
 a { color: var(--cyber); text-decoration: none; transition: opacity 120ms; }
@@ -163,11 +125,6 @@ code, pre { font-family: var(--mono); font-size: 13px; }
   padding: 6px 12px; border-radius: 99px;
   background: var(--bg-2); border: 1px solid var(--line);
   color: var(--text-dim);
-  transition: border-color 200ms, color 200ms;
-}
-.hero__pills li:hover {
-  border-color: var(--cyber);
-  color: var(--cyber);
 }
 
 /* ── Section ─────────────────────────────────────────────────────── */
@@ -232,9 +189,7 @@ code, pre { font-family: var(--mono); font-size: 13px; }
   padding: 20px 0;
   border-bottom: 1px solid var(--line);
   align-items: baseline;
-  transition: background 200ms;
 }
-.crypto__row:hover { background: var(--bg-3); }
 .crypto__row:last-child { border-bottom: none; }
 .crypto__name {
   font: 15px/1.4 var(--mono);

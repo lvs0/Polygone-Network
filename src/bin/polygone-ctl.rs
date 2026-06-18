@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use polygone::ipc::{Op, Request};
+use polygone::ipc::{self, Op, Request};
 
 #[derive(Parser, Debug)]
 #[command(name = "polygone-ctl", about = "Talk to the local Polygone Computer daemon")]

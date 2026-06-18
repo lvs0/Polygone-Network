@@ -1,16 +1,14 @@
 /* ──────────────────────────────────────────────────────────────────
    Polygone — node dashboard logic
-   Features: WebSocket live updates, mini charts, theme toggle,
-   improved sparklines, module progress bars, animated transitions.
+   Fetches /api/status every 3s, renders live stats.
+   Falls back to a deterministic local simulation when offline.
    ────────────────────────────────────────────────────────────────── */
 
 (() => {
   "use strict";
 
   const ENDPOINT = "/api/status";
-  const WS_ENDPOINT = `ws://${location.host}/ws`;
   const POLL_MS = 3000;
-  const SPARK_MAX = 40;
 
   // ── State ────────────────────────────────────────────────────────
   const state = {
@@ -27,7 +25,7 @@
       { name: "Hide",  icon: "👻", status: "running", label: "Running" },
       { name: "Drive", icon: "📁", status: "off",     label: "Off" },
       { name: "Mesh",  icon: "🔗", status: "off",     label: "Off" },
-      { name: "Brain", icon: "🧠", status: "soon",    label: "Soon", progress: 35 },
+      { name: "Brain", icon: "🧠", status: "soon",    label: "Soon" },
     ],
     log: [
       { t: 1080, kind: "success", msg: "⬡ Polygone v1.0.0 démarré" },
@@ -39,8 +37,6 @@
     ],
     spark_in: [],
     spark_out: [],
-    wsConnected: false,
-    theme: localStorage.getItem("polygone-theme") || "cyber",
   };
 
   // ── DOM refs ─────────────────────────────────────────────────────
@@ -75,26 +71,6 @@
     return `${(n / 1024 / 1024).toFixed(2)} MB/s`;
   };
 
-  // ── Theme management ────────────────────────────────────────────
-  const applyTheme = (theme) => {
-    state.theme = theme;
-    document.body.className = theme === "cyber" ? "" : `theme-${theme}`;
-    localStorage.setItem("polygone-theme", theme);
-    const toggle = document.querySelector(".theme-toggle");
-    if (toggle) {
-      const icons = { cyber: "🔮", solarized: "☀️", dracula: "🧛" };
-      toggle.querySelector(".theme-toggle__icon").textContent = icons[theme] || "🔮";
-      toggle.querySelector(".theme-toggle__label").textContent =
-        theme === "cyber" ? "Cyber" : theme === "solarized" ? "Solarized" : "Dracula";
-    }
-  };
-
-  const cycleTheme = () => {
-    const themes = ["cyber", "solarized", "dracula"];
-    const idx = themes.indexOf(state.theme);
-    applyTheme(themes[(idx + 1) % themes.length]);
-  };
-
   // ── Render functions ─────────────────────────────────────────────
   const renderBanner = () => {
     elUptime.textContent = fmtUptime(state.uptime);
@@ -102,17 +78,10 @@
   };
 
   const renderStats = () => {
-    const inText = fmtBytes(state.traffic_in);
-    const outText = fmtBytes(state.traffic_out);
-
-    // Parse the formatted text to split number and unit
-    const inParts = inText.split(" ");
-    const outParts = outText.split(" ");
-
-    elTrafficIn.firstChild.textContent = inParts[0] + " ";
-    elTrafficIn.querySelector("span").textContent = inParts.slice(1).join(" ");
-    elTrafficOut.firstChild.textContent = outParts[0] + " ";
-    elTrafficOut.querySelector("span").textContent = outParts.slice(1).join(" ");
+    elTrafficIn.firstChild.textContent  = fmtBytes(state.traffic_in).replace(/ b\/s$/, "");
+    elTrafficIn.querySelector("span").textContent = "b/s";
+    elTrafficOut.firstChild.textContent = fmtBytes(state.traffic_out).replace(/ b\/s$/, "");
+    elTrafficOut.querySelector("span").textContent = "b/s";
     elFragReady.textContent = state.frag_ready;
     elFragNeed.textContent  = state.frag_needed;
     elFragBar.style.width   = `${Math.min(100, (state.frag_ready / state.frag_needed) * 100)}%`;
@@ -139,19 +108,6 @@
       node.querySelector(".module__icon").textContent   = m.icon;
       node.querySelector(".module__name").textContent   = m.name;
       node.querySelector(".module__status").textContent = m.label;
-
-      // Add progress bar for "soon" modules
-      if (m.status === "soon" && m.progress != null) {
-        const progressEl = document.createElement("div");
-        progressEl.className = "module__progress";
-        progressEl.innerHTML = `
-          <div class="module__progress-bar">
-            <div class="module__progress-fill" style="width: ${m.progress}%"></div>
-          </div>
-        `;
-        node.appendChild(progressEl);
-      }
-
       elModules.appendChild(node);
     });
   };
@@ -170,133 +126,12 @@
     });
   };
 
-  // ── Mini chart renderer ──────────────────────────────────────────
-  const renderMiniChart = (canvasId, data, color) => {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const w = canvas.width = canvas.offsetWidth * 2;
-    const h = canvas.height = canvas.offsetHeight * 2;
-    ctx.clearRect(0, 0, w, h);
-
-    if (data.length < 2) return;
-
-    const max = Math.max(...data, 1);
-    const step = w / (data.length - 1);
-
-    // Draw fill gradient
-    const gradient = ctx.createLinearGradient(0, 0, 0, h);
-    gradient.addColorStop(0, color + "40");
-    gradient.addColorStop(1, color + "05");
-
-    ctx.beginPath();
-    ctx.moveTo(0, h);
-    data.forEach((v, i) => {
-      const x = i * step;
-      const y = h - (v / max) * h * 0.85 - 2;
-      if (i === 0) ctx.lineTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.lineTo(w, h);
-    ctx.closePath();
-    ctx.fillStyle = gradient;
-    ctx.fill();
-
-    // Draw line
-    ctx.beginPath();
-    data.forEach((v, i) => {
-      const x = i * step;
-      const y = h - (v / max) * h * 0.85 - 2;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.lineJoin = "round";
-    ctx.stroke();
-
-    // Draw latest point
-    if (data.length > 0) {
-      const lastX = (data.length - 1) * step;
-      const lastY = h - (data[data.length - 1] / max) * h * 0.85 - 2;
-      ctx.beginPath();
-      ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(lastX, lastY, 8, 0, Math.PI * 2);
-      ctx.fillStyle = color + "30";
-      ctx.fill();
-    }
-  };
-
   const render = () => {
     renderBanner();
     renderStats();
     renderSpark();
     renderModules();
     renderLog();
-
-    // Render mini charts
-    renderMiniChart("chart-in", state.spark_in, "#22c55e");
-    renderMiniChart("chart-out", state.spark_out, "#22d3ee");
-  };
-
-  // ── WebSocket connection ─────────────────────────────────────────
-  let ws = null;
-  let wsReconnectTimer = null;
-
-  const connectWebSocket = () => {
-    try {
-      ws = new WebSocket(WS_ENDPOINT);
-
-      ws.onopen = () => {
-        state.wsConnected = true;
-        updateWsStatus();
-        console.log("[ws] connected");
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "status") {
-            Object.assign(state, data.payload);
-            render();
-          } else if (data.type === "log") {
-            state.log.push(data.payload);
-            if (state.log.length > 30) state.log.shift();
-            renderLog();
-          }
-        } catch (e) {
-          console.warn("[ws] parse error:", e);
-        }
-      };
-
-      ws.onclose = () => {
-        state.wsConnected = false;
-        updateWsStatus();
-        console.log("[ws] disconnected, reconnecting in 5s...");
-        wsReconnectTimer = setTimeout(connectWebSocket, 5000);
-      };
-
-      ws.onerror = () => {
-        state.wsConnected = false;
-        updateWsStatus();
-      };
-    } catch (e) {
-      console.warn("[ws] connection failed:", e);
-      state.wsConnected = false;
-      updateWsStatus();
-    }
-  };
-
-  const updateWsStatus = () => {
-    const el = document.querySelector(".ws-status");
-    if (el) {
-      el.dataset.connected = state.wsConnected;
-      el.querySelector(".ws-status__label").textContent =
-        state.wsConnected ? "WebSocket" : "Polling";
-    }
   };
 
   // ── Local simulation (fallback) ──────────────────────────────────
@@ -311,14 +146,8 @@
     state.traffic_out = Math.max(0, state.traffic_out + step());
     state.spark_in.push(state.traffic_in);
     state.spark_out.push(state.traffic_out);
-    if (state.spark_in.length > SPARK_MAX)  state.spark_in.shift();
-    if (state.spark_out.length > SPARK_MAX) state.spark_out.shift();
-
-    // Animate Brain progress
-    const brain = state.modules.find(m => m.name === "Brain");
-    if (brain && brain.progress != null && brain.progress < 100) {
-      brain.progress = Math.min(100, brain.progress + Math.random() * 0.3);
-    }
+    if (state.spark_in.length > 40)  state.spark_in.shift();
+    if (state.spark_out.length > 40) state.spark_out.shift();
 
     // Random log entries
     if (Math.random() < 0.15) {
@@ -327,8 +156,6 @@
         { kind: "success", msg: "Fragment transmis" },
         { kind: "info",    msg: "Ping pair distant" },
         { kind: "warn",    msg: "Latence élevée sur 1 pair" },
-        { kind: "success", msg: "Shamir reconstruction réussie" },
-        { kind: "info",    msg: "KDF BLAKE3 — clé dérivée" },
       ];
       state.log.push({ t: state.uptime, ...pool[Math.floor(Math.random() * pool.length)] });
       if (state.log.length > 30) state.log.shift();
@@ -338,7 +165,7 @@
   // ── Network fetch (with fallback) ────────────────────────────────
   let online = false;
   const fetchStatus = async () => {
-    if (online || state.wsConnected) return;
+    if (online) return; // already polling endpoint
     try {
       const res = await fetch(ENDPOINT, { cache: "no-store" });
       if (!res.ok) throw new Error(res.status);
@@ -346,103 +173,13 @@
       Object.assign(state, data);
       online = true;
     } catch {
-      online = false;
+      online = false; // stay in simulation
     }
   };
 
-  // ── Topology visualization ───────────────────────────────────────
-  const topoCanvas = document.getElementById("topo-canvas");
-  let topoCtx = null;
-  let topoNodes = []; // {x, y, type: "self"|"peer"|"relay", label, vx, vy}
-
-  function initTopology() {
-    if (!topoCanvas) return;
-    topoCtx = topoCanvas.getContext("2d");
-    // Create initial nodes
-    topoNodes = [
-      { x: 300, y: 150, type: "self", label: "lvs0", vx: 0, vy: 0 },
-      { x: 150, y: 80, type: "peer", label: "peer-1", vx: 0.3, vy: 0.2 },
-      { x: 450, y: 100, type: "peer", label: "peer-2", vx: -0.2, vy: 0.3 },
-      { x: 200, y: 220, type: "relay", label: "relay-1", vx: 0.1, vy: -0.2 },
-      { x: 400, y: 230, type: "peer", label: "peer-3", vx: -0.3, vy: 0.1 },
-    ];
-    renderTopology();
-  }
-
-  function renderTopology() {
-    if (!topoCtx || !topoCanvas) return;
-    const W = topoCanvas.width;
-    const H = topoCanvas.height;
-    const ctx = topoCtx;
-
-    ctx.clearRect(0, 0, W, H);
-
-    // Update positions (gentle floating)
-    for (const n of topoNodes) {
-      if (n.type === "self") continue; // self stays centered
-      n.x += n.vx;
-      n.y += n.vy;
-      // Bounce off edges
-      if (n.x < 40 || n.x > W - 40) n.vx *= -1;
-      if (n.y < 40 || n.y > H - 40) n.vy *= -1;
-      n.x = Math.max(40, Math.min(W - 40, n.x));
-      n.y = Math.max(40, Math.min(H - 40, n.y));
-    }
-
-    // Draw connections
-    const self = topoNodes[0];
-    for (let i = 1; i < topoNodes.length; i++) {
-      const peer = topoNodes[i];
-      ctx.beginPath();
-      ctx.moveTo(self.x, self.y);
-      ctx.lineTo(peer.x, peer.y);
-      ctx.strokeStyle = peer.type === "relay"
-        ? "rgba(245, 158, 11, 0.3)"
-        : "rgba(34, 211, 238, 0.3)";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // Draw nodes
-    const colors = { self: "#22c55e", peer: "#22d3ee", relay: "#f59e0b" };
-    const sizes = { self: 10, peer: 6, relay: 5 };
-    for (const n of topoNodes) {
-      // Glow for self
-      if (n.type === "self") {
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, 16, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(34, 197, 94, 0.1)";
-        ctx.fill();
-      }
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, sizes[n.type], 0, Math.PI * 2);
-      ctx.fillStyle = colors[n.type];
-      ctx.fill();
-      // Label
-      ctx.font = "10px monospace";
-      ctx.fillStyle = "#94a3b8";
-      ctx.textAlign = "center";
-      ctx.fillText(n.label, n.x, n.y + sizes[n.type] + 14);
-    }
-  }
-
   // ── Init ─────────────────────────────────────────────────────────
-  applyTheme(state.theme);
-
-  // Theme toggle click handler
-  const themeToggle = document.querySelector(".theme-toggle");
-  if (themeToggle) {
-    themeToggle.addEventListener("click", cycleTheme);
-  }
-
-  initTopology();
   render();
-  setInterval(() => { tick(); render(); renderTopology(); }, 1000);
+  setInterval(() => { tick(); render(); }, 1000);
   setInterval(fetchStatus, POLL_MS);
   fetchStatus();
-
-  // Try WebSocket, fall back to polling
-  connectWebSocket();
 })();
