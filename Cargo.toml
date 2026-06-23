@@ -1,6 +1,6 @@
 [package]
 name = "polygone"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 authors = ["Lévy <polygone@proton.me>"]
 description = "Post-quantum ephemeral privacy network — ML-KEM-1024 · Shamir 4-of-7 · AES-256-GCM"

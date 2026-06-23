@@ -3,6 +3,7 @@ name: Polygone CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -51,6 +52,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build release
         run: cargo build --release --all-targets
+      - name: Cache build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: polygone-binaries-${{ matrix.os }}
+          path: |
+            target/release/polygone
+            target/release/polygone-server
+            target/release/polygone-ctl
+            target/release/polygone-install
 
   # ── Test ───────────────────────────────────────────────────────────────────────
   test:
@@ -77,3 +87,52 @@ jobs:
         run: cargo build --release
       - name: Run self-test
         run: ./target/release/polygone test
+
+  # ── Release ─────────────────────────────────────────────────────────────────────
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Ubuntu binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: polygone-binaries-ubuntu-latest
+          path: ./dist/ubuntu
+      - name: Download macOS binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: polygone-binaries-macos-latest
+          path: ./dist/macos
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+      - name: Upload Ubuntu binaries
+        if: steps.create_release.outputs.upload_url != ''
+        uses: actions/upload-release-asset@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/ubuntu/polygone
+          asset_name: polygone-${{ github.ref_name }}-ubuntu-latest
+          asset_content_type: application/octet-stream
+      - name: Upload macOS binaries
+        if: steps.create_release.outputs.upload_url != ''
+        uses: actions/upload-release-asset@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/macos/polygone
+          asset_name: polygone-${{ github.ref_name }}-macos-latest
+          asset_content_type: application/octet-stream
