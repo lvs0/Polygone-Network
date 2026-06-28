@@ -317,6 +317,22 @@
       line-height: 1.6;
     }
 
+    /* ── STATUS BADGES (Phase 2 — honest site) ── */
+    .feat-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 8px;
+      vertical-align: middle;
+      border: 1px solid var(--border);
+      font-weight: normal;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .feat-badge.live { color: var(--green); border-color: var(--green-dim); background: rgba(16, 185, 129, 0.1); }
+    .feat-badge.wip  { color: var(--yellow); border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1); }
+    .feat-badge.plan { color: var(--text-muted); border-color: var(--border); background: var(--surface); }
+
     /* ── INSTALL ── */
     .install-block {
       background: var(--surface);
@@ -573,6 +589,59 @@
      TUI PREVIEW
 ═══════════════════════════════════════════════════════════ -->
 <section>
+  <div class="container reveal"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     PROJECT STATE
+═══════════════════════════════════════════════════════════ -->
+<section id="status">
+  <div class="container reveal">
+    <div class="section-eyebrow">Project state</div>
+    <div class="section-title">What works. What's next.</div>
+    <div class="section-sub" style="margin-bottom: 32px;">
+      Honesty first. We don't sell vaporware. Here is the exact status of the Polygone project today.
+    </div>
+
+    <div class="crypto-grid">
+      <div class="crypto-card">
+        <div class="algo" style="color: var(--green)">✓ Available (MVP)</div>
+        <div class="purpose" style="margin-top: 16px;">
+          <ul style="padding-left: 16px; line-height: 2;">
+            <li><strong>Crypto core:</strong> ML-KEM-1024, AES-256-GCM, Shamir 4/7</li>
+            <li><strong>CLI &amp; TUI:</strong> Minimalist terminal interface</li>
+            <li><strong>Local Demo:</strong> Simulated local routing &amp; fragmentation</li>
+          </ul>
+        </div>
+      </div>
+      <div class="crypto-card">
+        <div class="algo" style="color: var(--yellow)">⟳ Building</div>
+        <div class="purpose" style="margin-top: 16px;">
+          <ul style="padding-left: 16px; line-height: 2;">
+            <li><strong>True P2P:</strong> Multi-node DHT routing over network</li>
+            <li><strong>Distribution:</strong> Zero-friction signed binaries</li>
+            <li><strong>Persistence:</strong> Secure identity storage</li>
+          </ul>
+        </div>
+      </div>
+      <div class="crypto-card">
+        <div class="algo" style="color: var(--text-muted)">○ Planned</div>
+        <div class="purpose" style="margin-top: 16px;">
+          <ul style="padding-left: 16px; line-height: 2;">
+            <li><strong>Services:</strong> Drive, Hide, Compute, AI Runtime</li>
+            <li><strong>Interfaces:</strong> Desktop &amp; Mobile GUI</li>
+            <li><strong>Mesh Network:</strong> LAN discovery &amp; local compute sharing</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     INTERFACE
+═══════════════════════════════════════════════════════════ -->
+<section>
   <div class="container reveal">
     <div class="section-eyebrow">Interface</div>
     <div class="section-title">Arrow-key dashboard</div>
@@ -619,52 +688,52 @@
 ═══════════════════════════════════════════════════════════ -->
 <section>
   <div class="container reveal">
-    <div class="section-eyebrow">Capabilities</div>
-    <div class="section-title">What it does</div>
+    <div class="section-eyebrow">Status</div>
+    <div class="section-title">Status by feature</div>
     <div class="section-sub" style="margin-bottom: 32px;">
-      Not one feature. A complete sovereign compute and messaging stack.
+      Not just a roadmap. A realistic overview of what is currently implemented, in progress, or planned.
     </div>
 
     <div class="features-grid">
       <div class="feature">
         <div class="feature-icon">💬</div>
-        <div class="feature-title">Ephemeral Messaging</div>
+        <div class="feature-title">Ephemeral Messaging <span class="feat-badge wip">Building</span></div>
         <div class="feature-desc">Messages encrypted end-to-end, fragmented through the mesh, TTL-based expiry. No server, no logs, no metadata.</div>
       </div>
       <div class="feature">
         <div class="feature-icon">🔐</div>
-        <div class="feature-title">Post-Quantum Crypto</div>
+        <div class="feature-title">Post-Quantum Crypto <span class="feat-badge live">Live</span></div>
         <div class="feature-desc">ML-KEM-1024 key exchange + ML-DSA-87 signatures. Quantum computers cannot break the encryption.</div>
       </div>
       <div class="feature">
         <div class="feature-icon">🖥️</div>
-        <div class="feature-title">Compute Lending</div>
+        <div class="feature-title">Compute Lending <span class="feat-badge plan">Planned</span></div>
         <div class="feature-desc">Idle GPU/CPU cycles lent to peers. Earn karma. Run distributed LLM inference via the Petals protocol.</div>
       </div>
       <div class="feature">
         <div class="feature-icon">📦</div>
-        <div class="feature-title">Distributed Drive</div>
+        <div class="feature-title">Distributed Drive <span class="feat-badge plan">Planned</span></div>
         <div class="feature-desc">Files encrypted, sharded 4-of-7, distributed across peers. Recover from any 4 of 7. No single point of failure.</div>
       </div>
       <div class="feature">
         <div class="feature-icon">🌐</div>
-        <div class="feature-title">Hide Proxy</div>
+        <div class="feature-title">Hide Proxy <span class="feat-badge plan">Planned</span></div>
         <div class="feature-desc">SOCKS5 proxy through the mesh. No exit node logs. No ISP tracking. Traffic looks like random encrypted bytes.</div>
       </div>
       <div class="feature">
         <div class="feature-icon">🧠</div>
-        <div class="feature-title">AI Orchestrator</div>
+        <div class="feature-title">AI Orchestrator <span class="feat-badge plan">Planned</span></div>
         <div class="feature-desc">Plan-based AI orchestration. Local LLM interface (Ollama, llama.cpp, Notch SLM). SSE events. Extensible service model.</div>
       </div>
       <div class="feature">
         <div class="feature-icon">🔀</div>
-        <div class="feature-title">P2P Transport</div>
+        <div class="feature-title">P2P Transport <span class="feat-badge wip">Building</span></div>
         <div class="feature-desc">libp2p with Kad DHT, GossipSub, Relay, mDNS, AutoNAT, DCUtR. NAT traversal built-in. Zero port forwarding required.</div>
       </div>
       <div class="feature">
         <div class="feature-icon">⏱️</div>
-        <div class="feature-title">TUI Dashboard</div>
-        <div class="feature-desc">ratatui v2. Five tabs. Sparklines. Real-time metrics. Arrow-key navigation. Zero configuration.</div>
+        <div class="feature-title">TUI Dashboard <span class="feat-badge wip">Building</span></div>
+        <div class="feature-desc">ratatui v2. Five tabs. Sparklines. Real-time metrics. Arrow-key navigation. Zero configuration. (WIP: ratatui compile issues, see polygone-app todos.)
       </div>
     </div>
   </div>
@@ -678,7 +747,7 @@
     <div class="section-eyebrow">Get started</div>
     <div class="section-title">Build from source</div>
     <div class="section-sub" style="margin-bottom: 32px;">
-      Requires Rust 1.75+. Builds in ~2 minutes.
+      Currently developer-only. Requires Rust 1.75+. Pre-compiled binaries for regular users coming soon.
     </div>
 
     <div class="install-block">
