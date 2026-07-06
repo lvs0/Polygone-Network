@@ -15,7 +15,7 @@ pub struct WorkVoucher {
     pub units: u64,
     /// Unix timestamp of issuance
     pub issued_at: u64,
-    /// The ML-DSA-87 signature of the above data by the Requester
+    /// The ML-DSA-65 signature of the above data by the Requester
     pub signature: Signature,
 }
 

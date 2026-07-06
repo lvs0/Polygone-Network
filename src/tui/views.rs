@@ -33,26 +33,29 @@ const SLATE_900: Color = Color::Rgb(0x0f, 0x17, 0x2a);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum View {
-    Dashboard = 0,
-    Favorites = 1,
-    Services = 2,
-    Settings = 3,
+    Menu = 0,
+    Dashboard = 1,
+    Favorites = 2,
+    Services = 3,
+    Settings = 4,
 }
 
 impl View {
-    pub const COUNT: usize = 4;
+    pub const COUNT: usize = 5;
 
     pub fn from_idx(idx: usize) -> Self {
-        match idx % 4 {
-            0 => Self::Dashboard,
-            1 => Self::Favorites,
-            2 => Self::Services,
+        match idx % 5 {
+            0 => Self::Menu,
+            1 => Self::Dashboard,
+            2 => Self::Favorites,
+            3 => Self::Services,
             _ => Self::Settings,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::Menu => "Menu",
             Self::Dashboard => "🏠 Accueil",
             Self::Favorites => "⭐ Favoris",
             Self::Services => "🧩 Services",
@@ -68,6 +71,14 @@ impl View {
 // ── Root render dispatcher ────────────────────────────────────────────────────
 
 pub fn render_view(frame: &mut Frame, app: &App) {
+    // Master menu uses its own self-contained layout (no global
+    // tab-bar / activity log strip) so it can act as the landing
+    // screen on first launch.
+    if app.current_view == View::Menu {
+        super::views_menu::render_menu(frame, &app.menu, &app.persistent);
+        return;
+    }
+
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -86,6 +97,7 @@ pub fn render_view(frame: &mut Frame, app: &App) {
         View::Favorites => render_favorites_view(frame, chunks[1], app),
         View::Services => render_services_view(frame, chunks[1], app),
         View::Settings => render_settings_view(frame, chunks[1], app),
+        View::Menu => unreachable!("handled above"),
     }
 
     render_activity_log(frame, chunks[2], app);
@@ -167,13 +179,16 @@ fn render_top_bar(frame: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    // Status dot on the right
-    let dot = Span::styled(" ●", Style::default().fg(GREEN).add_modifier(Modifier::BOLD));
+    // Status dot on the right (mirrors dashboard/settings effective pause)
+    let is_paused_eff = app.paused || app.persistent.pause_active();
+    let dot_color = if is_paused_eff { AMBER } else { GREEN };
+    let dot = Span::styled(" ●", Style::default().fg(dot_color).add_modifier(Modifier::BOLD));
+    let state_label = if is_paused_eff { " Pause" } else { " Actif" };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled("  ", Style::default().fg(SLATE_500)),
             dot,
-            Span::styled(" Actif", Style::default().fg(SLATE_500)),
+            Span::styled(state_label, Style::default().fg(SLATE_500)),
         ])),
         Rect::new(area.width.saturating_sub(16), chunks[1].y + 1, 14, 1),
     );
@@ -202,8 +217,13 @@ fn render_dashboard_view(frame: &mut Frame, area: Rect, app: &App) {
 
     // Spec §4 (Accueil): pseudo + node_id_short, balance, refresh
     // indicator, pause state, shortcuts.
-    let dot_color = if app.paused { AMBER } else { GREEN };
-    let status_label = if app.paused { "EN PAUSE" } else { "ACTIF" };
+    //
+    // Phase 3 : pause is effective when EITHER `[P]` was pressed
+    // in-session OR a menu pause is still scheduled. Honest visual:
+    // the dashboard reflects whatever kept POLY from draining.
+    let is_paused_eff = app.paused || app.persistent.pause_active();
+    let dot_color = if is_paused_eff { AMBER } else { GREEN };
+    let status_label = if is_paused_eff { "EN PAUSE" } else { "ACTIF" };
     let node_lines = vec![
         Line::from(vec![
             Span::styled(" ● ", Style::default().fg(dot_color).add_modifier(Modifier::BOLD)),
@@ -555,6 +575,7 @@ fn render_settings_view(frame: &mut Frame, area: Rect, app: &App) {
 
     // Right: system status
     let running_count = app.modules.iter().filter(|m| m.status == ModuleStatus::Running).count();
+    let is_paused_eff = app.paused || app.persistent.pause_active();
     // Spec §4 (Paramètres) — "Statut du drive : 10GB/∞ (Quota
     // configurable)" and a shortcut to the web admin. The Drive
     // module is the 3rd entry in `ModuleCard::all()`.
@@ -570,8 +591,8 @@ fn render_settings_view(frame: &mut Frame, area: Rect, app: &App) {
         Line::from(""),
         Line::from(vec![
             Span::styled("  Nœud:       ", SLATE_500),
-            Span::styled(if app.paused { "● En pause" } else { "● Actif" },
-                Style::default().fg(if app.paused { AMBER } else { GREEN })),
+            Span::styled(if is_paused_eff { "● En pause" } else { "● Actif" },
+                Style::default().fg(if is_paused_eff { AMBER } else { GREEN })),
         ]),
         Line::from(vec![
             Span::styled("  Modules:    ", SLATE_500),

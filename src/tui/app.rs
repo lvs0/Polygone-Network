@@ -13,6 +13,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 
 use super::views::{render_view, View};
+use super::views_menu;
 use crate::economy::Ticker;
 use crate::identity::{load_or_create as load_identity, Identity};
 
@@ -176,10 +177,22 @@ pub struct App {
     /// Traffic history for sparklines (last 30 samples, each = 1 second)
     pub traffic_history_in: VecDeque<u64>,
     pub traffic_history_out: VecDeque<u64>,
+
+    // ── Phase 3 (ETAPE 3) : landing menu + persistent state.
+    pub menu: views_menu::MenuState,
+    pub persistent: views_menu::PersistentState,
 }
 
 impl App {
     pub fn new() -> Self {
+        // Phase 3 : respect any persisted pause from the previous
+        // session (user set "Pause 60 min" → quit → relaunch). The
+        // `paused` field must mirror `persistent.pause_active()` at
+        // startup, otherwise the heartbeat from `run_tui` bypasses
+        // the pause.
+        let persistent = views_menu::PersistentState::load();
+        let initial_paused = persistent.pause_active();
+
         Self {
             current_view: View::Dashboard,
             should_quit: false,
@@ -199,9 +212,12 @@ impl App {
             economy: Ticker::load(),
             dirty: true,    // Force first draw.
             last_refresh: Instant::now(),
-            paused: false,
+            paused: initial_paused,
             traffic_history_in: VecDeque::with_capacity(30),
             traffic_history_out: VecDeque::with_capacity(30),
+
+            menu: views_menu::MenuState::default(),
+            persistent,
         }
     }
 
@@ -214,6 +230,77 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        // Landing menu (Phase 3) — absorbs all keys except q / Ctrl+C,
+        // which still quit globally. Esc on the main menu goes back to
+        // the dashboard; inside sub-screens it pops one level.
+        if self.current_view == View::Menu {
+            // q / Ctrl+C always quit, even from the menu.
+            if key == KeyCode::Char('q')
+                || (key == KeyCode::Char('c')
+                    && modifiers.contains(KeyModifiers::CONTROL))
+            {
+                let _ = self.persistent.save();
+                self.should_quit = true;
+                return;
+            }
+            let (outcome, effect) = views_menu::handle_menu_key(
+                &mut self.menu,
+                &mut self.persistent,
+                key,
+            );
+            match (outcome, effect) {
+                (
+                    views_menu::MenuOutcome::Stay,
+                    views_menu::MenuSideEffect::CheckedUpdate,
+                ) => {
+                    self.push_msg(MessageKind::Info, "MAJ : v1.0.0 (canal stable)");
+                }
+                (
+                    views_menu::MenuOutcome::Stay,
+                    views_menu::MenuSideEffect::ToggledAutoUpdate(v),
+                ) => {
+                    self.push_msg(
+                        MessageKind::Info,
+                        format!("MAJ auto : {}", if v { "ON" } else { "OFF" }),
+                    );
+                }
+                (
+                    views_menu::MenuOutcome::Stay,
+                    views_menu::MenuSideEffect::PausedFor(until),
+                ) => {
+                    self.push_msg(
+                        MessageKind::Warn,
+                        format!("Nœud en pause jusqu'à {}", until),
+                    );
+                    self.paused = true;
+                    let snap_active_modules = self
+                        .modules
+                        .iter()
+                        .filter(|m| m.status == ModuleStatus::Running)
+                        .count() as u32;
+                    self.economy.set_active(if self.paused { 0 } else { snap_active_modules });
+                }
+                _ => {}
+            }
+            match outcome {
+                views_menu::MenuOutcome::Stay => {
+                    self.dirty = true;
+                    return;
+                }
+                views_menu::MenuOutcome::OpenDashboard => {
+                    self.current_view = View::Dashboard;
+                    self.push_msg(MessageKind::Success, "Dashboard ouvert");
+                    self.dirty = true;
+                    return;
+                }
+                views_menu::MenuOutcome::Quit => {
+                    let _ = self.persistent.save();
+                    self.should_quit = true;
+                    return;
+                }
+            }
+        }
+
         match key {
             KeyCode::Char('q') | KeyCode::Esc => {
                 self.should_quit = true;
@@ -233,9 +320,17 @@ impl App {
                 self.push_msg(MessageKind::Info, "Rafraîchi (POLY drainé)");
                 return;
             }
-            // Spec §4 : `[P]` pause node (suspends all services)
+            // Spec §4 : `[P]` pause node (suspends all services).
+            // Phase 3 : manual un-pause via `[P]` also clears any
+            // persisted scheduled pause so the two sources of truth
+            // stay in sync (no UI deadlock if `pause_until` has
+            // elapsed while the in-memory toggle stayed true).
             KeyCode::Char('p') | KeyCode::Char('P') => {
                 self.paused = !self.paused;
+                if !self.paused {
+                    self.persistent.pause_until = None;
+                    let _ = self.persistent.save();
+                }
                 let state = if self.paused { "en pause" } else { "repris" };
                 self.economy.set_active(if self.paused { 0 } else {
                     self.modules.iter().filter(|m| m.status == ModuleStatus::Running).count() as u32
@@ -352,7 +447,13 @@ pub fn run_tui(initial_view: View) -> io::Result<()> {
             }
         } else {
             // Timeout — tick background work, no event.
-            if !app.paused {
+            // `effective_paused` mirrors both the in-memory `[P]`
+            // toggle (`app.paused`) AND the persisted scheduled pause
+            // (`persistent.pause_active()`). Covering the OR makes
+            // the ticker stop when the user paused-then-quit and
+            // resume normally once `pause_until` elapses.
+            let effective_paused = app.paused || app.persistent.pause_active();
+            if !effective_paused {
                 app.economy.tick();
                 app.stats.uptime_secs = app.stats.uptime_secs.wrapping_add(1);
                 // Simulate traffic variation for sparkline demo

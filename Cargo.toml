@@ -1,6 +1,6 @@
 [package]
 name = "polygone"
-version = "1.0.1"
+version = "2.0.0-rc1"
 edition = "2021"
 authors = ["Lévy <polygone@proton.me>"]
 description = "Post-quantum ephemeral privacy network — ML-KEM-1024 · Shamir 4-of-7 · AES-256-GCM"
@@ -32,7 +32,7 @@ path = "src/bin/polygone-install.rs"
 pqcrypto-mlkem    = "0.1"
 pqcrypto-traits   = "0.3"
 
-# Post-Quantum Signatures (ML-DSA-87, NIST FIPS 204)
+# Post-Quantum Signatures (ML-DSA-65, NIST FIPS 204) — handshake-friendly sweet spot
 pqcrypto-mldsa    = "0.1"
 
 # Symmetric encryption (AES-256-GCM)
@@ -83,7 +83,7 @@ reqwest          = { version = "0.12", features = ["json"] }
 
 # TUI (Ratatui)
 ratatui          = "0.30"
-crossterm        = "0.27"
+crossterm        = "0.29"
 
 # P2P (libp2p)
 libp2p           = { version = "0.53", features = [

@@ -100,6 +100,13 @@
       font-style: italic;
       font-family: Georgia, serif;
     }
+    .logo-tagline-footnote {
+      font-size: 12px;
+      color: var(--accent-bright);
+      margin-top: 4px;
+      font-family: var(--font);
+      letter-spacing: 0.02em;
+    }
 
     .logo-sub {
       font-size: 11px;
@@ -405,6 +412,8 @@
     @media (max-width: 600px) {
       .logo-name { font-size: 28px; letter-spacing: 0.1em; }
       .logo-hex { font-size: 56px; }
+      .logo-tagline { font-size: 15px; }
+      .logo-tagline-footnote { font-size: 10px; letter-spacing: 0; line-height: 1.5; }
       .section-title { font-size: 22px; }
       pre { font-size: 11px; }
     }
@@ -438,12 +447,13 @@
     <div class="logo-hex">⬡</div>
     <div class="logo-name">POLYGONE</div>
     <div class="logo-tagline">L'information n'existe pas. Elle traverse.</div>
+    <div class="logo-tagline-footnote">— aucun fragment reconstructible sans 4-of-7 fragments Shamir pendant le TTL —</div>
     <div class="logo-sub">
       Post-quantum ephemeral transit network · ML-KEM-1024 · Shamir 4-of-7 · AES-256-GCM · BLAKE3
     </div>
 
     <div class="badges">
-      <div class="badge"><div class="badge-dot"></div>v1.0.0</div>
+      <div class="badge"><div class="badge-dot"></div>v2.0.0-rc1</div>
       <div class="badge"><div class="badge-dot purple"></div>Rust 2021</div>
       <div class="badge"><div class="badge-dot yellow"></div>No investors</div>
       <div class="badge"><div class="badge-dot"></div>No token</div>
@@ -473,7 +483,7 @@
       No observer can prove a message existed."
     </blockquote>
     <p class="manifest-source">
-      — Polygone, built by a 14-year-old who refuses to be tracked
+      — MIT License. Pas d'investisseurs. Pas de token. Pas de télémétrie.
     </p>
   </div>
 </section>
@@ -579,17 +589,10 @@
         <div class="algo">libp2p 0.53</div>
         <div class="standard">Kad · GossipSub · Relay</div>
         <div class="purpose">Peer-to-peer transport. NAT traversal. Peer discovery. No central server.</div>
-        <div class="status">In production</div>
+        <div class="status" style="color: var(--yellow);">Wired in, transport simulated</div>
       </div>
     </div>
   </div>
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════
-     TUI PREVIEW
-═══════════════════════════════════════════════════════════ -->
-<section>
-  <div class="container reveal"></div>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════
@@ -733,7 +736,7 @@
       <div class="feature">
         <div class="feature-icon">⏱️</div>
         <div class="feature-title">TUI Dashboard <span class="feat-badge wip">Building</span></div>
-        <div class="feature-desc">ratatui v2. Five tabs. Sparklines. Real-time metrics. Arrow-key navigation. Zero configuration. (WIP: ratatui compile issues, see polygone-app todos.)
+        <div class="feature-desc">ratatui v2. Five tabs. Sparklines. Real-time metrics. Arrow-key navigation. Zero configuration.
       </div>
     </div>
   </div>
@@ -794,7 +797,7 @@
     <div class="logo-name" style="font-size: 20px; margin-top: 8px;">POLYGONE</div>
     <div class="footer-license">
       MIT License · No investors · No token · No telemetry<br>
-      Built by <a href="https://github.com/lvs0" target="_blank">lvs0</a> · 2024–2026
+      Built with care by the Polygone community · 2024–2026
     </div>
     <div class="footer-links">
       <a href="https://github.com/lvs0/Polygone-Network" target="_blank">GitHub</a>

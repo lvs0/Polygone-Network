@@ -397,11 +397,15 @@ fn main() -> io::Result<()> {
         }
         Cmd::Menu { tab } => {
             print_splash();
+            // Default landing on `polygone` with no `--tab` is now the
+            // master menu (Phase 3). `--tab 1..=4` jumps straight to a
+            // dashboard tab. `--tab 0` (or unset) lands on the menu.
             let initial_view = match tab {
+                1 => tui::View::Dashboard,
                 2 => tui::View::Favorites,
                 3 => tui::View::Services,
                 4 => tui::View::Settings,
-                _ => tui::View::Dashboard,
+                _ => tui::View::Menu,
             };
             tui::run_tui(initial_view)
         }

@@ -1,0 +1,15 @@
+# RFC 9116 — security.txt for Polygone
+# Servi à /.well-known/security.txt par polygone-server statique.
+# Document associé : LEGAL.md §6 Disclosure responsable.
+# Date : 2026-06-29.
+# Re-signer au moins annuellement (champ Expires).
+
+Contact: mailto:security@polygone.network
+Contact: pgp fp <À REMPLIR — fingerprint PGP du contact sécurité>
+Encryption: https://polygone.network/pgp/polygone-security.asc
+Expires: 20271231T235959Z
+Preferred-Languages: fr, en
+Canonical: https://polygone.network/.well-known/security.txt
+Policy: https://polygone.network/LEGAL.md#disclosure-responsable--vulnrabilits
+Acknowledgments: https://polygone.network/security/halloffame
+Hiring: https://polygone.network/security/hiring

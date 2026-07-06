@@ -1,155 +1,99 @@
 # ⬡ Polygone
 
-> *L'information n'existe pas. Elle traverse.*
+> **L'information n'existe pas. Elle traverse.**
 
-**Post-quantum ephemeral transit network.**
-ML-KEM-1024 · AES-256-GCM · Shamir 4-of-7 · BLAKE3.
-No server sees the message. No observer can prove a message existed.
+Post-quantum ephemeral transit network.
+**ML-KEM-1024** · **ML-DSA-65** · **AES-256-GCM** · **Shamir 4-of-7** · **BLAKE3**.
 
-```
-╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║          ⬡  P O L Y G O N E                                ║
-║                                                              ║
-║   L'information n'existe pas.                                ║
-║   Elle traverse.                                             ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝
-```
-
-**Status:** v1.0.0 · MIT License · No investors · No token · No telemetry
-**Build:** ![CI](https://github.com/lvs0/Polygone-Network/actions/workflows/ci.yml/badge.svg)
-**Source:** `https://github.com/lvs0/Polygone-Network`
+**Version : v2.0.0-rc1** · Posture `honesty-first` · MIT License.
+Pas de token. Pas de télémétrie. Pas d'investisseurs.
 
 ---
 
-## What it is
+## Qu'est-ce que ce produit fait (vraiment)
 
-Polygone is **infrastructure sovereignty** — not a chat app, not a VPN, not a blockchain.
+Deux choses :
 
-It is a P2P network where messages flow through nodes without residing in any node.
-Every message is encrypted post-quantum (ML-KEM-1024), fragmented into 7 shares
-(Shamir 4-of-7), and only 4 are needed to reconstruct. The relay knows nothing —
-not the content, not the sender, not the receiver. Observers cannot prove a message
-existed.
+1. **Envoyer un message** sans que personne d'autre ne le sache traversé.
+2. **Envoyer un fichier** sans que personne d'autre ne le sache traversé.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        POLYGONE                             │
-│                                                             │
-│   Alice ──► [ML-KEM-1024] ──► AES-256-GCM ──► Fragment 7   │
-│              Key exchange     Encryption       Shamir SSS  │
-│                         │                                   │
-│                    Relay ──► [Fragment 1] ──► Bob          │
-│                    (sees nothing)         ──► [Fragment 2]  │
-│                                            ──► [Fragment 3] │
-│                                            ──► ...          │
-│                                                             │
-│   4 of 7 fragments → reconstruct the original message      │
-│   Relay: zero knowledge. Observers: zero proof.           │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## What it is NOT
-
-| Not this | Because |
-|---|---|
-| Blockchain | No consensus, no mining, no token |
-| VPN | No centralized tunnel, no trusted provider |
-| Signal | Not just encryption — it's transit infrastructure |
-| "Crypto" in the speculative sense | No ICO, no investors, no token |
+C'est tout. v2.0.0-rc1 livre ces deux choses, point.
 
 ---
 
-## Architecture
+## Qu'est-ce que ce produit ne fait PAS
 
-```
-polygone (CLI)
-├── crypto/         ML-KEM-1024, ML-DSA-87, AES-256-GCM, Shamir 4/7, BLAKE3
-├── network/        P2pNode + PolygoneBehaviour (libp2p 0.53)
-│                    Kad · GossipSub · Req-Resp · mDNS · Relay · AutoNAT · DCUtR · Ping
-├── protocol/       TransitState FSM: Created → FragDistributed → PartialReception → Reassembling → Delivered → Expired
-├── services/       Service trait (Phase · Health · Metrics)
-├── tui/             ratatui v2: Dashboard · Favorites · Services · Composer · Settings
-├── web/             serve() + serve_live() HTTP server · SSE events · static dashboard
-├── ipc/             Unix socket client/daemon
-├── computer/        Orchestrator: Plan + EventBus + SSE (the brain)
-└── compute/         IdleDetector · compute lending · Petals protocol
-```
+| Pas dans v2.0.0-rc1 | Pourquoi |
+|----------------------|----------|
+| Browser GUI | La TUI suffit. Pas d'ambition UX. |
+| IA locale / Petals | Pas dans scope. Voir [`STAGING.md`](./STAGING.md). |
+| Tor replacement | Polygone-hide pas livré. Voir [`STAGING.md`](./STAGING.md). |
+| Cloud sync | Privacy-by-default. |
+| Compte utilisateur | Privacy-by-default. |
+| Subscription / token | MIT License, $0, forever. |
 
 ---
 
 ## Quickstart
 
 ```bash
-# Build (requires Rust 1.75+)
 cargo build --release
-
-# Interactive dashboard (TUI)
 ./target/release/polygone
-
-# Web dashboard
-./target/release/polygone serve --bind 127.0.0.1:8080
-# → open http://127.0.0.1:8080
-
-# Non-interactive status
-./target/release/polygone status
-
-# Run self-test suite
-./target/release/polygone test
-
-# Send a message (Alice → Bob)
-./target/release/polygone send "Hello world" --generate
-./target/release/polygone send "Hello world" --key <bob-public-key-hex>
-
-# Receive a message (Bob)
-./target/release/polygone receive fragments.bin --key <bob-secret-key-hex>
-
-# IPC client
-./target/release/polygone-ctl status
 ```
 
----
+TUI actuelle : 4 onglets (Phase 3). Cible 2 onglets au v2.0.0-final lorsque **D1** GO — voir [`DECISIONS.md`](./DECISIONS.md).
 
-## Cryptographic Stack
-
-| Layer | Algorithm | Standard |
-|---|---|---|
-| Key exchange | **ML-KEM-1024** (Kyber) | NIST FIPS 203 |
-| Signatures | **ML-DSA-87** (Dilithium) | NIST FIPS 204 |
-| Encryption | **AES-256-GCM** | NIST SP 800-38D |
-| Hash / KDF | **BLAKE3** | - |
-| Secret sharing | **Shamir 4-of-7** | - |
-
-The relay **never sees plaintext**. It **never sees keys**. It only forwards
-opaque encrypted fragments.
+Pas de YAML. Pas de `config.toml`. Pas de provider à choisir.
 
 ---
 
-## Features
+## Lisez ceci en premier
 
-- **TUI Dashboard** — 5 tabs with sparklines, gauges, real-time metrics
-- **Web Dashboard** — `/api/status`, `/api/peers`, topology visualization
-- **Compute Lending** — IdleDetector finds idle GPU/CPU cycles
-- **Petals Protocol** — Distributed LLM inference across peer shards
-- **Drive** — Encrypted, sharded, distributed file storage
-- **Hide** — SOCKS5 proxy through the mesh (no logs, no exit node tracking)
-- **Ephemeral Messaging** — No server, no logs, TTL-based expiry
-- **Post-Quantum Everything** — Quantum computers can't break ML-KEM-1024
+1. [`PHILOSOPHY.md`](./PHILOSOPHY.md) — les 5 axiomes. Poétique **et** technique.
+2. [`THREAT_MODEL.md`](./THREAT_MODEL.md) — ce que Polygone protège, ce qu'il ne protège PAS.
+3. [`LEGAL.md`](./LEGAL.md) — subpoena, kill-switch, pas de garantie.
+4. [`COUNCIL_DECISIONS.md`](./COUNCIL_DECISIONS.md) — pourquoi chaque choix existe.
+5. [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) — pourquoi l'ambre, pourquoi le suspense.
 
 ---
 
-## Documentation
+## Statut honnête
 
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — Technical architecture, module layout, threading model
-- [`ECOSYSTEM.md`](./ECOSYSTEM.md) — Service registry, data flows, contracts
-- [`POLYGONE-SPEC-1.0.0.txt`](./POLYGONE-SPEC-1.0.0.txt) — Full specification
-- [`POLYGONE-SPEC-AUDIT.md`](./POLYGONE-SPEC-AUDIT.md) — Security audit
-- [`IMPROVEMENT_PLAN.md`](./IMPROVEMENT_PLAN.md) — Roadmap to v2.0
+- `cargo test` → ✅
+- `cargo build` → ✅
+- Audit externe → **NON RÉALISÉ** (cf. `LEGAL.md` §5)
+- Production-grade P2P → ⚠️ wired in, transport simulé
+- Documentation complète → 🟡 en cours (S2 livrable threat model)
 
 ---
 
-## License
+## Pas de tagline sans footnote
 
-MIT — Free as in freedom. No investors. No token. No telemetry.
-Built by a 14-year-old who refuses to be tracked.
+> *« L'information n'existe pas. Elle traverse. »*
+
+Signifie littéralement : aucun fragment reconstructible sans réunion de
+4-of-7 fragments Shamir pendant le TTL. C'est une promesse **de design**,
+pas une déclaration métaphysique.
+
+Cf. [`PHILOSOPHY.md`](./PHILOSOPHY.md) Axiome 1.
+
+---
+
+## Statut par service
+
+| Service | Statut |
+|---------|--------|
+| `msg`   | 🟢 **Live** |
+| `drive` | 🟢 **Live** |
+| 6 autres| ⚪ [`STAGING.md`](./STAGING.md) |
+
+---
+
+## Contribution
+
+Voir [`LEGAL.md`](./LEGAL.md) §6 + [`.well-known/security.txt`](./.well-known/security.txt)
+(PGP-signed disclosure).
+
+---
+
+*MIT License · v2.0.0-rc1 · Conseil des Sages 2026-06-29 · Posture « honesty-first ».*

@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod views;
+pub mod views_menu;
 pub mod widgets;
 
 pub use app::{App, ModuleCard, ModuleStatus, run_tui};
