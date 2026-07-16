@@ -1,0 +1,27 @@
+[package]
+name = "polygoned"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Lightweight resource allocation daemon for Polygone P2P network"
+
+[[bin]]
+name = "polygoned"
+path = "src/main.rs"
+
+[dependencies]
+sysinfo = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+env_logger = "0.11"
+anyhow = { workspace = true }
+clap = { workspace = true }
+dirs = { workspace = true }
+ctrlc = "3"
+
+[dev-dependencies]
+tokio = { workspace = true }
