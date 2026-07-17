@@ -5,14 +5,11 @@
 //! This daemon runs in the background, watches idle resources,
 //! and allocates them to the Polygone network — without ever
 //! disturbing the operator. Wozniak simplicity. Jobs discipline.
-//!
-//! Usage:
-//!   polyGONed              — start daemon (background)
-//!   polyGONed status       — show current allocation
-//!   polyGONed stop         — shrink to zero and exit cleanly
-//!   polyGONed --dry-run    — print what would happen without acting
 
 mod allocator;
+mod bandwidth;
+mod cpu;
+mod gpu;
 mod socket;
 mod system;
 
@@ -26,7 +23,7 @@ static RUNNING: AtomicBool = AtomicBool::new(true);
 #[derive(Parser, Debug)]
 #[command(
     name = "polygoned",
-    version = "0.1.0",
+    version = "0.2.0",
     about = "Lightweight resource daemon for Polygone P2P",
     long_about = None,
 )]
@@ -39,6 +36,9 @@ struct Args {
 
     #[arg(long, help = "Tick interval in seconds (default: 5)")]
     tick_secs: Option<u64>,
+
+    #[arg(long, help = "CPU allocation ratio 0.0-1.0 (default: auto)")]
+    cpu_ratio: Option<f64>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -53,22 +53,22 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    // Lightweight logger — no external setup needed
     env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info")
-    ).format(|buf, record| {
+        env_logger::Env::default().default_filter_or("info"),
+    )
+    .format(|buf, record| {
         use std::io::Write;
-        let t = chrono_lite();
-        writeln!(buf, "[polygoned] {} | {}", t, record.args())
-    }).init();
+        writeln!(buf, "[polygoned] {} | {}", chrono_lite(), record.args())
+    })
+    .init();
 
     let args = Args::parse();
 
-    // Handle CLI commands (status / stop) — don't daemonize for these
+    // Handle CLI commands (status / stop)
     if let Some(cmd) = &args.command {
         match cmd {
-            Commands::Status => cmd_status()?,
-            Commands::Stop => cmd_stop()?,
+            Commands::Status => { cmd_status()?; }
+            Commands::Stop   => { cmd_stop()?; }
         }
         return Ok(());
     }
@@ -79,80 +79,103 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    log::info!("polygoned v0.1.0 — starting");
-    log::info!("polygoned: dry_run={}", args.dry_run);
+    // ── CPU setup — detect cores and apply real affinity ───────────────
+    cpu::init();
+    let total_cores = cpu::cpu_cores();
+    log::info!("polygoned: detected {} logical CPU cores", total_cores);
 
-    // Ensure ~/.polygone/ exists
+    // Decide CPU allocation based on RAM-derived ratio or explicit override
+    let cpu_target_ratio = args.cpu_ratio.unwrap_or(0.5);
+    let cpu_alloc = cpu::allocate(cpu_target_ratio);
+
+    if !args.dry_run {
+        // Apply real OS affinity + nice to this process
+        if let Err(e) = cpu::apply_thread_affinity(&cpu_alloc.affinity_mask) {
+            log::warn!("polygoned: could not set CPU affinity: {}", e);
+        } else {
+            log::info!("polygoned: CPU affinity set — {} cores allocated, nice={}",
+                cpu_alloc.allocated, cpu_alloc.nice);
+        }
+        if let Err(e) = cpu::apply_nice(cpu_alloc.nice) {
+            log::warn!("polygoned: could not set nice level: {}", e);
+        }
+    } else {
+        log::info!("polygoned: dry-run — would set CPU affinity to {} cores (nice={})",
+            cpu_alloc.allocated, cpu_alloc.nice);
+    }
+
+    log::info!("polygoned v0.2.0 — starting (dry_run={})", args.dry_run);
+
     socket::ensure_dir()?;
 
-    // Catch Ctrl+C for clean shutdown — clone the AtomicBool into the handler
+    // Ctrl+C clean shutdown
     {
         ctrlc::set_handler(move || {
-            log::info!("polygoned: received SIGINT, shrinking and exiting...");
+            log::info!("polygoned: SIGINT — shrinking and exiting...");
             RUNNING.store(false, Ordering::SeqCst);
         }).ok();
     }
 
-    // Tick interval
     let tick = Duration::from_secs(args.tick_secs.unwrap_or(5));
 
-    // Init system once
     system::refresh();
-
-    // Init allocator
     let mut allocator = allocator::Allocator::new();
+    let mut bw_monitor = bandwidth::Monitor::new(None);
+    let mut gpu_alloc = gpu::allocate(None);
 
-    // Initial allocation
     let snap = system::SystemSnapshot::capture();
-    let alloc = allocator.tick(&snap);
+    let ram_alloc = allocator.tick(&snap);
+    let bw = bw_monitor.tick();
+    bw_monitor.set_allocated(ram_alloc.bandwidth_mbps);
+    gpu_alloc = gpu::allocate(None);
 
     if !args.dry_run {
-        if let Err(e) = socket::notify_allocation(&alloc, allocator.is_shrinking()) {
-            log::warn!("polygoned: could not notify initial allocation: {}", e);
-        }
-        log_alloc(&alloc, &snap, "init");
+        socket::notify_allocation(&ram_alloc, allocator.is_shrinking())?;
+        log_alloc(&ram_alloc, &snap, &cpu_alloc, &bw, &gpu_alloc, allocator.is_shrinking());
     } else {
-        log_alloc(&alloc, &snap, "init (dry-run)");
+        log_alloc(&ram_alloc, &snap, &cpu_alloc, &bw, &gpu_alloc, allocator.is_shrinking());
     }
 
-    // Main loop
     let mut tick_count = 0u64;
     while RUNNING.load(Ordering::SeqCst) {
         tick_count += 1;
         std::thread::sleep(tick);
 
         let snap = system::SystemSnapshot::capture();
-        let alloc = allocator.tick(&snap);
+        let ram_alloc = allocator.tick(&snap);
         let shrinking = allocator.is_shrinking();
+        let bw = bw_monitor.tick();
+        bw_monitor.set_allocated(ram_alloc.bandwidth_mbps);
+        gpu_alloc = gpu::allocate(None);
+
+        // Recompute CPU allocation each tick (ratio stays stable but cores adapt)
+        let cpu_alloc = cpu::allocate(cpu_target_ratio);
 
         if !args.dry_run {
-            if let Err(e) = socket::notify_allocation(&alloc, shrinking) {
-                log::debug!("polygoned: socket write: {}", e);
-            }
+            socket::notify_allocation(&ram_alloc, shrinking)?;
         }
 
-        log_alloc(&alloc, &snap, if shrinking { "shrink" } else { "active" });
+        log_alloc(&ram_alloc, &snap, &cpu_alloc, &bw, &gpu_alloc, shrinking);
 
-        // Every 5 minutes: log a clean status line (for cron/infra checks)
         if tick_count % 60 == 0 {
-            let status = format!(
-                "ram={:.1}GB/{:.1}GB cpu={:.0}% alloc={:.1}GB {}",
+            log::info!(
+                "polygoned: status | ram={:.1}GB/{:.1}GB cpu={:.0}%({}) alloc={:.1}GB {}",
                 snap.used_ram_gb, snap.total_ram_gb, snap.cpu_usage_pct,
-                alloc.ram_gb(), if shrinking { "SHRINKING" } else { "active" }
+                cpu_alloc.allocated, ram_alloc.ram_gb(),
+                if shrinking { "SHRINKING" } else { "active" }
             );
-            log::info!("polygoned: {}", status);
         }
     }
 
-    // Clean shutdown: shrink to zero
+    // Clean shutdown
     if !args.dry_run {
-        log::info!("polygoned: final shutdown — shrinking to zero");
+        log::info!("polygoned: final shutdown — shrinking RAM allocation to zero");
         allocator.shrink_to_zero();
         let final_alloc = allocator.current();
-        if let Err(e) = socket::notify_shrink("shutdown") {
-            log::warn!("polygoned: final shrink notify: {}", e);
-        }
-        log_alloc(&final_alloc, &snap, "shutdown");
+        let bw = bw_monitor.tick();
+        let gpu_alloc = gpu::allocate(None);
+        socket::notify_shrink("shutdown")?;
+        log_alloc(&final_alloc, &snap, &cpu_alloc, &bw, &gpu_alloc, false);
     }
 
     log::info!("polygoned: exited cleanly");
@@ -160,13 +183,25 @@ fn main() -> Result<()> {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-fn log_alloc(alloc: &allocator::Allocation, snap: &system::SystemSnapshot, state: &str) {
+fn log_alloc(
+    alloc: &allocator::Allocation,
+    snap: &system::SystemSnapshot,
+    cpu: &cpu::CpuAllocation,
+    bw: &bandwidth::BandwidthAllocation,
+    gpu: &gpu::GpuAllocation,
+    shrinking: bool,
+) {
     let headroom = snap.free_ram_gb - alloc.ram_gb();
+    let state = if shrinking { "SHRINK" } else { "active" };
     log::info!(
-        "RAM:{:.1}/{:.1}GB CPU:{:.0}% Alloc:{:.1}GB headroom:{:.1}GB [{}]",
-        snap.used_ram_gb, snap.total_ram_gb, snap.cpu_usage_pct,
-        alloc.ram_gb(), headroom, state,
+        "RAM:{:.1}/{:.1}GB CPU:{:.0}%({}/{} cores) BW:{}Mbps Alloc:{:.1}GB bw_alloc:{}Mbps GPU:{:.0}MiB alloc:{:.0}MiB [{}]",
+        snap.used_ram_gb, snap.total_ram_gb,
+        snap.cpu_usage_pct,
+        cpu.allocated, cpu.total,
+        bw.total_mbps(),
+        alloc.ram_gb(), bw.alloc_mbps,
+        gpu.total_mb, gpu.allocated_mb,
+        state,
     );
 }
 
@@ -174,27 +209,36 @@ fn cmd_status() -> Result<()> {
     system::refresh();
     let snap = system::SystemSnapshot::capture();
     let alloc = allocator::Allocator::new();
+
+    cpu::init();
+    let total_cores = cpu::cpu_cores();
+    let cpu_alloc = cpu::allocate(0.5); // status uses a default ratio
     let current = alloc.current();
+    let gpu_alloc = gpu::allocate(None);
 
     println!();
-    println!("  polyGONED — Status");
-    println!("  ─────────────────────────────");
-    println!("  System RAM : {:.1} GB total  |  {:.1} GB free  |  {:.1} GB used",
+    println!("  ⬡ polyGONED — Status");
+    println!("  ──────────────────────────────────────────");
+    println!("  System RAM  : {:.1} GB total  |  {:.1} GB free  |  {:.1} GB used",
         snap.total_ram_gb, snap.free_ram_gb, snap.used_ram_gb);
-    println!("  CPU cores  : {}  |  {:.0}% usage", snap.cpu_cores, snap.cpu_usage_pct);
-    println!("  User active: {}", if snap.user_active { "yes" } else { "no" });
+    println!("  CPU cores   : {} total  |  {:.0}% usage  |  {} cores allocated",
+        total_cores, snap.cpu_usage_pct, cpu_alloc.allocated);
+    println!("  CPU nice    : {}", cpu_alloc.nice);
+    println!("  User active : {}", if snap.user_active { "yes" } else { "no" });
     println!();
-    println!("  Current allocation : {:.1} GB RAM  |  {} Mbps bandwidth",
-        current.ram_gb(), current.bandwidth_mbps);
-    println!("  Config safety margin: {:.1} GB",
+    println!("  Current RAM allocation  : {:.1} GB", current.ram_gb());
+    println!("  Current bandwidth est.  : {} Mbps", current.bandwidth_mbps);
+    println!("  GPU memory              : {} MiB total | {} MiB used | {} MiB free",
+        gpu_alloc.total_mb, gpu_alloc.used_mb, gpu_alloc.free_mb);
+    println!("  GPU allocated to network: {} MiB", gpu_alloc.allocated_mb);
+    println!("  Safety margin          : {:.1} GB",
         alloc.config().safety_margin_bytes as f64 / 1_073_741_824.0);
-    println!("  Config max ratio   : {:.0}%",
-        alloc.config().max_alloc_ratio * 100.0);
-    println!("  Config ceiling     : {:.1} GB",
+    println!("  Max alloc ratio        : {:.0}%", alloc.config().max_alloc_ratio * 100.0);
+    println!("  Ceiling               : {:.1} GB",
         alloc.config().max_alloc_bytes as f64 / 1_073_741_824.0);
     println!();
-    println!("  Socket  : ~/.polygone/daemon.sock");
-    println!("  Version : 0.1.0");
+    println!("  Socket : ~/.polygone/daemon.sock");
+    println!("  Version: 0.2.0");
     println!();
     Ok(())
 }
@@ -204,7 +248,7 @@ fn cmd_stop() -> Result<()> {
     alloc.shrink_to_zero();
     let a = alloc.current();
     socket::notify_shrink("user_requested")?;
-    println!("polygoned: allocation shrunk to {:.1} GB, socket notified. Exiting.", a.ram_gb());
+    println!("polygoned: RAM allocation → {:.1} GB, notified. Exiting.", a.ram_gb());
     Ok(())
 }
 
@@ -213,13 +257,13 @@ fn gen_config_file() -> Result<()> {
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     let path = home.join(".polygone").join("daemon.toml");
     let content = format!(
-        "# polyGONED config — {}\n\
-        # Edit and place at ~/.polygone/daemon.toml\n\n\
-        safety_margin_gb = {:.1}\n\
-        max_alloc_ratio  = {:.2}\n\
-        min_alloc_mb     = {}\n\
-        max_alloc_gb     = {:.1}\n\
-        cpu_ceiling_pct  = {:.0}\n",
+        "# polyGONED config — {}\\\n\
+         # Place at ~/.polygone/daemon.toml\\n\\n\\\n\
+         safety_margin_gb = {:.1}\\\n\
+         max_alloc_ratio  = {:.2}\\\n\
+         min_alloc_mb     = {}\\\n\
+         max_alloc_gb     = {:.1}\\\n\
+         cpu_ceiling_pct  = {:.0}\\\n",
         chrono_lite(),
         cfg.safety_margin_bytes as f64 / 1_073_741_824.0,
         cfg.max_alloc_ratio,
@@ -228,17 +272,17 @@ fn gen_config_file() -> Result<()> {
         cfg.cpu_ceiling_pct,
     );
     std::fs::write(&path, &content)?;
-    println!("Config written to {}\n{}", path.display(), content);
+    println!("Config written to {}\\n{}", path.display(), content);
     Ok(())
 }
 
 fn chrono_lite() -> String {
-    let (h, m, s) = {
-        let t = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap();
-        let s = (t.as_secs() % 86400) as u32;
-        ((s / 3600) % 24, (s / 60) % 60, s % 60)
-    };
-    format!("{:02}:{:02}:{:02}", h, m, s)
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    let s = (t.as_secs() % 86400) as u32;
+    let h = (s / 3600) % 24;
+    let m = (s / 60) % 60;
+    let sec = s % 60;
+    format!("{:02}:{:02}:{:02}", h, m, sec)
 }
