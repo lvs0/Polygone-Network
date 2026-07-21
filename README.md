@@ -96,4 +96,4 @@ Voir [`LEGAL.md`](./LEGAL.md) §6 + [`.well-known/security.txt`](./.well-known/s
 
 ---
 
-*MIT License · v2.0.0-rc1 · Conseil des Sages 2026-06-29 · Posture « honesty-first ».*
+*MIT License · v2.0.0-rc1 · Hope · Posture « honesty-first ».*
