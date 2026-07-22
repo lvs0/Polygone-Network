@@ -10,7 +10,7 @@ use std::fmt;
 
 /// A peer identifier — opaque random bytes, 16 bytes long.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct NodeId([u8; 16]);
+pub struct NodeId(pub [u8; 16]);
 
 /// A session identifier — opaque random bytes, 16 bytes long.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

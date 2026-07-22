@@ -98,10 +98,8 @@ impl Monitor {
             .max(0.001);
 
         // Bytes/sec → Mbps (÷ 1_000_000, then × 8 for Mb)
-        let rx_bps = (rx.saturating_sub(self.last_rx)) as f64 / elapsed;
-        let tx_bps = (tx.saturating_sub(self.last_tx)) as f64 / elapsed;
-        let rx_mbps_instant = rx_bps * 8.0 / 1_000_000.0;
-        let tx_mbps_instant = tx_bps * 8.0 / 1_000_000.0;
+        let _rx_bps = (rx.saturating_sub(self.last_rx)) as f64 / elapsed;
+        let _tx_bps = (tx.saturating_sub(self.last_tx)) as f64 / elapsed;
 
         // Store absolute counter snapshot (for delta computation next tick)
         self.history.push_back(Sample { rx_bytes: rx, tx_bytes: tx, elapsed_secs: elapsed });
