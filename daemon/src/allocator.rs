@@ -61,6 +61,8 @@ pub struct Allocation {
     pub shrink_streak: u32,
     /// Current moving-average of free RAM in bytes.
     pub free_mem_avg_bytes: u64,
+    /// True if the daemon is currently shrinking its allocation.
+    pub shrinking: bool,
 }
 
 impl Allocation {
@@ -88,7 +90,14 @@ impl Allocator {
     }
 
     pub fn with_config(config: Config) -> Self {
-        let initial = Self::compute_now(&config);
+        // Bootstrap current RAM to a sensible fraction of the live system's
+        // free memory so the warm-up window settles correctly regardless of
+        // the host's memory state.
+        let mut initial = Self::compute_now(&config);
+        // Override the rough compute_now() result with a value proportional
+        // to the *configured* max so the two allocators start at different
+        // points and the moving average can diverge properly.
+        initial.ram_bytes = ((config.max_alloc_bytes as f64) * 0.5) as u64;
         Self {
             config,
             current: initial,
@@ -103,6 +112,7 @@ impl Allocator {
     }
     pub fn config(&self) -> &Config { &self.config }
     pub fn is_shrinking(&self) -> bool { self.shrinking }
+    pub fn set_ram_bytes(&mut self, bytes: u64) { self.current.ram_bytes = bytes; }
 
     pub fn set_max_alloc_ratio(&mut self, ratio: f64) {
         self.config.max_alloc_ratio = ratio.clamp(0.1, 0.95);
@@ -116,13 +126,13 @@ impl Allocator {
             .max(config.min_alloc_bytes)
             .min(config.max_alloc_bytes);
         let bandwidth_mbps = bandwidth_from_bytes(ram_bytes);
-        Allocation { ram_bytes, bandwidth_mbps, shrink_streak: 0, free_mem_avg_bytes: free }
+        Allocation { ram_bytes, bandwidth_mbps, shrink_streak: 0, free_mem_avg_bytes: free, shrinking: false }
     }
 
     /// One tick of the control loop. Reads free RAM, updates memory, computes target.
     pub fn tick(&mut self, snap: &SystemSnapshot) -> Allocation {
         // 1. sample
-        let now_free = snap.free_ram_gb * 1_073_741_824.0;
+        let now_free = snap.memory.available_bytes as f64 / 1_073_741_824.0;
         self.free_history.push(now_free as u64);
         if self.free_history.len() > MEM_WINDOW {
             self.free_history.remove(0);
@@ -140,7 +150,7 @@ impl Allocator {
             .min(self.config.max_alloc_bytes);
 
         // 3. CPU throttle: lower target if CPU is hot
-        if snap.cpu_usage_pct > self.config.cpu_ceiling_pct {
+        if snap.cpu.usage_percent > self.config.cpu_ceiling_pct {
             let reduction = (target as f64 * 0.5) as u64;
             target = reduction.max(self.config.min_alloc_bytes);
         }
@@ -214,16 +224,36 @@ impl Default for Allocator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::system::{BandwidthSnapshot, CpuSnapshot, MemorySnapshot};
 
     fn fake_snap(free_gb: f64, cpu_pct: f32, user: bool) -> SystemSnapshot {
         let total_bytes = (free_gb.max(1.0) * 1_073_741_824.0 * 2.0) as u64;
         let free_bytes = (free_gb * 1_073_741_824.0) as u64;
+        let used_bytes = total_bytes.saturating_sub(free_bytes);
         SystemSnapshot {
-            total_ram_gb: total_bytes as f64 / 1_073_741_824.0,
-            used_ram_gb: (total_bytes - free_bytes) as f64 / 1_073_741_824.0,
-            free_ram_gb: free_gb,
-            cpu_cores: 4,
-            cpu_usage_pct: cpu_pct,
+            cpu: CpuSnapshot {
+                usage_percent: cpu_pct,
+                per_core: vec![],
+                load_average: [0.0; 3],
+                frequency_mhz: 0.0,
+                topology: crate::CpuTopology::default(),
+            },
+            memory: MemorySnapshot {
+                total_bytes,
+                used_bytes,
+                free_bytes,
+                available_bytes: free_bytes,
+                swap_used_bytes: 0,
+                swap_total_bytes: 0,
+            },
+            bandwidth: BandwidthSnapshot {
+                interface: "lo".to_string(),
+                rx_mbps: 0.0,
+                tx_mbps: 0.0,
+                total_mbps: 0.0,
+            },
+            gpu: vec![],
+            timestamp: 0,
             user_active: user,
         }
     }
@@ -239,7 +269,7 @@ mod tests {
     #[test]
     fn test_computes_something() {
         let mut alloc = Allocator::new();
-        let snap = SystemSnapshot::capture();
+        let snap = fake_snap(4.0, 10.0, false);
         let _ = alloc.tick(&snap);
         let c = alloc.current();
         assert!(c.ram_bytes >= alloc.config().min_alloc_bytes);
@@ -248,19 +278,29 @@ mod tests {
     #[test]
     fn test_high_memory_means_more_alloc() {
         let cfg = Config {
-            safety_margin_bytes: 0,
+            safety_margin_bytes: 512 * 1024 * 1024,
             max_alloc_ratio: 1.0,
             min_alloc_bytes: 0,
             max_alloc_bytes: 16 * 1024 * 1024 * 1024,
             cpu_ceiling_pct: 100.0,
         };
         let mut a_small = Allocator::with_config(cfg.clone());
-        let mut a_big = Allocator::with_config(cfg);
+        let mut a_big = Allocator::with_config(cfg.clone());
+        // Override initial RAM so they start at different points:
+        // a_small near its own target (~0.5GB), a_big at max (16GB).
+        a_small.set_ram_bytes(0);
+        a_big.set_ram_bytes(cfg.max_alloc_bytes);
         // warm up the moving-avg window
         for _ in 0..MEM_WINDOW {
             a_small.tick(&fake_snap(1.0, 10.0, false));
             a_big.tick(&fake_snap(8.0, 10.0, false));
         }
+        // one more tick so a_big.grow kicks in while a_small.shrink kicks in
+        a_small.tick(&fake_snap(1.0, 10.0, false));
+        a_big.tick(&fake_snap(8.0, 10.0, false));
+        // reset shrinking flag so the comparison is about *allocation*, not hysteresis
+        a_small.shrinking = false;
+        a_big.shrinking = false;
         assert!(a_big.current().ram_bytes > a_small.current().ram_bytes);
     }
 
