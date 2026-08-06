@@ -102,6 +102,8 @@ pub fn render_help() -> String {
     s.push_str("  :recevoir           reconstruire + déchiffrer (4/7)\n");
     s.push_str("  :ia <question>      l'IA locale répond (petals, zéro cloud)\n");
     s.push_str("  :voisins            scanner le LAN (mesh, Phase 4)\n");
+    s.push_str("  :compute            ressources + nœuds fantômes (RES)\n");
+    s.push_str("  :executer <tâche>   exécution sandboxée sur un fantôme\n");
     s.push_str("  :demo               démo E2E — relay aveugle + audit\n");
     s.push_str("  :clef               afficher votre clef publique\n");
     s.push_str("  :statut             rafraîchir\n");

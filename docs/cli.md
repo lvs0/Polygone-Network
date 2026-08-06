@@ -19,6 +19,7 @@ puis tout se passe derrière `:` (style vim, Axiome 2) :
 | `:recevoir` | reconstruire + déchiffrer (≥ 4 fragments) |
 | `:voisins` | scanner le LAN (mesh, Phase 4) |
 | `:compute` | ressources locales + nœuds fantômes (RES) |
+| `:executer <tâche>` | exécution sandboxée sur un fantôme du LAN |
 | `:ia <question>` | l'IA locale répond (petals → Ollama, zéro cloud) |
 | `:demo` | démo E2E — relay aveugle + audit « on voit rien » |
 | `:clef` | votre clef publique ML-KEM-1024 |
@@ -63,10 +64,14 @@ Scanne le LAN (UDP 7642) et liste les nœuds Polygone + leurs relays.
 ### `polygone annoncer --relay <addr>`
 Annonce le nœud + relay sur le LAN, répond aux PING de découverte.
 
-### `polygone compute [--emprunter <node> --via <relay>]`
+### `polygone compute [--emprunter <node> --via <relay>] [--executer "<cmd>" --emprunter <node> --via <relay>]`
 - Sans option : RAM libre locale + nœuds fantômes du LAN (RES).
 - `--emprunter <node> --via <relay>` : demande du compute au fantôme,
   affiche le grant reçu.
+- `--executer "<cmd>" --emprunter <node> --via <relay>` : envoie la tâche
+  au fantôme, qui l'exécute DANS sa sandbox (MemoryMax 256 Mo,
+  NoNewPrivileges, ProtectSystem=strict, PrivateTmp, PrivateNetwork,
+  CPU 50 %) et renvoie la sortie via le relay.
 
 ### `polygone petals <status|models|ask>`
 IA locale via Ollama (`POLYGONE_OLLAMA_URL`, défaut 127.0.0.1:11434).
