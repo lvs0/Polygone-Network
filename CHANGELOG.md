@@ -6,7 +6,64 @@
 
 ---
 
-## [2.0.0-rc1] — 2026-06-29 — Révolution « honesty-first »
+## [2.0.0-rc2] — 2026-08-06 — le produit
+
+### Highlights
+
+La reconstruction v2 passe du workspace technique au **produit** :
+une commande unique `polygone`, une TUI à deux commandes (D1 GO),
+une démo E2E post-quantique qui *prouve* « on voit rien », un
+installateur 1-clic et une landing page. Le core tient enfin la
+promesse du SPEC : crypto post-quantique complète et testée.
+
+### Added (produit)
+
+- **D1 GO** — TUI 2 onglets (`:envoyer` / `:quitter`), style vim,
+  événementielle (aucun polling), écran d'accueil avec identité/uptime.
+- **`polygone`** — binaire produit unifié (TUI par défaut ; sous-commandes
+  `demo`, `envoyer`, `recevoir`, `clef`, `id`).
+- **Messagerie E2E réelle** (`crates/client/src/msg.rs`) — ML-KEM-1024 →
+  BLAKE3 KDF → AES-256-GCM → Shamir 4/7 ; format filaire
+  `KEM_CT/SENDER_PK/FRAG` interopérable.
+- **Identité persistante** (`~/.polygone/identity.json`, chmod 600) —
+  clés ML-KEM + ML-DSA générées au premier lancement, pseudo 3 syllabes.
+- **Démo E2E** (`polygone demo`) — relay aveugle, audit « on voit rien »,
+  simulation d'adversaire (3/7 et 7/7 sans clé).
+- **Installateur 1-clic** (`scripts/install.sh`) — SPEC §5, détection
+  OS/arch, binaire précompilé (GitHub release) + fallback build source.
+- **Landing page** (`site/index.html`) — DESIGN_SYSTEM : slate + ambre,
+  hexagone, suspense typographique, contraste honnête.
+- **Workflow release** (`.github/workflows/release.yml`) — tarballs
+  `polygone-<os>-<arch>.tar.gz` publiés par tag `v*`.
+
+### Added (crypto — polygone-core)
+
+- `crypto/kem.rs` — ML-KEM-1024 (FIPS 203) ; `crypto/shamir.rs` —
+  4-of-7 ; `crypto/symmetric.rs` — AES-256-GCM ; `SharedSecret` + KDF
+  BLAKE3 domain-séparée. Le SPEC §2 est enfin réel dans le workspace v2.
+- `sign.rs` (ML-DSA-65) réparé — le build était rouge, il est vert.
+
+### Added (docs / décisions)
+
+- `docs/threat-commodity.md` + `docs/threat-high-value.md` — livrables S2.
+- `docs/kill-switch.md` v1.0 — runbook opérateur (avant/pendant/après).
+- `DECISIONS.md` D2 — données du bench enregistrées : sign ~265 µs
+  (goulot), verify ~79 µs, ~2900 handshakes/sec/cœur ; gate 200 µs non
+  atteint, capacité non-bloquante ; décision finale à Lévy.
+
+### Internal
+
+- Workspace version synchronisée sur `2.0.0-rc2`.
+- 0 warning sur tout le workspace (`cargo check --all-targets`).
+- `cargo test --workspace` → **71 tests**.
+
+### Verification
+
+- Boucle E2E vérifiée entre deux identités distinctes : Alice envoie à
+  la clé publique de Bob, Bob reconstruit (4/7) et déchiffre.
+- TUI testée en pseudo-TTY : démarre, rend l'accueil, sort sur `:q`.
+
+---
 
 ### Highlights
 
