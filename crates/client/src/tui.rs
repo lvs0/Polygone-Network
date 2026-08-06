@@ -38,6 +38,7 @@ pub enum Command {
     Ask(String),
     Voisins,
     Compute,
+    Executer(String),
     Unknown(String),
 }
 
@@ -59,6 +60,7 @@ pub fn parse_command(input: &str) -> Command {
         "ia" | "ask" | "petals" => Command::Ask(rest.trim().to_string()),
         "voisins" | "mesh" | "v" => Command::Voisins,
         "compute" | "res" => Command::Compute,
+        "executer" | "run" | "x" => Command::Executer(rest.trim().to_string()),
         _ => Command::Unknown(raw.to_string()),
     }
 }
@@ -119,12 +121,12 @@ pub fn format_uptime(secs: u64) -> String {
 // ── Terminal loop ─────────────────────────────────────────────────────────────
 
 /// The interactive TUI. Blocks until `:quitter`.
-pub fn run(identity: LocalIdentity) -> anyhow::Result<()> {
+pub async fn run(identity: LocalIdentity) -> anyhow::Result<()> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
 
-    let result = run_inner(&identity);
+    let result = run_inner(&identity).await;
 
     disable_raw_mode()?;
     execute!(stdout, LeaveAlternateScreen)?;
@@ -151,7 +153,7 @@ enum View {
     ReceivePaste,
 }
 
-fn run_inner(identity: &LocalIdentity) -> anyhow::Result<()> {
+async fn run_inner(identity: &LocalIdentity) -> anyhow::Result<()> {
     let mut session = Session {
         view: View::Home,
         command_buffer: String::new(),
@@ -173,7 +175,7 @@ fn run_inner(identity: &LocalIdentity) -> anyhow::Result<()> {
                 return Ok(());
             }
             match session.view {
-                View::Home => handle_home_key(identity, &mut session, key)?,
+                View::Home => handle_home_key(identity, &mut session, key).await?,
                 View::Help | View::Output => {
                     if key.code == KeyCode::Esc {
                         session.view = View::Home;
@@ -189,7 +191,7 @@ fn run_inner(identity: &LocalIdentity) -> anyhow::Result<()> {
     }
 }
 
-fn handle_home_key(
+async fn handle_home_key(
     identity: &LocalIdentity,
     session: &mut Session,
     key: crossterm::event::KeyEvent,
@@ -215,7 +217,7 @@ fn handle_home_key(
         KeyCode::Enter => {
             if session.command_buffer.starts_with(':') {
                 let line = session.command_buffer[1..].to_string();
-                execute_command(identity, session, &line)?;
+                execute_command(identity, session, &line).await?;
             }
         }
         KeyCode::Esc => {
@@ -326,7 +328,7 @@ fn kem_pk_from_note(note: &str) -> Option<polygone_core::crypto::kem::KemPublicK
     polygone_core::crypto::kem::KemPublicKey::from_hex(hex_part).ok()
 }
 
-fn execute_command(
+async fn execute_command(
     identity: &LocalIdentity,
     session: &mut Session,
     line: &str,
@@ -485,6 +487,72 @@ fn execute_command(
                 Err(e) => out.push_str(&format!("\n\n  erreur scan : {e}")),
             }
             session.input_prompt = out;
+            draw(identity, session)?;
+        }
+        Command::Executer(arg) => {
+            session.command_buffer.clear();
+            session.note = String::new();
+            if arg.trim().is_empty() {
+                session.note =
+                    "utilisez « :executer <tâche> » — le premier nœud fantôme du LAN l'exécute (sandbox)."
+                        .to_string();
+                draw(identity, session)?;
+                return Ok(());
+            }
+            session.view = View::Output;
+            session.input_prompt = format!("⬡ RES — exécution : {arg}\n\n…sandbox distante…");
+            draw(identity, session)?;
+
+            // Find the ghost: explicit node id, or the first peer on the LAN.
+            let peers = match crate::mesh::discover(std::time::Duration::from_secs(3)) {
+                Ok(p) => p,
+                Err(e) => {
+                    session.input_prompt = format!("⬡ RES — erreur scan : {e}");
+                    draw(identity, session)?;
+                    return Ok(());
+                }
+            };
+            let (ghost, task) = match peers.iter().find(|p| arg.starts_with(&p.node_id)) {
+                Some(p) => (p.node_id.clone(), arg[p.node_id.len()..].trim().to_string()),
+                None => match peers.first() {
+                    Some(p) => (p.node_id.clone(), arg.trim().to_string()),
+                    None => {
+                        session.input_prompt =
+                            "⬡ RES — aucun nœud fantôme sur le LAN\n(lancez « polygone ecouter --compute --annoncer » sur un autre poste)".to_string();
+                        draw(identity, session)?;
+                        return Ok(());
+                    }
+                },
+            };
+            let relay = peers
+                .iter()
+                .find(|p| p.node_id == ghost)
+                .map(|p| p.relay.clone())
+                .unwrap_or_else(|| "127.0.0.1:7000".to_string());
+
+            match crate::net::borrow_compute(
+                &relay,
+                &ghost,
+                &task,
+                identity,
+                std::time::Duration::from_secs(40),
+            )
+            .await
+            {
+                Ok(Some(grant)) => {
+                    let body: serde_json::Value = serde_json::from_str(&grant).unwrap_or_default();
+                    let out = body["output"].as_str().unwrap_or("(pas de sortie)");
+                    session.input_prompt =
+                        format!("⬡ RES — résultat ({ghost} · sandbox) :\n\n{out}");
+                }
+                Ok(None) => {
+                    session.input_prompt =
+                        format!("⬡ RES — aucune réponse de {ghost} (ecouter --compute actif ?)");
+                }
+                Err(e) => {
+                    session.input_prompt = format!("⬡ RES — erreur : {e}");
+                }
+            }
             draw(identity, session)?;
         }
         Command::Unknown(what) => {

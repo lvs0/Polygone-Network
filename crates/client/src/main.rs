@@ -182,7 +182,7 @@ async fn main() -> Result<()> {
     let identity = identity::LocalIdentity::load_or_create()?;
 
     match args.command {
-        None | Some(Commands::Tui) => tui::run(identity)?,
+        None | Some(Commands::Tui) => tui::run(identity).await?,
         Some(Commands::Demo { relay: _ }) => {
             demo::run()?;
         }
