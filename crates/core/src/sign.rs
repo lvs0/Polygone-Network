@@ -113,6 +113,12 @@ pub struct Signer {
 }
 
 impl Signer {
+    /// The secret key backing this signer. Handle with care — it never
+    /// leaves the machine and is zeroized on drop.
+    pub fn secret_key(&self) -> &SecretKey {
+        &self.sk
+    }
+
     /// Sign a message, returning a detached signature.
     pub fn sign(&self, message: &[u8]) -> Signature {
         let signed = mldsa65::sign(message, &self.sk.0);
