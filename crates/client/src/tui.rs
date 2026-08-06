@@ -35,6 +35,7 @@ pub enum Command {
     ShowKey,
     Send,
     Receive,
+    Ask(String),
     Unknown(String),
 }
 
@@ -44,7 +45,7 @@ pub fn parse_command(input: &str) -> Command {
     if raw.is_empty() {
         return Command::Unknown(String::new());
     }
-    let (head, _rest) = raw.split_once(' ').unwrap_or((raw, ""));
+    let (head, rest) = raw.split_once(' ').unwrap_or((raw, ""));
     match head.to_ascii_lowercase().as_str() {
         "quitter" | "q" | "exit" => Command::Quit,
         "aide" | "help" | "?" => Command::Help,
@@ -53,6 +54,7 @@ pub fn parse_command(input: &str) -> Command {
         "clef" | "cle" | "key" | "id" => Command::ShowKey,
         "envoyer" | "e" | "send" => Command::Send,
         "recevoir" | "r" | "recv" => Command::Receive,
+        "ia" | "ask" | "petals" => Command::Ask(rest.trim().to_string()),
         _ => Command::Unknown(raw.to_string()),
     }
 }
@@ -92,6 +94,7 @@ pub fn render_help() -> String {
     s.push_str("  :envoyer            chiffrer + fragmenter un message\n");
     s.push_str("                      (sans argument : destinataire fictif)\n");
     s.push_str("  :recevoir           reconstruire + déchiffrer (4/7)\n");
+    s.push_str("  :ia <question>      l'IA locale répond (petals, zéro cloud)\n");
     s.push_str("  :demo               démo E2E — relay aveugle + audit\n");
     s.push_str("  :clef               afficher votre clef publique\n");
     s.push_str("  :statut             rafraîchir\n");
@@ -187,7 +190,9 @@ fn handle_home_key(
     key: crossterm::event::KeyEvent,
 ) -> anyhow::Result<()> {
     match key.code {
-        KeyCode::Char(':') => {
+        KeyCode::Char(':') if !session.command_buffer.starts_with(':') => {
+            // Start command mode (vim-style). A ':' typed mid-command is a
+            // literal character — handled by the arm below.
             session.command_buffer.clear();
             session.command_buffer.push(':');
             draw_with_prompt(identity, session)?;
@@ -392,6 +397,32 @@ fn execute_command(
             session.note = String::new();
             draw_with_prompt(identity, session)?;
         }
+        Command::Ask(question) => {
+            session.command_buffer.clear();
+            session.note = String::new();
+            if question.is_empty() {
+                session.note =
+                    "utilisez « :ia <question> » — l'IA locale répond (petals, zéro cloud)."
+                        .to_string();
+                draw(identity, session)?;
+                return Ok(());
+            }
+            session.view = View::Output;
+            session.input_prompt =
+                format!("⬡ Petals — question : {question}\n\n…réflexion locale…");
+            draw(identity, session)?;
+            match crate::petals::ask(&question, None) {
+                Ok(answer) => {
+                    session.input_prompt = format!(
+                        "⬡ Petals — question : {question}\n\n{answer}\n\n(réponse du modèle local, rien ne quitte la machine)"
+                    );
+                }
+                Err(e) => {
+                    session.input_prompt = format!("⬡ Petals — erreur : {e}");
+                }
+            }
+            draw(identity, session)?;
+        }
         Command::Unknown(what) => {
             session.command_buffer.clear();
             session.note = format!("commande inconnue : « {} » — tapez :aide", what);
@@ -468,6 +499,14 @@ mod tests {
         assert_eq!(parse_command("clef"), Command::ShowKey);
         assert_eq!(parse_command("demo"), Command::Demo);
         assert_eq!(parse_command("statut"), Command::Status);
+        assert_eq!(
+            parse_command("ia quelle heure est-il"),
+            Command::Ask("quelle heure est-il".into())
+        );
+        assert_eq!(
+            parse_command("petals explique l'ephemerite"),
+            Command::Ask("explique l'ephemerite".into())
+        );
         assert_eq!(parse_command("  aide  "), Command::Help);
     }
 
