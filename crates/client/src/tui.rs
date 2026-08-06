@@ -39,6 +39,7 @@ pub enum Command {
     Voisins,
     Compute,
     Executer(String),
+    Wasm(String),
     Unknown(String),
 }
 
@@ -61,6 +62,7 @@ pub fn parse_command(input: &str) -> Command {
         "voisins" | "mesh" | "v" => Command::Voisins,
         "compute" | "res" => Command::Compute,
         "executer" | "run" | "x" => Command::Executer(rest.trim().to_string()),
+        "wasm" | "w" => Command::Wasm(rest.trim().to_string()),
         _ => Command::Unknown(raw.to_string()),
     }
 }
@@ -104,6 +106,7 @@ pub fn render_help() -> String {
     s.push_str("  :voisins            scanner le LAN (mesh, Phase 4)\n");
     s.push_str("  :compute            ressources + nœuds fantômes (RES)\n");
     s.push_str("  :executer <tâche>   exécution sandboxée sur un fantôme\n");
+    s.push_str("  :wasm <fichier>     exécution WASM (wasmi) sur un fantôme\n");
     s.push_str("  :demo               démo E2E — relay aveugle + audit\n");
     s.push_str("  :clef               afficher votre clef publique\n");
     s.push_str("  :statut             rafraîchir\n");
@@ -550,6 +553,82 @@ async fn execute_command(
                 Ok(None) => {
                     session.input_prompt =
                         format!("⬡ RES — aucune réponse de {ghost} (ecouter --compute actif ?)");
+                }
+                Err(e) => {
+                    session.input_prompt = format!("⬡ RES — erreur : {e}");
+                }
+            }
+            draw(identity, session)?;
+        }
+        Command::Wasm(path) => {
+            session.command_buffer.clear();
+            session.note = String::new();
+            if path.trim().is_empty() {
+                session.note =
+                    "utilisez « :wasm <chemin.wasm> » — exécution WASM sur un fantôme du LAN."
+                        .to_string();
+                draw(identity, session)?;
+                return Ok(());
+            }
+            let wasm = match std::fs::read(path.trim()) {
+                Ok(b) => b,
+                Err(e) => {
+                    session.note = format!("fichier illisible : {e}");
+                    draw(identity, session)?;
+                    return Ok(());
+                }
+            };
+            session.view = View::Output;
+            session.input_prompt = format!(
+                "⬡ RES — exécution WASM : {}
+
+…sandbox wasmi distante…",
+                path.trim()
+            );
+            draw(identity, session)?;
+
+            let peers = match crate::mesh::discover(std::time::Duration::from_secs(3)) {
+                Ok(p) => p,
+                Err(e) => {
+                    session.input_prompt = format!("⬡ RES — erreur scan : {e}");
+                    draw(identity, session)?;
+                    return Ok(());
+                }
+            };
+            let ghost = match peers.first() {
+                Some(p) => p.clone(),
+                None => {
+                    session.input_prompt = "⬡ RES — aucun nœud fantôme sur le LAN
+(lancez « polygone ecouter --compute --annoncer » ailleurs)"
+                        .to_string();
+                    draw(identity, session)?;
+                    return Ok(());
+                }
+            };
+            match crate::net::borrow_wasm(
+                &ghost.relay,
+                &ghost.node_id,
+                &wasm,
+                identity,
+                std::time::Duration::from_secs(40),
+            )
+            .await
+            {
+                Ok(Some(grant)) => {
+                    let body: serde_json::Value = serde_json::from_str(&grant).unwrap_or_default();
+                    let out = body["output"].as_str().unwrap_or("(pas de sortie)");
+                    session.input_prompt = format!(
+                        "⬡ RES — sortie WASM ({} · wasmi) :
+
+{out}",
+                        ghost.node_id
+                    );
+                }
+                Ok(None) => {
+                    session.input_prompt = format!(
+                        "⬡ RES — aucune réponse de {} (ecouter --compute actif ?)",
+                        ghost.node_id
+                    );
                 }
                 Err(e) => {
                     session.input_prompt = format!("⬡ RES — erreur : {e}");
