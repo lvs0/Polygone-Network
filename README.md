@@ -69,6 +69,10 @@ polygone petals status                 # modèles installés
 polygone petals ask --model phi4-mini:latest "ta question"
 # → le modèle répond, rien ne quitte votre machine
 
+# Le Mesh — trouver les nœuds du LAN sans adresse en dur (Phase 4)
+polygone annoncer --relay 127.0.0.1:7000   # Bob annonce son relay sur le LAN
+polygone voisins                           # Alice scanne : node + relay trouvés
+
 # Les 4 binaires du workspace v2 :
 #   polygone / polygone-client   la commande produit (+ TUI, demo, msg, net)
 #   polygone-relay               relay aveugle (stateless, routage)

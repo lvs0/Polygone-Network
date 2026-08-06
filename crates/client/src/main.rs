@@ -14,6 +14,7 @@
 mod demo;
 mod duress;
 mod identity;
+mod mesh;
 mod msg;
 mod net;
 mod petals;
@@ -80,6 +81,18 @@ enum Commands {
     /// Listen for messages through a relay (plane 2 — real network)
     Ecouter {
         /// Relay address
+        #[arg(long, default_value = "127.0.0.1:7000")]
+        relay: String,
+    },
+    /// Scan the LAN for announcing Polygone nodes (mesh, Phase 4)
+    Voisins {
+        /// Scan duration in seconds
+        #[arg(long, default_value_t = 2)]
+        duree: u64,
+    },
+    /// Announce this node + its relay on the LAN (mesh, Phase 4)
+    Annoncer {
+        /// The relay address peers should use to reach you
         #[arg(long, default_value = "127.0.0.1:7000")]
         relay: String,
     },
@@ -229,6 +242,13 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Ecouter { relay }) => {
             net::receive_network(&relay, &identity).await?;
+        }
+        Some(Commands::Voisins { duree }) => {
+            let peers = mesh::discover(std::time::Duration::from_secs(duree))?;
+            mesh::print_peers(&peers);
+        }
+        Some(Commands::Annoncer { relay }) => {
+            mesh::announce(&net::node_id(&identity), &relay).await?;
         }
         Some(Commands::Clef) => {
             println!("{}", identity.kem_pk_hex);
