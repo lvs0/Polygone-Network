@@ -80,18 +80,37 @@ install_prebuilt() {
 
 install_from_source() {
   local repo_dir="$TMP_DIR/polygone-src"
+  local local_repo
+  local_repo="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)" || true
+
   info "Pas de release précompilée — build depuis les sources (nécessite cargo)…"
   command -v cargo >/dev/null 2>&1 || die \
     "cargo introuvable. Installez Rust (https://rustup.rs) puis relancez, ou attendez une release."
-  git clone --depth 1 "https://github.com/$REPO" "$repo_dir" 2>/dev/null \
-    || cp -r "$(dirname "$0")/.." "$repo_dir" 2>/dev/null \
-    || die "Impossible de récupérer les sources."
-  ( cd "$repo_dir" && cargo build --release -p polygone-client -p polygone-relay -p polygoned )
+
+  local build_dir
+  if [ -n "$local_repo" ] && [ -f "$local_repo/Cargo.toml" ]; then
+    build_dir="$local_repo"          # on est DANS le repo : on build le code local
+    info "Build depuis le repo local : $build_dir"
+  else
+    build_dir="$repo_dir"
+    git clone --depth 1 "https://github.com/$REPO" "$build_dir" \
+      || die "Impossible de récupérer les sources."
+  fi
+
+  ( cd "$build_dir" && cargo build --release -p polygone-client -p polygone-relay -p polygoned )
+
   mkdir -p "$TMP_DIR/bin"
-  cp "$repo_dir/target/release/polygone"       "$TMP_DIR/bin/"
-  cp "$repo_dir/target/release/polygone-relay"  "$TMP_DIR/bin/"
-  cp "$repo_dir/target/release/polygone-client" "$TMP_DIR/bin/"
-  cp "$repo_dir/target/release/polygoned"       "$TMP_DIR/bin/"
+  local missing=0 b
+  for b in polygone polygone-client polygone-relay polygoned; do
+    if [ -f "$build_dir/target/release/$b" ]; then
+      cp "$build_dir/target/release/$b" "$TMP_DIR/bin/"
+    else
+      warn "binaire '$b' absent du build (dépôt à jour ?)"
+      missing=1
+    fi
+  done
+  [ "$missing" = "0" ] \
+    || die "Binaires incomplets — le dépôt source est en retard sur le code attendu. Poussez le dernier commit puis relancez."
 }
 
 # ── 3. Binaire ────────────────────────────────────────────────────────────────

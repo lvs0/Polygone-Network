@@ -2,7 +2,7 @@
 
 > *Document public. Pas de détail d'implémentation.*
 > *Référence : `LEGAL.md` §5 — associé à `Conseil des Sages 2026-06-29` (Mitnick).*
-> *Date : 2026-06-29.*
+> *Version : 1.0 (2026-08-06) — ajout du runbook opérateur.*
 
 ---
 
@@ -81,6 +81,53 @@ Ce document ne couvre **pas** :
 - Les modes d'effacement sécurisé du disque dur (effacement ATA, NVMe sanitize).
 - Le chiffrement intégral du disque (LUKS, FileVault, BitLocker) — supposé actif par l'opérateur.
 - La génération aléatoire forte (BLAKE3 + DRBG) — déjà traitée dans `ECOSYSTEM.md` §6.
+
+---
+
+## 8. Runbook opérateur (v1.0)
+
+> Procédure à lire AVANT d'en avoir besoin. La lire pendant la panique ne sert à rien.
+
+### Avant (préparation — 10 minutes, une seule fois)
+
+1. **Activez le chiffrement intégral du disque** (LUKS/FileVault/BitLocker).
+   Le mode duress détruit les clés, il n'efface pas le disque.
+2. **Choisissez un déclencheur** (§3) et activez-le explicitement dans
+   `~/.config/polygone/state.json`.
+3. **Entraînez-vous** : déclenchez le mode duress sur une machine de test,
+   vérifiez que la destruction est réelle, reconstruisez l'identité.
+4. **Préparez la régénération** : vos contacts ont vos clés publiques.
+   Une identité détruite = une nouvelle identité à redistribuer. Décidez
+   du canal de redistribution (hors-ligne de préférence).
+5. **Testez le runbook complet** une fois par trimestre.
+
+### Pendant (le déclencheur a sonné)
+
+1. **Ne négociez pas avec la machine** : le signal est parti, la destruction
+   est en cours. Ne tentez pas de « sauver » une clé — c'est le but.
+2. **Ne mentez pas sur ce qui vient d'arriver** : « le système s'est
+   autodétruit » est vrai et vérifiable. C'est plus solide qu'un mensonge.
+3. **Gardez votre récit simple et répétable** — identique à chaque question.
+4. Si la destruction a échoué (machine déjà verrouillée, pas de signal) :
+   considérez la machine comme **compromise**, pas comme protégée.
+
+### Après (récupération)
+
+1. Vérifiez que la destruction a bien eu lieu (fichiers de clés absents).
+2. Régénérez une identité : `polygone` au premier lancement.
+3. Redistribuez votre nouvelle clé publique via le canal prévu.
+4. Faites le bilan : qu'est-ce qui a été perdu, qu'est-ce qui doit changer
+   (déclencheur, canal, procédure) ?
+5. Documentez l'incident dans votre journal — sans capturer ce qui ne doit
+   pas l'être.
+
+### Limites (à relire après l'incident)
+
+- Le mode duress n'efface **pas** les backups hors-ligne, les copies cloud,
+  les fragments chez les destinataires. Détruire les clés locales rend ces
+  copies **définitivement illisibles** — c'est le point.
+- Un adversaire qui a déjà copié les clés (malware persistant) contourne
+  la destruction. Cf. `docs/threat-high-value.md` §4.
 
 ---
 
