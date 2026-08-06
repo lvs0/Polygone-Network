@@ -41,9 +41,7 @@ fn main() -> Result<()> {
     }
 
     let level = if args.quiet { "warn" } else { "info" };
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(level)
-    ).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
 
     log::info!("polygone-relay v0.1.0 — starting (blind mode)");
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -57,7 +55,7 @@ fn main() -> Result<()> {
 #[command(
     name = "polygone-relay",
     version = "0.1.0",
-    about = "Stateless blind relay for Polygone P2P network",
+    about = "Stateless blind relay for Polygone P2P network"
 )]
 struct Args {
     #[arg(long, default_value_t = 7000)]

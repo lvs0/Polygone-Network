@@ -143,7 +143,11 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity) -> Result<()
     let mut line = String::new();
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
 
-    println!("⬡ en écoute via relay {} — node {}", relay, node_id(identity));
+    println!(
+        "⬡ en écoute via relay {} — node {}",
+        relay,
+        node_id(identity)
+    );
     println!("  (Ctrl-C pour arrêter)\n");
 
     loop {

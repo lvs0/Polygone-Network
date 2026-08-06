@@ -57,9 +57,7 @@ impl SessionKey {
         let nonce = Nonce::from_slice(&payload.nonce);
         cipher
             .decrypt(nonce, payload.ciphertext.as_ref())
-            .map_err(|_| {
-                PolygoneError::AeadError("decryption failed — tag mismatch".into())
-            })
+            .map_err(|_| PolygoneError::AeadError("decryption failed — tag mismatch".into()))
     }
 }
 

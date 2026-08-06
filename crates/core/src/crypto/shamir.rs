@@ -6,7 +6,7 @@
 
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
-use sharks::{Sharks, Share};
+use sharks::{Share, Sharks};
 
 use crate::{PolygoneError, Result};
 
@@ -33,14 +33,10 @@ pub struct Fragment {
 /// Constraints: 2 ≤ t ≤ n ≤ 255.
 pub fn split(secret: &[u8], threshold: u8, n: u8) -> Result<Vec<Fragment>> {
     if threshold < 2 {
-        return Err(PolygoneError::ShamirSplit(
-            "threshold must be >= 2".into(),
-        ));
+        return Err(PolygoneError::ShamirSplit("threshold must be >= 2".into()));
     }
     if n < threshold {
-        return Err(PolygoneError::ShamirSplit(
-            "n must be >= threshold".into(),
-        ));
+        return Err(PolygoneError::ShamirSplit("n must be >= threshold".into()));
     }
 
     let sharks = Sharks(threshold);

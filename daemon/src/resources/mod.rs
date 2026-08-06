@@ -48,7 +48,11 @@ pub struct MemoryInfo {
 
 impl MemoryInfo {
     pub fn free_percent(&self) -> f64 {
-        if self.total_bytes == 0 { 0.0 } else { self.available_bytes as f64 / self.total_bytes as f64 * 100.0 }
+        if self.total_bytes == 0 {
+            0.0
+        } else {
+            self.available_bytes as f64 / self.total_bytes as f64 * 100.0
+        }
     }
 }
 
@@ -75,14 +79,16 @@ pub struct BandwidthInfo {
 
 impl BandwidthInfo {
     pub fn primary_rx_tx(&self) -> (u64, u64) {
-        self.interfaces.iter()
+        self.interfaces
+            .iter()
             .find(|i| !i.is_loopback && i.is_up)
             .map(|i| (i.rx_bytes, i.tx_bytes))
             .unwrap_or((0, 0))
     }
 
     pub fn total_rx_tx(&self) -> (u64, u64) {
-        self.interfaces.iter()
+        self.interfaces
+            .iter()
             .filter(|i| !i.is_loopback)
             .fold((0, 0), |(rx, tx), i| (rx + i.rx_bytes, tx + i.tx_bytes))
     }
@@ -179,7 +185,9 @@ pub enum CpuAffinityMode {
 }
 
 impl Default for CpuAffinityMode {
-    fn default() -> Self { Self::Auto }
+    fn default() -> Self {
+        Self::Auto
+    }
 }
 
 impl std::fmt::Display for CpuAffinityMode {

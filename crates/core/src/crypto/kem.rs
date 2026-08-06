@@ -115,9 +115,9 @@ impl KemCiphertext {
 
     /// Parse from raw bytes.
     pub fn from_bytes(b: &[u8]) -> Result<Self> {
-        Ok(Self(mlkem1024::Ciphertext::from_bytes(b).map_err(|_| {
-            PolygoneError::KeyFile("Invalid ML-KEM-1024 ciphertext".into())
-        })?))
+        Ok(Self(mlkem1024::Ciphertext::from_bytes(b).map_err(
+            |_| PolygoneError::KeyFile("Invalid ML-KEM-1024 ciphertext".into()),
+        )?))
     }
 }
 

@@ -1,18 +1,24 @@
 //! macOS platform implementation for polygoned daemon.
 
 use crate::resources::{
-    BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint,
-    MemoryInfo, NetInterface, Platform, PlatformCaps, ProcessMemory, ServiceConfig,
+    BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint, MemoryInfo, NetInterface,
+    Platform, PlatformCaps, ProcessMemory, ServiceConfig,
 };
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::Command;
 
 pub struct MacOSPlatform;
 
-impl MacOSPlatform { pub fn new() -> Self { Self } }
+impl MacOSPlatform {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 impl Platform for MacOSPlatform {
-    fn name(&self) -> &'static str { "macos" }
+    fn name(&self) -> &'static str {
+        "macos"
+    }
 
     fn capabilities(&self) -> PlatformCaps {
         PlatformCaps {
@@ -29,11 +35,18 @@ impl Platform for MacOSPlatform {
         }
     }
 
-    fn init(&mut self) -> anyhow::Result<()> { Ok(()) }
+    fn init(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     fn cpu_info(&self) -> anyhow::Result<CpuInfo> {
         let out = Command::new("sysctl")
-            .args(["-n", "hw.logicalcpu", "hw.physicalcpu", "machdep.cpu.brand_string"])
+            .args([
+                "-n",
+                "hw.logicalcpu",
+                "hw.physicalcpu",
+                "machdep.cpu.brand_string",
+            ])
             .output()?;
         let s = String::from_utf8_lossy(&out.stdout);
         let mut lines = s.lines();
@@ -69,15 +82,23 @@ impl Platform for MacOSPlatform {
 
     fn memory_info(&self) -> anyhow::Result<MemoryInfo> {
         let out = Command::new("sysctl").args(["-n", "hw.memsize"]).output()?;
-        let total = String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().unwrap_or(0);
+        let total = String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse::<u64>()
+            .unwrap_or(0);
 
         let out = Command::new("vm_stat").output()?;
         let s = String::from_utf8_lossy(&out.stdout);
         let mut free_pages = 0u64;
         for line in s.lines() {
             if line.contains("Pages free:") {
-                free_pages = line.split_whitespace().nth(2)
-                    .unwrap_or("0").trim_end_matches('.').parse().unwrap_or(0);
+                free_pages = line
+                    .split_whitespace()
+                    .nth(2)
+                    .unwrap_or("0")
+                    .trim_end_matches('.')
+                    .parse()
+                    .unwrap_or(0);
             }
         }
         let page_size = 4096u64;
@@ -105,7 +126,11 @@ impl Platform for MacOSPlatform {
                 vms = parts[1].parse::<u64>().unwrap_or(0) * 1024;
             }
         }
-        Ok(ProcessMemory { rss_bytes: rss, vms_bytes: vms, working_set_bytes: rss })
+        Ok(ProcessMemory {
+            rss_bytes: rss,
+            vms_bytes: vms,
+            working_set_bytes: rss,
+        })
     }
 
     fn set_memory_limit(&self, _bytes: u64) -> anyhow::Result<()> {
@@ -122,9 +147,16 @@ impl Platform for MacOSPlatform {
                 let rx = parts[6].parse().unwrap_or(0);
                 let tx = parts[9].parse().unwrap_or(0);
                 interfaces.push(NetInterface {
-                    name: parts[0].into(), rx_bytes: rx, tx_bytes: tx,
-                    rx_packets: 0, tx_packets: 0, rx_errors: 0, tx_errors: 0,
-                    speed_mbps: 0, is_up: true, is_loopback: false,
+                    name: parts[0].into(),
+                    rx_bytes: rx,
+                    tx_bytes: tx,
+                    rx_packets: 0,
+                    tx_packets: 0,
+                    rx_errors: 0,
+                    tx_errors: 0,
+                    speed_mbps: 0,
+                    is_up: true,
+                    is_loopback: false,
                 });
             }
         }
@@ -132,7 +164,9 @@ impl Platform for MacOSPlatform {
     }
 
     fn primary_interface(&self) -> anyhow::Result<String> {
-        let out = Command::new("route").args(["-n", "get", "1.1.1.1"]).output()?;
+        let out = Command::new("route")
+            .args(["-n", "get", "1.1.1.1"])
+            .output()?;
         let s = String::from_utf8_lossy(&out.stdout);
         for line in s.lines() {
             if line.trim().starts_with("interface:") {
@@ -143,14 +177,19 @@ impl Platform for MacOSPlatform {
     }
 
     fn gpu_info(&self) -> anyhow::Result<Vec<GpuInfo>> {
-        let out = Command::new("system_profiler").args(["SPDisplaysDataType", "-json"]).output()?;
-        if !out.status.success() { return Ok(vec![]); }
+        let out = Command::new("system_profiler")
+            .args(["SPDisplaysDataType", "-json"])
+            .output()?;
+        if !out.status.success() {
+            return Ok(vec![]);
+        }
         let json: serde_json::Value = serde_json::from_slice(&out.stdout)?;
         let mut gpus = Vec::new();
         if let Some(arr) = json["SPDisplaysDataType"].as_array() {
             for (i, gpu) in arr.iter().enumerate() {
                 if let Some(name) = gpu["sppci_model"].as_str() {
-                    let vram = gpu["sppci_vram"].as_str()
+                    let vram = gpu["sppci_vram"]
+                        .as_str()
                         .and_then(|s| s.replace(" MB", "").parse().ok())
                         .unwrap_or(0);
                     gpus.push(GpuInfo {
@@ -174,7 +213,11 @@ impl Platform for MacOSPlatform {
     fn suggest_gpu_allocation(&self, ratio: f32) -> anyhow::Result<GpuAllocation> {
         let gpus = self.gpu_info()?;
         if let Some(gpu) = gpus.first() {
-            Ok(GpuAllocation { device_id: gpu.device_id, allocated_mb: (gpu.free_vram_mb() as f32 * ratio) as u32, ratio })
+            Ok(GpuAllocation {
+                device_id: gpu.device_id,
+                allocated_mb: (gpu.free_vram_mb() as f32 * ratio) as u32,
+                ratio,
+            })
         } else {
             Ok(GpuAllocation::default())
         }
@@ -184,9 +227,15 @@ impl Platform for MacOSPlatform {
         let dir = self.data_dir().join("ipc");
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.sock", name));
-        if path.exists() { std::fs::remove_file(&path)?; }
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
         let _listener = UnixListener::bind(&path)?;
-        Ok(IpcEndpoint { name: name.into(), path, platform_data: vec![] })
+        Ok(IpcEndpoint {
+            name: name.into(),
+            path,
+            platform_data: vec![],
+        })
     }
 
     fn connect_ipc(&self, name: &str) -> anyhow::Result<Box<dyn crate::resources::IpcConnection>> {
@@ -195,12 +244,22 @@ impl Platform for MacOSPlatform {
         Ok(Box::new(UnixIpcConnection(stream)))
     }
 
-    fn uptime(&self) -> anyhow::Result<u64> { Ok(0) }
-    fn user_active(&self) -> anyhow::Result<bool> { Ok(false) }
+    fn uptime(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    fn user_active(&self) -> anyhow::Result<bool> {
+        Ok(false)
+    }
 
-    fn config_dir(&self) -> std::path::PathBuf { dirs::config_dir().unwrap().join("polygone") }
-    fn data_dir(&self) -> std::path::PathBuf { dirs::data_local_dir().unwrap().join("polygone") }
-    fn log_dir(&self) -> std::path::PathBuf { dirs::cache_dir().unwrap().join("polygone").join("logs") }
+    fn config_dir(&self) -> std::path::PathBuf {
+        dirs::config_dir().unwrap().join("polygone")
+    }
+    fn data_dir(&self) -> std::path::PathBuf {
+        dirs::data_local_dir().unwrap().join("polygone")
+    }
+    fn log_dir(&self) -> std::path::PathBuf {
+        dirs::cache_dir().unwrap().join("polygone").join("logs")
+    }
 
     fn install_service(&self, config: ServiceConfig) -> anyhow::Result<()> {
         let plist = format!(
@@ -216,40 +275,74 @@ impl Platform for MacOSPlatform {
 </dict></plist>"#,
             config.name,
             config.executable.display(),
-            config.args.iter().map(|a| format!("<string>{}</string>", a)).collect::<Vec<_>>().join(""),
+            config
+                .args
+                .iter()
+                .map(|a| format!("<string>{}</string>", a))
+                .collect::<Vec<_>>()
+                .join(""),
             self.log_dir().display(),
             self.log_dir().display()
         );
-        let path = dirs::home_dir().unwrap().join("Library/LaunchAgents").join(format!("{}.plist", config.name));
+        let path = dirs::home_dir()
+            .unwrap()
+            .join("Library/LaunchAgents")
+            .join(format!("{}.plist", config.name));
         std::fs::create_dir_all(path.parent().unwrap())?;
         std::fs::write(path, plist)?;
-        Command::new("launchctl").args(["load", "-w", &path.to_string_lossy()]).status()?;
+        Command::new("launchctl")
+            .args(["load", "-w", &path.to_string_lossy()])
+            .status()?;
         Ok(())
     }
 
     fn uninstall_service(&self, name: &str) -> anyhow::Result<()> {
-        let path = dirs::home_dir().unwrap().join("Library/LaunchAgents").join(format!("{}.plist", name));
-        let _ = Command::new("launchctl").args(["unload", &path.to_string_lossy()]).status();
+        let path = dirs::home_dir()
+            .unwrap()
+            .join("Library/LaunchAgents")
+            .join(format!("{}.plist", name));
+        let _ = Command::new("launchctl")
+            .args(["unload", &path.to_string_lossy()])
+            .status();
         let _ = std::fs::remove_file(path);
         Ok(())
     }
 
     fn start_service(&self, name: &str) -> anyhow::Result<()> {
-        let path = dirs::home_dir().unwrap().join("Library/LaunchAgents").join(format!("{}.plist", name));
-        Command::new("launchctl").args(["start", &path.to_string_lossy()]).status()?;
+        let path = dirs::home_dir()
+            .unwrap()
+            .join("Library/LaunchAgents")
+            .join(format!("{}.plist", name));
+        Command::new("launchctl")
+            .args(["start", &path.to_string_lossy()])
+            .status()?;
         Ok(())
     }
 
     fn stop_service(&self, name: &str) -> anyhow::Result<()> {
-        let path = dirs::home_dir().unwrap().join("Library/LaunchAgents").join(format!("{}.plist", name));
-        Command::new("launchctl").args(["stop", &path.to_string_lossy()]).status()?;
+        let path = dirs::home_dir()
+            .unwrap()
+            .join("Library/LaunchAgents")
+            .join(format!("{}.plist", name));
+        Command::new("launchctl")
+            .args(["stop", &path.to_string_lossy()])
+            .status()?;
         Ok(())
     }
 }
 
 struct UnixIpcConnection(UnixStream);
 impl crate::resources::IpcConnection for UnixIpcConnection {
-    fn send(&mut self, data: &[u8]) -> anyhow::Result<()> { use std::io::Write; self.0.write_all(data)?; Ok(()) }
-    fn recv(&mut self, buf: &mut [u8]) -> anyhow::Result<usize> { use std::io::Read; Ok(self.0.read(buf)?) }
-    fn close(&mut self) -> anyhow::Result<()> { Ok(()) }
+    fn send(&mut self, data: &[u8]) -> anyhow::Result<()> {
+        use std::io::Write;
+        self.0.write_all(data)?;
+        Ok(())
+    }
+    fn recv(&mut self, buf: &mut [u8]) -> anyhow::Result<usize> {
+        use std::io::Read;
+        Ok(self.0.read(buf)?)
+    }
+    fn close(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }

@@ -125,7 +125,13 @@ async fn main() -> Result<()> {
         Some(Commands::Demo { relay: _ }) => {
             demo::run()?;
         }
-        Some(Commands::Envoyer { dest, via, a, fichier, message }) => {
+        Some(Commands::Envoyer {
+            dest,
+            via,
+            a,
+            fichier,
+            message,
+        }) => {
             let message = message.join(" ");
 
             // File mode: read the file, send its bytes.
@@ -140,11 +146,15 @@ async fn main() -> Result<()> {
             // Network mode: route the fragments through a blind relay.
             if let Some(relay) = via {
                 let dest_node = a.ok_or_else(|| {
-                    anyhow::anyhow!("mode réseau : précisez le nœud destinataire avec --a <node_id>")
+                    anyhow::anyhow!(
+                        "mode réseau : précisez le nœud destinataire avec --a <node_id>"
+                    )
                 })?;
                 let recipient = match dest {
                     Some(hex) => polygone_core::crypto::kem::KemPublicKey::from_hex(&hex)?,
-                    None => anyhow::bail!("mode réseau : précisez la clef du destinataire avec -d <clef>"),
+                    None => anyhow::bail!(
+                        "mode réseau : précisez la clef du destinataire avec -d <clef>"
+                    ),
                 };
                 let name = fichier.as_ref().map(|p| {
                     std::path::Path::new(p)
@@ -152,7 +162,15 @@ async fn main() -> Result<()> {
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| p.clone())
                 });
-                let session = net::send_network(&relay, &dest_node, &payload, name.as_deref(), &recipient, &identity).await?;
+                let session = net::send_network(
+                    &relay,
+                    &dest_node,
+                    &payload,
+                    name.as_deref(),
+                    &recipient,
+                    &identity,
+                )
+                .await?;
                 match &fichier {
                     Some(_) => println!("⬡ fichier envoyé via relay {relay} → {dest_node}"),
                     None => println!("⬡ message envoyé via relay {relay} → {dest_node}"),
@@ -188,7 +206,10 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Clef) => {
             println!("{}", identity.kem_pk_hex);
-            println!("# fichier identité : {}", identity::LocalIdentity::path().display());
+            println!(
+                "# fichier identité : {}",
+                identity::LocalIdentity::path().display()
+            );
         }
         Some(Commands::Id) => {
             use polygone_core::NodeId;

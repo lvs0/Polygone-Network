@@ -3,10 +3,10 @@
 //! Polygone node reads from ~/.polygone/daemon.sock (Unix socket).
 //! Each line is a JSON command. Simple, no protocol overhead.
 
-use std::{fs, io::Write, path::PathBuf, sync::OnceLock};
-use std::os::unix::net::UnixStream;
 use anyhow::{Context, Result};
 use serde::{Serialize, Serializer};
+use std::os::unix::net::UnixStream;
+use std::{fs, io::Write, path::PathBuf, sync::OnceLock};
 
 use crate::allocator::Allocation;
 
@@ -55,7 +55,8 @@ pub enum DaemonMsg {
 }
 
 fn ts_secs<S>(_: &i64, s: S) -> Result<S::Ok, S::Error>
-where S: Serializer,
+where
+    S: Serializer,
 {
     s.serialize_i64(chrono_lite_timestamp())
 }
@@ -71,8 +72,7 @@ fn chrono_lite_timestamp() -> i64 {
 pub fn ensure_dir() -> Result<()> {
     let path = socket_path();
     let dir = path.parent().unwrap();
-    fs::create_dir_all(dir)
-        .context(format!("failed to create {}", dir.display()))?;
+    fs::create_dir_all(dir).context(format!("failed to create {}", dir.display()))?;
     Ok(())
 }
 
@@ -85,8 +85,7 @@ pub fn send(msg: &DaemonMsg) -> Result<()> {
         return Ok(());
     }
 
-    let json = serde_json::to_string(msg)
-        .context("serialize daemon msg")?;
+    let json = serde_json::to_string(msg).context("serialize daemon msg")?;
     let line = format!("{}\n", json);
 
     match UnixStream::connect(&path) {

@@ -83,6 +83,8 @@ mod tests {
         let result = execute().unwrap();
         assert!(!result.is_empty());
         // Either something existed or we reported nothing to destroy.
-        assert!(result.iter().any(|r| r.contains("supprimé") || r.contains("rien à détruire")));
+        assert!(result
+            .iter()
+            .any(|r| r.contains("supprimé") || r.contains("rien à détruire")));
     }
 }

@@ -53,8 +53,8 @@ impl PublicKey {
 
     /// Parse from hex string.
     pub fn from_hex(s: &str) -> Result<Self> {
-        let bytes = hex::decode(s.trim())
-            .map_err(|e| PolygoneError::Serde(format!("hex decode: {e}")))?;
+        let bytes =
+            hex::decode(s.trim()).map_err(|e| PolygoneError::Serde(format!("hex decode: {e}")))?;
         Self::from_bytes(&bytes)
     }
 }
@@ -83,8 +83,8 @@ impl SecretKey {
 
     /// Parse from hex string.
     pub fn from_hex(s: &str) -> Result<Self> {
-        let bytes = hex::decode(s.trim())
-            .map_err(|e| PolygoneError::Serde(format!("hex decode: {e}")))?;
+        let bytes =
+            hex::decode(s.trim()).map_err(|e| PolygoneError::Serde(format!("hex decode: {e}")))?;
         Self::from_bytes(&bytes)
     }
 }

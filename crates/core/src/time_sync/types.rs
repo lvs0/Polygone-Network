@@ -1,7 +1,7 @@
 //! Core types for time synchronization
 
-use serde::{Deserialize, Serialize};
 use crate::identity::NodeId;
+use serde::{Deserialize, Serialize};
 
 /// Peer identifier (wraps NodeId for time sync context)
 pub type PeerId = NodeId;
@@ -52,21 +52,35 @@ impl std::fmt::Display for Timestamp {
 pub struct TimeOffset(pub i64);
 
 impl TimeOffset {
-    pub fn zero() -> Self { Self(0) }
-    pub fn from_millis(ms: i64) -> Self { Self(ms) }
-    pub fn as_millis(&self) -> i64 { self.0 }
-    pub fn abs(&self) -> u64 { self.0.abs() as u64 }
-    pub fn is_within(&self, tolerance_ms: u64) -> bool { self.abs() <= tolerance_ms }
+    pub fn zero() -> Self {
+        Self(0)
+    }
+    pub fn from_millis(ms: i64) -> Self {
+        Self(ms)
+    }
+    pub fn as_millis(&self) -> i64 {
+        self.0
+    }
+    pub fn abs(&self) -> u64 {
+        self.0.abs() as u64
+    }
+    pub fn is_within(&self, tolerance_ms: u64) -> bool {
+        self.abs() <= tolerance_ms
+    }
 }
 
 impl std::ops::Add for TimeOffset {
     type Output = Self;
-    fn add(self, other: Self) -> Self { Self(self.0.saturating_add(other.0)) }
+    fn add(self, other: Self) -> Self {
+        Self(self.0.saturating_add(other.0))
+    }
 }
 
 impl std::ops::Sub for TimeOffset {
     type Output = Self;
-    fn sub(self, other: Self) -> Self { Self(self.0.saturating_sub(other.0)) }
+    fn sub(self, other: Self) -> Self {
+        Self(self.0.saturating_sub(other.0))
+    }
 }
 
 /// Configuration for synchronization
@@ -93,12 +107,12 @@ pub struct SyncConfig {
 impl Default for SyncConfig {
     fn default() -> Self {
         Self {
-            gossip_interval_ms: 30_000,      // 30s
+            gossip_interval_ms: 30_000, // 30s
             min_peers: 3,
             max_rtt_ms: 500,
             min_confidence: 0.5,
             confidence_threshold: 0.7,
-            max_correction_per_tick_ms: 5,   // 5ms max step
+            max_correction_per_tick_ms: 5, // 5ms max step
             ntp_fallback: true,
             ntp_servers: vec![
                 "pool.ntp.org".into(),

@@ -136,9 +136,20 @@ mod tests {
 
     #[test]
     fn test_relay_only_sees_fragments() {
-        assert!(Envelope::new(EnvelopeKind::Fragment, NodeId::random(), NodeId::random()).relay_visible());
-        assert!(!Envelope::new(EnvelopeKind::HandshakeInit, NodeId::random(), NodeId::random()).relay_visible());
-        assert!(!Envelope::new(EnvelopeKind::Dissolve, NodeId::random(), NodeId::random()).relay_visible());
+        assert!(
+            Envelope::new(EnvelopeKind::Fragment, NodeId::random(), NodeId::random())
+                .relay_visible()
+        );
+        assert!(!Envelope::new(
+            EnvelopeKind::HandshakeInit,
+            NodeId::random(),
+            NodeId::random()
+        )
+        .relay_visible());
+        assert!(
+            !Envelope::new(EnvelopeKind::Dissolve, NodeId::random(), NodeId::random())
+                .relay_visible()
+        );
     }
 
     #[test]
