@@ -1,24 +1,25 @@
 # STAGING.md — Services parked (pas dans MVP)
 
-> *Archive des 6 services initialement prévus dans `ECOSYSTEM.md` qui ne sont pas livrés dans v2.0.0-rc1.*
+> *Archive des services initialement prévus dans `ECOSYSTEM.md` qui ne sont pas livrés.*
 > *Source : Conseil des Sages 2026-06-29 — Musk (couper 90%) + Gödel (documenter pour la postérité).*
+> *Mis à jour 2026-08-06 : brain livré (pilot D4 — petals local).*
 
 ---
 
 ## Vue d'ensemble
 
-| Service | Statut | Livré en v2.0.0-rc1 ? |
+| Service | Statut | Livré en v2.0.0-rc2 ? |
 |---------|--------|----------------------|
-| **msg**    | 🟢 Live | ✅ |
-| **drive**  | 🟢 Live | ✅ |
+| **msg**    | 🟢 Live | ✅ messages E2E via relay aveugle (4/7) |
+| **drive**  | 🟢 Live | ✅ fichiers E2E via relay aveugle (4/7) |
+| **brain**  | 🟢 Live | ✅ IA locale (`polygone petals` → Ollama, zéro cloud) |
 | `compute`  | ⚪ Staging | ❌ |
 | `hide`     | ⚪ Staging | ❌ |
 | `mesh`     | ⚪ Staging | ❌ |
-| `brain`    | ⚪ Staging | ❌ |
-| `petals`   | ⚪ Staging | ❌ |
+| `petals`   | ⚪ Staging | ❌ (distribution *distribuée* — le local est livré sous `brain`) |
 | `shell`    | ⚪ Staging | ❌ |
 
-**2 livrés · 6 archivés** (de 8 à 2, soit 75% de coupe).
+**3 livrés · 5 archivés** (la coupe 75% tient, +1 service ramené en isolation).
 
 ---
 
@@ -49,8 +50,11 @@
 ## Service : `brain` (Polygone Brain)
 
 **Concept.** Local LLM gateway (Notch / Ollama / llama.cpp / Petals).
-**Pourquoi parked.** Polygone = transit verbatim. LLM = generation verbatim. Deux missions orthogonales. Le brouillage tactique du brain avec msg/drive serait confus.
-**Ré-introduction Phase 8+.** Si `petals` n'est jamais livré, brain pourrait être ré-évalué en isolation.
+**Statut v2.0.0-rc2 : 🟢 LIVRÉ.** `polygone petals status/models/ask` +
+`polygone` TUI `:ia <question>` — IA locale via Ollama (défaut
+127.0.0.1:11434), client HTTP minimal sans dépendance, zéro cloud.
+**Ré-introduction de la *distribution*.** Le sharding distribué reste sous
+`petals` (staging) — le local est suffisant pour l'isolation.
 
 ---
 
