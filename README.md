@@ -59,6 +59,11 @@ polygone envoyer --via 127.0.0.1:7000 --a <node_bob> -d <clef_bob> "salut"
                                         # terminal 3 : Alice envoie
 # → Bob reçoit et déchiffre avec 4/7 fragments. Le relay ne voit que du routage.
 
+# Le Drive — envoyer un FICHIER chiffré + fragmenté (2e service livré)
+polygone envoyer --via 127.0.0.1:7000 --a <node_bob> -d <clef_bob> \
+    --fichier ~/documents/secret.txt
+# → Bob : ~/.polygone/received/secret.txt — contenu vérifié identique
+
 # Les 4 binaires du workspace v2 :
 #   polygone / polygone-client   la commande produit (+ TUI, demo, msg, net)
 #   polygone-relay               relay aveugle (stateless, routage)
@@ -112,8 +117,8 @@ Cf. [`PHILOSOPHY.md`](./PHILOSOPHY.md) Axiome 1.
 
 | Service | Statut |
 |---------|--------|
-| `msg`   | 🟢 **Live** |
-| `drive` | 🟢 **Live** |
+| `msg`   | 🟢 **Live** — messages E2E via relay (4/7) |
+| `drive` | 🟢 **Live** — fichiers E2E via relay (4/7), `~/.polygone/received/` |
 | 6 autres| ⚪ [`STAGING.md`](./STAGING.md) |
 
 ---
