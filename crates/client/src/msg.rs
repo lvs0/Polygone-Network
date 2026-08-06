@@ -90,6 +90,14 @@ impl SendOutput {
 
 /// Encrypt a plaintext message and produce 7 Shamir fragments.
 pub fn send(plaintext: &str, recipient_pk: &KemPublicKey) -> anyhow::Result<SendOutput> {
+    send_bytes(plaintext.as_bytes(), recipient_pk)
+}
+
+/// Encrypt arbitrary bytes (message or file) and produce 7 Shamir fragments.
+pub fn send_bytes(
+    plaintext: &[u8],
+    recipient_pk: &KemPublicKey,
+) -> anyhow::Result<SendOutput> {
     // 1. Ephemeral sender keypair
     let (sender_pk, _sender_sk) = kem::generate_keypair()?;
 
@@ -100,7 +108,7 @@ pub fn send(plaintext: &str, recipient_pk: &KemPublicKey) -> anyhow::Result<Send
     let session_key = symmetric::SessionKey::derive_from_secret(&shared_secret);
 
     // 4. AES-256-GCM encrypt
-    let encrypted = symmetric::encrypt(plaintext.as_bytes(), &session_key)?;
+    let encrypted = symmetric::encrypt(plaintext, &session_key)?;
 
     // 5. Shamir 4-of-7 split
     let shares = shamir::split(&encrypted, 4, 7)?;

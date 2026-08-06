@@ -50,7 +50,7 @@ enum Commands {
         #[arg(long)]
         relay: Option<String>,
     },
-    /// Encrypt + fragment a message for a recipient (prints wire text)
+    /// Encrypt + fragment a message or a file for a recipient
     Envoyer {
         /// Recipient's ML-KEM-1024 public key (hex) — omit for a self-demo
         #[arg(long, short = 'd')]
@@ -61,8 +61,11 @@ enum Commands {
         /// Destination node id on the relay (with --via)
         #[arg(long, short = 'a')]
         a: Option<String>,
+        /// Send a file (with --via: received by the peer's `ecouter`)
+        #[arg(long)]
+        fichier: Option<String>,
         /// The message to send (everything after the flags)
-        #[arg(required = true)]
+        #[arg(required = false)]
         message: Vec<String>,
     },
     /// Reconstruct + decrypt from wire text (file path, or stdin if '-')
@@ -98,8 +101,17 @@ async fn main() -> Result<()> {
         Some(Commands::Demo { relay: _ }) => {
             demo::run()?;
         }
-        Some(Commands::Envoyer { dest, via, a, message }) => {
+        Some(Commands::Envoyer { dest, via, a, fichier, message }) => {
             let message = message.join(" ");
+
+            // File mode: read the file, send its bytes.
+            let payload: Vec<u8> = match &fichier {
+                Some(path) => std::fs::read(path)?,
+                None => message.as_bytes().to_vec(),
+            };
+            if fichier.is_none() && message.is_empty() {
+                anyhow::bail!("rien à envoyer : passez un message ou --fichier <chemin>");
+            }
 
             // Network mode: route the fragments through a blind relay.
             if let Some(relay) = via {
@@ -110,8 +122,17 @@ async fn main() -> Result<()> {
                     Some(hex) => polygone_core::crypto::kem::KemPublicKey::from_hex(&hex)?,
                     None => anyhow::bail!("mode réseau : précisez la clef du destinataire avec -d <clef>"),
                 };
-                let session = net::send_network(&relay, &dest_node, &message, &recipient, &identity).await?;
-                println!("⬡ envoyé via relay {relay} → {dest_node}");
+                let name = fichier.as_ref().map(|p| {
+                    std::path::Path::new(p)
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| p.clone())
+                });
+                let session = net::send_network(&relay, &dest_node, &payload, name.as_deref(), &recipient, &identity).await?;
+                match &fichier {
+                    Some(_) => println!("⬡ fichier envoyé via relay {relay} → {dest_node}"),
+                    None => println!("⬡ message envoyé via relay {relay} → {dest_node}"),
+                }
                 println!("  session {session} · 7 fragments + KEM_CT (4 suffisent pour lire)");
                 return Ok(());
             }
@@ -125,7 +146,7 @@ async fn main() -> Result<()> {
                     pk
                 }
             };
-            let output = msg::send(&message, &recipient)?;
+            let output = msg::send_bytes(&payload, &recipient)?;
             print!("{}", output.display());
         }
         Some(Commands::Recevoir { input }) => {
