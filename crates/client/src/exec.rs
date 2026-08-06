@@ -21,7 +21,6 @@ use std::time::Duration;
 /// This is the RES execution layer Phase 8: verifiable, memory-safe code.
 pub fn run_wasm(wasm: &[u8], timeout: Duration) -> Result<String> {
     use wasmi::{Engine, Linker, Module, Store};
-    use wasmi_wasi::{WasiCtx, WasiCtxBuilder};
 
     let engine = Engine::default();
     let module = Module::new(&engine, wasm)?;
