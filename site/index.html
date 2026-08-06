@@ -231,12 +231,34 @@
   </section>
 
   <section>
+    <h2 class="section-title">Comparé aux autres</h2>
+    <div class="crypto">
+      <div class="cell">
+        <div class="name">Tout le monde cache quelque chose.</div>
+        <div class="role">Polygone cache l'existence même de la communication.</div>
+        <div class="std">VPN cache le contenu · Tor cache l'origine · Polygone cache le fait</div>
+      </div>
+    </div>
+    <div class="honest" style="margin-top:16px">
+      <div class="row"><span>Cache le contenu</span><span>VPN ✓ · Tor ✓ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Cache l'IP source</span><span>VPN ✓ · Tor ✓ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Cache l'IP cible</span><span>VPN ✗ · Tor ✓ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Post-quantique</span><span>VPN ✗ · Tor ✗ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Pas de relay persistant</span><span>VPN ✗ · Tor ✗ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Messages auto-évaporés</span><span>VPN ✗ · Tor ✗ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Zero-log prouvable</span><span>VPN ✗ · Tor ~ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Open source</span><span>VPN ~ · Tor ✓ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+    </div>
+  </section>
+
+  <section>
     <h2 class="section-title">Statut, sans maquillage</h2>
     <div class="honest">
       <div class="row"><span>Messagerie E2E (msg)</span><span class="yes">live</span></div>
-      <div class="row"><span>Démo E2E post-quantique</span><span class="yes">live</span></div>
+      <div class="row"><span>Drive — fichiers E2E (4/7)</span><span class="yes">live</span></div>
+      <div class="row"><span>IA locale (petals → Ollama)</span><span class="yes">live</span></div>
       <div class="row"><span>Audit externe</span><span class="no">non réalisé — cf. LEGAL.md §5</span></div>
-      <div class="row"><span>P2P production</span><span class="no">transport simulé</span></div>
+      <div class="row"><span>P2P production</span><span class="no">relay réel, libp2p en cours</span></div>
       <div class="row"><span>Compte · abonnement · token</span><span class="no">jamais, par design</span></div>
     </div>
   </section>
