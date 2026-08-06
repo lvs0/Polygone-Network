@@ -37,14 +37,19 @@ C'est tout. v2.0.0-rc1 livre ces deux choses, point.
 ## Quickstart
 
 ```bash
-cargo build --release
-./target/release/polygone
+cargo build --workspace
 
 # Le truc le plus rapide à montrer : la démo E2E post-quantique complète
 cargo run -p polygone-client -- demo
 #   Alice ── ML-KEM-1024 + ML-DSA-65 ──► Bob
 #   AES-256-GCM (BLAKE3 KDF) · Shamir 4-of-7 · relay aveugle
 #   → audit « on voit rien » + simulation d'adversaire (3/7, 7/7)
+
+# Les 4 binaires du workspace v2 :
+#   polygoned         daemon d'allocation de ressources
+#   polygone-relay    relay aveugle (stateless)
+#   polygone-client   nœud utilisateur (+ demo, send, receive, id)
+#   (tests)           cargo test --workspace → 58 tests
 ```
 
 TUI actuelle : 4 onglets (Phase 3). Cible 2 onglets au v2.0.0-final lorsque **D1** GO — voir [`DECISIONS.md`](./DECISIONS.md).
