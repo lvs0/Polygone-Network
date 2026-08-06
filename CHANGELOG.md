@@ -26,6 +26,11 @@ promesse du SPEC : crypto post-quantique complète et testée.
   (`HELLO <node_id>`, NDJSON, ne lit que kind/to/session) + client
   `ecouter` / `envoyer --via <relay> --a <node>`. Validé en conditions
   réelles : Alice → relay → Bob, déchiffré avec 4/7 fragments.
+- **Drive** (2ᵉ service livré) — `envoyer --fichier` : un fichier chiffré,
+  fragmenté 4/7, traverse le relay ; le destinataire le reçoit dans
+  `~/.polygone/received/` (contenu vérifié identique).
+- **Kill-switch réel (Axiome 5)** — `polygone duress [--confirmer]` :
+  détruit identité + fichiers reçus, régénération au prochain lancement.
 - **Messagerie E2E réelle** (`crates/client/src/msg.rs`) — ML-KEM-1024 →
   BLAKE3 KDF → AES-256-GCM → Shamir 4/7 ; format filaire
   `KEM_CT/SENDER_PK/FRAG` interopérable.
