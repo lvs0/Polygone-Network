@@ -13,13 +13,13 @@
 | **msg**    | 🟢 Live | ✅ messages E2E via relay aveugle (4/7) |
 | **drive**  | 🟢 Live | ✅ fichiers E2E via relay aveugle (4/7) |
 | **brain**  | 🟢 Live | ✅ IA locale (`polygone petals` → Ollama, zéro cloud) |
-| `compute`  | ⚪ Staging | ❌ |
+| **mesh**   | 🟢 Live | ✅ découverte LAN (`voisins`/`annoncer`, Phase 4) |
+| `compute`  | 🟡 Protocole live | ✅ visibilité + prêt (grant via relay) — exécution staging |
 | `hide`     | ⚪ Staging | ❌ |
-| `mesh`     | ⚪ Staging | ❌ |
 | `petals`   | ⚪ Staging | ❌ (distribution *distribuée* — le local est livré sous `brain`) |
 | `shell`    | ⚪ Staging | ❌ |
 
-**3 livrés · 5 archivés** (la coupe 75% tient, +1 service ramené en isolation).
+**3 livrés + 1 protocole live · 3 archivés** (la coupe 75% tient, +2 ramenés en isolation).
 
 ---
 

@@ -44,6 +44,9 @@ promesse du SPEC : crypto post-quantique complète et testée.
 - **RES — nœuds fantômes** — `polygone compute` : RAM libre locale + carte
   des nœuds du LAN qui annoncent leur compute (l'idée « coup de génie »
   des notes Bear, socle du prêt P2P).
+- **RES — prêt de compute** — `compute --emprunter <node> --via <relay>` :
+  requête via le relay aveugle, le fantôme (`ecouter --compute`) répond
+  par un grant (RAM disponible). Protocole live, exécution staging.
 - **TUI complète** — `:envoyer :recevoir :voisins :compute :ia :demo
   :clef :statut :quitter` — tout le produit est dans les 2 commandes
   + le `:` (Axiome 2).
