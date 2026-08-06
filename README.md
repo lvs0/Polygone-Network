@@ -37,19 +37,26 @@ C'est tout. v2.0.0-rc1 livre ces deux choses, point.
 ## Quickstart
 
 ```bash
-cargo build --workspace
+# Installation (Linux/macOS) — une commande
+curl -fsSL polygone.network/install | bash
 
-# Le truc le plus rapide à montrer : la démo E2E post-quantique complète
-cargo run -p polygone-client -- demo
-#   Alice ── ML-KEM-1024 + ML-DSA-65 ──► Bob
-#   AES-256-GCM (BLAKE3 KDF) · Shamir 4-of-7 · relay aveugle
-#   → audit « on voit rien » + simulation d'adversaire (3/7, 7/7)
+# Ou depuis le repo
+cargo build --workspace --release
+
+# Le produit — la TUI (2 commandes : envoyer / quitter, style vim)
+polygone
+
+# Les autres commandes produit
+polygone demo            # démo E2E post-quantique complète (60 s)
+polygone clef            # votre clef publique (à partager)
+polygone envoyer -d <clef> "message"   # chiffrer + fragmenter (ML-KEM + Shamir 4/7)
+polygone recevoir wire.txt             # reconstruire + déchiffrer
 
 # Les 4 binaires du workspace v2 :
-#   polygoned         daemon d'allocation de ressources
-#   polygone-relay    relay aveugle (stateless)
-#   polygone-client   nœud utilisateur (+ demo, send, receive, id)
-#   (tests)           cargo test --workspace → 58 tests
+#   polygone / polygone-client   la commande produit (+ TUI, demo, msg)
+#   polygone-relay               relay aveugle (stateless)
+#   polygoned                    daemon d'allocation de ressources
+#   (tests)                      cargo test --workspace → 71 tests
 ```
 
 TUI actuelle : 4 onglets (Phase 3). Cible 2 onglets au v2.0.0-final lorsque **D1** GO — voir [`DECISIONS.md`](./DECISIONS.md).
