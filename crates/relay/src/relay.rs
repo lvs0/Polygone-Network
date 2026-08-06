@@ -1,74 +1,126 @@
-//! The relay core — async TCP server that forwards envelopes blindly.
+//! The relay core — async TCP server that forwards fragments blindly.
+//!
+//! Protocol (newline-delimited JSON):
+//!
+//! ```text
+//!   client → relay : HELLO <node_id>
+//!   client → relay : {"kind":"fragment","from":...,"to":...,"session":...,
+//!                     "seq":...,"payload":[...]}\n
+//!   relay   → peer  : (the same fragment line, forwarded verbatim)
+//! ```
+//!
+//! The relay only reads three fields: `kind` (must be "fragment"), `to`
+//! (routing), and `session` (TTL bookkeeping). It never inspects the payload.
+//! It never stores fragments. It forgets a peer the moment it disconnects.
 
 use anyhow::Result;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
-/// In-memory map of connected peers (peer_id → stream).
-/// NOTE: the relay doesn't *route* to these peers yet — it just keeps the
-/// connection table alive. Real routing goes through libp2p relay circuit.
-/// This map is only useful for the relay's liveness check.
-type PeerTable = Arc<RwLock<HashMap<String, TcpStream>>>;
+/// In-memory routing table: peer_id → open write half.
+type PeerTable = Arc<RwLock<HashMap<String, OwnedWriteHalf>>>;
 
 /// Handle one client connection.
 async fn handle_client(
-    mut stream: TcpStream,
+    stream: TcpStream,
     peer_addr: SocketAddr,
-    _peers: PeerTable,
+    peers: PeerTable,
 ) -> Result<()> {
-    let mut buf = [0u8; 8192];
+    let (reader, writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
+    let mut line = String::new();
 
-    loop {
-        let n = stream.read(&mut buf).await?;
+    // ── Handshake: first line must be "HELLO <node_id>" ───────────────────
+    let hello = loop {
+        line.clear();
+        let n = reader.read_line(&mut line).await?;
         if n == 0 {
-            // Client disconnected cleanly
-            log::debug!("relay: client {} disconnected", peer_addr);
-            break;
+            return Ok(()); // disconnected before HELLO
+        }
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("HELLO ") {
+            break rest.to_string();
+        }
+        log::debug!("relay: ignoring non-HELLO from {}", peer_addr);
+    };
+
+    // Register the write half so fragments can be routed here.
+    peers.write().await.insert(hello.clone(), writer);
+    log::debug!("relay: {} registered as '{}'", peer_addr, hello);
+    let mut dead_streams = Vec::new();
+
+    // ── Relay loop ────────────────────────────────────────────────────────
+    loop {
+        line.clear();
+        let n = reader.read_line(&mut line).await?;
+        if n == 0 {
+            break; // client disconnected
+        }
+        let raw = line.trim();
+        if raw.is_empty() {
+            continue;
         }
 
-        // We receive a raw JSON envelope. We do NOT parse the content.
-        // We only check that it's valid JSON and relay-visible.
-        let raw = &buf[..n];
-
-        // Quick serde check — can we parse it as a JSON value?
-        // This is the *only* inspection the relay does on the wire.
-        let json_val: serde_json::Value = match serde_json::from_slice(raw) {
+        // The ONLY inspection: kind + routing fields. Never the payload.
+        let val: serde_json::Value = match serde_json::from_str(raw) {
             Ok(v) => v,
             Err(_) => {
-                // Not valid JSON — relay ignores it silently
                 log::warn!("relay: ignoring non-JSON from {}", peer_addr);
                 continue;
             }
         };
 
-        // Extract the "kind" field to check relay-visibility.
-        // If it's not a Fragment, relay does NOT forward it.
-        let kind = json_val.get("kind")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let kind = val.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        if kind != "fragment" {
+            log::trace!("relay: ignored {} envelope from {}", kind, peer_addr);
+            continue;
+        }
 
-        match kind {
-            "fragment" => {
-                // This is a relay-visible envelope. Forward it.
-                // In the real libp2p implementation this goes through
-                // the relay circuit. In this v2 stub, we just echo it
-                // back to show the plumbing works.
-                log::debug!("relay: forwarding fragment from {}", peer_addr);
+        let to = val.get("to").and_then(|v| v.as_str()).unwrap_or("");
+        if to.is_empty() {
+            continue;
+        }
 
-                // Echo to sender so they know relay received it
-                stream.write_all(raw).await?;
+        // Forward to the destination if it is connected.
+        let mut table = peers.write().await;
+        let forwarded = match table.get_mut(to) {
+            Some(dst) => {
+                // Dead streams are dropped on write failure.
+                let mut ok = true;
+                if let Err(e) = dst.write_all(format!("{raw}\n").as_bytes()).await {
+                    log::warn!("relay: drop dead peer '{}': {}", to, e);
+                    ok = false;
+                    dead_streams.push(to.to_string());
+                }
+                ok
             }
-            _ => {
-                // Non-relay-visible envelope (handshake, dissolve, ack).
-                // Relay does not forward — these go peer-to-peer via libp2p.
-                log::trace!("relay: ignored {} envelope from {}", kind, peer_addr);
+            None => {
+                log::debug!("relay: '{}' not connected — fragment dropped", to);
+                false
             }
+        };
+
+        for dead in dead_streams.drain(..) {
+            table.remove(&dead);
+        }
+
+        if forwarded {
+            log::debug!(
+                "relay: forwarded fragment (session={:?}) from '{}' to '{}'",
+                val.get("session").and_then(|v| v.as_str()),
+                hello,
+                to
+            );
         }
     }
+
+    log::debug!("relay: '{}' ({}) disconnected", hello, peer_addr);
+    peers.write().await.remove(&hello);
     Ok(())
 }
 

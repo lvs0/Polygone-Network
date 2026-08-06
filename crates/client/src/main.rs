@@ -14,6 +14,7 @@
 mod demo;
 mod identity;
 mod msg;
+mod net;
 mod tui;
 
 use anyhow::Result;
@@ -54,6 +55,12 @@ enum Commands {
         /// Recipient's ML-KEM-1024 public key (hex) — omit for a self-demo
         #[arg(long, short = 'd')]
         dest: Option<String>,
+        /// Route through a relay: --via <relay:port> --a <dest_node_id>
+        #[arg(long)]
+        via: Option<String>,
+        /// Destination node id on the relay (with --via)
+        #[arg(long, short = 'a')]
+        a: Option<String>,
         /// The message to send (everything after the flags)
         #[arg(required = true)]
         message: Vec<String>,
@@ -63,6 +70,12 @@ enum Commands {
         /// File containing wire text, or '-' for stdin
         #[arg(default_value = "-")]
         input: String,
+    },
+    /// Listen for messages through a relay (plane 2 — real network)
+    Ecouter {
+        /// Relay address
+        #[arg(long, default_value = "127.0.0.1:7000")]
+        relay: String,
     },
     /// Show your ML-KEM-1024 public key (what you share to receive)
     Clef,
@@ -85,8 +98,24 @@ async fn main() -> Result<()> {
         Some(Commands::Demo { relay: _ }) => {
             demo::run()?;
         }
-        Some(Commands::Envoyer { dest, message }) => {
+        Some(Commands::Envoyer { dest, via, a, message }) => {
             let message = message.join(" ");
+
+            // Network mode: route the fragments through a blind relay.
+            if let Some(relay) = via {
+                let dest_node = a.ok_or_else(|| {
+                    anyhow::anyhow!("mode réseau : précisez le nœud destinataire avec --a <node_id>")
+                })?;
+                let recipient = match dest {
+                    Some(hex) => polygone_core::crypto::kem::KemPublicKey::from_hex(&hex)?,
+                    None => anyhow::bail!("mode réseau : précisez la clef du destinataire avec -d <clef>"),
+                };
+                let session = net::send_network(&relay, &dest_node, &message, &recipient, &identity).await?;
+                println!("⬡ envoyé via relay {relay} → {dest_node}");
+                println!("  session {session} · 7 fragments + KEM_CT (4 suffisent pour lire)");
+                return Ok(());
+            }
+
             let recipient = match dest {
                 Some(hex) => polygone_core::crypto::kem::KemPublicKey::from_hex(&hex)?,
                 None => {
@@ -108,6 +137,9 @@ async fn main() -> Result<()> {
             let output = msg::SendOutput::parse(&text)?;
             let plain = msg::receive(&output, &identity.kem_secret_key()?)?;
             println!("{plain}");
+        }
+        Some(Commands::Ecouter { relay }) => {
+            net::receive_network(&relay, &identity).await?;
         }
         Some(Commands::Clef) => {
             println!("{}", identity.kem_pk_hex);
