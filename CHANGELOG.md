@@ -31,6 +31,12 @@ promesse du SPEC : crypto post-quantique complète et testée.
   `~/.polygone/received/` (contenu vérifié identique).
 - **Kill-switch réel (Axiome 5)** — `polygone duress [--confirmer]` :
   détruit identité + fichiers reçus, régénération au prochain lancement.
+- **Petals (D4 pilot)** — `polygone petals status/models/ask` : IA locale
+  via Ollama (défaut 127.0.0.1:11434, `POLYGONE_OLLAMA_URL`), client HTTP
+  minimal sans dépendance (décodage chunked), zéro cloud.
+- **`polygone test`** — self-test crypto réel (7/7 : ML-KEM, AES-GCM,
+  BLAKE3 KDF, Shamir 4/7 + 3/7, ML-DSA sign/verify + tamper), exit 0
+  uniquement si tout est vert.
 - **Messagerie E2E réelle** (`crates/client/src/msg.rs`) — ML-KEM-1024 →
   BLAKE3 KDF → AES-256-GCM → Shamir 4/7 ; format filaire
   `KEM_CT/SENDER_PK/FRAG` interopérable.
