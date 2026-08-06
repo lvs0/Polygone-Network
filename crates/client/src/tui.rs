@@ -36,6 +36,7 @@ pub enum Command {
     Send,
     Receive,
     Ask(String),
+    Voisins,
     Unknown(String),
 }
 
@@ -55,6 +56,7 @@ pub fn parse_command(input: &str) -> Command {
         "envoyer" | "e" | "send" => Command::Send,
         "recevoir" | "r" | "recv" => Command::Receive,
         "ia" | "ask" | "petals" => Command::Ask(rest.trim().to_string()),
+        "voisins" | "mesh" | "v" => Command::Voisins,
         _ => Command::Unknown(raw.to_string()),
     }
 }
@@ -95,6 +97,7 @@ pub fn render_help() -> String {
     s.push_str("                      (sans argument : destinataire fictif)\n");
     s.push_str("  :recevoir           reconstruire + déchiffrer (4/7)\n");
     s.push_str("  :ia <question>      l'IA locale répond (petals, zéro cloud)\n");
+    s.push_str("  :voisins            scanner le LAN (mesh, Phase 4)\n");
     s.push_str("  :demo               démo E2E — relay aveugle + audit\n");
     s.push_str("  :clef               afficher votre clef publique\n");
     s.push_str("  :statut             rafraîchir\n");
@@ -423,6 +426,32 @@ fn execute_command(
             }
             draw(identity, session)?;
         }
+        Command::Voisins => {
+            session.command_buffer.clear();
+            session.note = String::new();
+            session.view = View::Output;
+            session.input_prompt = "⬡ Mesh — scan du LAN…".to_string();
+            draw(identity, session)?;
+            match crate::mesh::discover(std::time::Duration::from_secs(3)) {
+                Ok(peers) => {
+                    let mut out = String::from("⬡ Mesh — nœuds du LAN\n");
+                    if peers.is_empty() {
+                        out.push_str(
+                            "\n  aucun nœud trouvé.\n  (lancez « polygone ecouter --annoncer » sur un autre poste)",
+                        );
+                    } else {
+                        for p in &peers {
+                            out.push_str(&format!("\n  · {}  →  relay {}", p.node_id, p.relay));
+                        }
+                    }
+                    session.input_prompt = out;
+                }
+                Err(e) => {
+                    session.input_prompt = format!("⬡ Mesh — erreur : {e}");
+                }
+            }
+            draw(identity, session)?;
+        }
         Command::Unknown(what) => {
             session.command_buffer.clear();
             session.note = format!("commande inconnue : « {} » — tapez :aide", what);
@@ -507,6 +536,8 @@ mod tests {
             parse_command("petals explique l'ephemerite"),
             Command::Ask("explique l'ephemerite".into())
         );
+        assert_eq!(parse_command("voisins"), Command::Voisins);
+        assert_eq!(parse_command("mesh"), Command::Voisins);
         assert_eq!(parse_command("  aide  "), Command::Help);
     }
 
