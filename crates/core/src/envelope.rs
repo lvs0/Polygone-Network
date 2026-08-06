@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::PolygoneError;
 use crate::identity::{NodeId, SessionId};
 
 /// Number of Shamir shares to generate per message.

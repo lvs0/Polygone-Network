@@ -9,9 +9,7 @@
 //! 3. Both update their filters
 
 use super::types::{Timestamp, PeerId, PeerTimeStateGossip};
-use crate::identity::NodeId;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Protocol version
 pub const PTSP_VERSION: u8 = 1;
@@ -102,6 +100,7 @@ pub fn apply_correction(current_offset: i64, target_offset: i64, max_step_ms: u6
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::identity::NodeId;
 
     #[test]
     fn test_calculate_offset_rtt() {

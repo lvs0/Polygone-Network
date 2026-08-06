@@ -15,6 +15,16 @@ pub enum PolygoneError {
     Crypto(String),
     /// I/O failed.
     Io(String),
+    /// ML-KEM-1024 decapsulation failed (shared secret mismatch).
+    KemDecapsulate,
+    /// Shamir split failed.
+    ShamirSplit(String),
+    /// Shamir reconstruction failed (too few / inconsistent shares).
+    ShamirReconstruct(String),
+    /// AES-GCM operation failed (tag mismatch / invalid key).
+    AeadError(String),
+    /// Key parsing / key-file error.
+    KeyFile(String),
 }
 
 impl std::fmt::Display for PolygoneError {
@@ -29,11 +39,19 @@ impl std::fmt::Display for PolygoneError {
             Self::Serde(m) => write!(f, "serde: {}", m),
             Self::Crypto(m) => write!(f, "crypto: {}", m),
             Self::Io(m) => write!(f, "io: {}", m),
+            Self::KemDecapsulate => write!(f, "ML-KEM-1024 decapsulation failed"),
+            Self::ShamirSplit(m) => write!(f, "shamir split: {}", m),
+            Self::ShamirReconstruct(m) => write!(f, "shamir reconstruct: {}", m),
+            Self::AeadError(m) => write!(f, "aead: {}", m),
+            Self::KeyFile(m) => write!(f, "key file: {}", m),
         }
     }
 }
 
 impl std::error::Error for PolygoneError {}
+
+/// Convenience result alias used across the core crate.
+pub type Result<T> = std::result::Result<T, PolygoneError>;
 
 impl From<std::io::Error> for PolygoneError {
     fn from(e: std::io::Error) -> Self { Self::Io(e.to_string()) }
