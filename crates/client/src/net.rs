@@ -225,6 +225,20 @@ fn grant_for(req: &NetEnvelope, identity: &LocalIdentity) -> NetEnvelope {
     }
 }
 
+/// Run the task from a RES request inside the systemd sandbox and return
+/// the output. Empty input = no execution (grant without output).
+fn run_res_task(req: &NetEnvelope) -> Option<String> {
+    let body: serde_json::Value = serde_json::from_slice(&req.payload).ok()?;
+    let task = body.get("task")?.as_str()?;
+    if task.trim().is_empty() {
+        return None;
+    }
+    match crate::exec::run_sandboxed(task, 256, 50, std::time::Duration::from_secs(30)) {
+        Ok(out) => Some(out),
+        Err(e) => Some(format!("[erreur sandbox] {e}")),
+    }
+}
+
 /// Process one wire line against the session map. Returns `Some` when a
 /// session completes (>= 4/7 fragments) and decrypts. Pure logic — no sockets.
 fn process_line(
@@ -313,7 +327,14 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
         // RES compute requests: answer with a grant (ghost node).
         if let Ok(env) = serde_json::from_str::<NetEnvelope>(line.trim()) {
             if env.typ == "req" && compute {
-                let grant = grant_for(&env, identity);
+                let mut grant = grant_for(&env, identity);
+                // Execute the task in the systemd sandbox (RES execution layer).
+                if let Some(output) = run_res_task(&env) {
+                    let mut body: serde_json::Value =
+                        serde_json::from_slice(&grant.payload).unwrap_or(serde_json::json!({}));
+                    body["output"] = serde_json::Value::String(output);
+                    grant.payload = body.to_string().into_bytes();
+                }
                 let _ = writer
                     .write_all(format!("{}\n", serde_json::to_string(&grant)?).as_bytes())
                     .await;

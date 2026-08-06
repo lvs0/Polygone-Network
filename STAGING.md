@@ -26,15 +26,20 @@
 ## Service : `compute` (Polygone Compute)
 
 **Concept.** Lend/borrow compute pour distributed work. Idle detection → allocation → exécution sandboxée.
-**Statut v2.0.0-rc2 : 🟡 PROTOCOLE LIVE, exécution staging.**
+**Statut v2.0.0-rc2 : 🟢 PROTOCOLE + EXÉCUTION LIVE (MVP sandbox).**
 - Visibilité : `polygone compute` — RAM libre locale + nœuds fantômes du LAN.
 - Prêt : `polygone compute --emprunter <node> --via <relay>` → le fantôme
   (`ecouter --compute`) répond par un grant via le relay aveugle.
-- **Honnête** : les req/grant sont des métadonnées (qui, combien) — les
-  données de la tâche réelle seront chiffrées E2E avec la couche d'exécution.
-**Ré-introduction de l'exécution Phase 8+.** Sandbox secure (WASMtime,
-gVisor-level isolation) + reputation + adversary budget. La couche
-d'allocation existe déjà dans `polygoned` (policy GlowUp).
+- **Exécution** : `polygone compute --executer "<cmd>" --emprunter <node>`
+  → la tâche tourne DANS la sandbox systemd du fantôme (MemoryMax 256 Mo,
+  NoNewPrivileges, ProtectSystem=strict, PrivateTmp, PrivateNetwork,
+  CPUQuota 50 %) et la sortie revient via le relay.
+- **Honnête** : sandbox *système* (isolation contre accidents et abus
+  opportunistes), PAS une sandbox cryptographique. Requêtes non chiffrées
+  E2E (métadonnées) — les données de tâche sensibles attendent WASM.
+**Ré-introduction Phase 8+.** Exécution WASM vérifiée (wasmi/wasmtime) +
+reputation + adversary budget. La couche d'allocation existe déjà dans
+`polygoned` (policy GlowUp).
 
 ---
 

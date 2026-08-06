@@ -13,6 +13,7 @@
 
 mod demo;
 mod duress;
+mod exec;
 mod identity;
 mod mesh;
 mod msg;
@@ -110,7 +111,10 @@ enum Commands {
         /// Borrow compute from a ghost node
         #[arg(long)]
         emprunter: Option<String>,
-        /// Relay to route the borrow request through
+        /// Execute a task on the ghost node (sandboxed, RES execution)
+        #[arg(long)]
+        executer: Option<String>,
+        /// Relay to route the borrow/exec request through
         #[arg(long, default_value = "127.0.0.1:7000")]
         via: String,
     },
@@ -330,8 +334,40 @@ async fn main() -> Result<()> {
         Some(Commands::Compute {
             duree,
             emprunter,
+            executer,
             via,
         }) => {
+            // Execution mode: send a task to the ghost, get the sandboxed output.
+            if let Some(command) = executer {
+                let ghost = emprunter.ok_or_else(|| {
+                    anyhow::anyhow!("--executer demande --emprunter <node> (le nœud fantôme)")
+                })?;
+                println!("⬡ RES — exécution sandboxée → {ghost} (via {via})");
+                println!("  tâche : {command}");
+                match net::borrow_compute(
+                    &via,
+                    &ghost,
+                    &command,
+                    &identity,
+                    std::time::Duration::from_secs(40),
+                )
+                .await?
+                {
+                    Some(grant) => {
+                        let body: serde_json::Value = serde_json::from_str(&grant)?;
+                        println!(
+                            "  ⬡ RÉSULTAT (nœud {}) :",
+                            body["node"].as_str().unwrap_or("?")
+                        );
+                        println!("{}", body["output"].as_str().unwrap_or("(pas de sortie)"));
+                    }
+                    None => {
+                        println!("  ✖ aucune réponse — le nœud est-il en `ecouter --compute` ?");
+                    }
+                }
+                return Ok(());
+            }
+
             // Borrow mode: send a compute request to a ghost node.
             if let Some(ghost) = emprunter {
                 println!("⬡ RES — demande de compute → {ghost} (via {via})");
