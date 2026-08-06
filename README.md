@@ -64,6 +64,11 @@ polygone envoyer --via 127.0.0.1:7000 --a <node_bob> -d <clef_bob> \
     --fichier ~/documents/secret.txt
 # → Bob : ~/.polygone/received/secret.txt — contenu vérifié identique
 
+# Petals — l'IA locale (3e service livré, pilot D4) — Ollama local, zéro cloud
+polygone petals status                 # modèles installés
+polygone petals ask --model phi4-mini:latest "ta question"
+# → le modèle répond, rien ne quitte votre machine
+
 # Les 4 binaires du workspace v2 :
 #   polygone / polygone-client   la commande produit (+ TUI, demo, msg, net)
 #   polygone-relay               relay aveugle (stateless, routage)
@@ -119,7 +124,8 @@ Cf. [`PHILOSOPHY.md`](./PHILOSOPHY.md) Axiome 1.
 |---------|--------|
 | `msg`   | 🟢 **Live** — messages E2E via relay (4/7) |
 | `drive` | 🟢 **Live** — fichiers E2E via relay (4/7), `~/.polygone/received/` |
-| 6 autres| ⚪ [`STAGING.md`](./STAGING.md) |
+| `brain` | 🟢 **Live** — IA locale (petals → Ollama, zéro cloud) |
+| 5 autres| ⚪ [`STAGING.md`](./STAGING.md) |
 
 ---
 
