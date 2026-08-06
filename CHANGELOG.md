@@ -21,7 +21,11 @@ promesse du SPEC : crypto post-quantique complète et testée.
 - **D1 GO** — TUI 2 onglets (`:envoyer` / `:quitter`), style vim,
   événementielle (aucun polling), écran d'accueil avec identité/uptime.
 - **`polygone`** — binaire produit unifié (TUI par défaut ; sous-commandes
-  `demo`, `envoyer`, `recevoir`, `clef`, `id`).
+  `demo`, `envoyer`, `recevoir`, `clef`, `ecouter`, `id`).
+- **Réseau réel (plane 2)** — relay TCP aveugle qui route les fragments
+  (`HELLO <node_id>`, NDJSON, ne lit que kind/to/session) + client
+  `ecouter` / `envoyer --via <relay> --a <node>`. Validé en conditions
+  réelles : Alice → relay → Bob, déchiffré avec 4/7 fragments.
 - **Messagerie E2E réelle** (`crates/client/src/msg.rs`) — ML-KEM-1024 →
   BLAKE3 KDF → AES-256-GCM → Shamir 4/7 ; format filaire
   `KEM_CT/SENDER_PK/FRAG` interopérable.
