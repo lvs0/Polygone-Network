@@ -52,11 +52,18 @@ polygone clef            # votre clef publique (à partager)
 polygone envoyer -d <clef> "message"   # chiffrer + fragmenter (ML-KEM + Shamir 4/7)
 polygone recevoir wire.txt             # reconstruire + déchiffrer
 
+# Le vrai réseau (plane 2 — relay aveugle)
+polygone-relay                          # terminal 1 : le relay
+polygone ecouter                        # terminal 2 : Bob écoute
+polygone envoyer --via 127.0.0.1:7000 --a <node_bob> -d <clef_bob> "salut"
+                                        # terminal 3 : Alice envoie
+# → Bob reçoit et déchiffre avec 4/7 fragments. Le relay ne voit que du routage.
+
 # Les 4 binaires du workspace v2 :
-#   polygone / polygone-client   la commande produit (+ TUI, demo, msg)
-#   polygone-relay               relay aveugle (stateless)
+#   polygone / polygone-client   la commande produit (+ TUI, demo, msg, net)
+#   polygone-relay               relay aveugle (stateless, routage)
 #   polygoned                    daemon d'allocation de ressources
-#   (tests)                      cargo test --workspace → 71 tests
+#   (tests)                      cargo test --workspace → 82 tests
 ```
 
 TUI actuelle : 4 onglets (Phase 3). Cible 2 onglets au v2.0.0-final lorsque **D1** GO — voir [`DECISIONS.md`](./DECISIONS.md).
