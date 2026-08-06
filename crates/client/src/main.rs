@@ -16,6 +16,7 @@ mod duress;
 mod identity;
 mod msg;
 mod net;
+mod petals;
 mod self_test;
 mod tui;
 
@@ -88,12 +89,34 @@ enum Commands {
     Id,
     /// Run the real crypto self-test suite (exit 0 = all green)
     Test,
+    /// Local AI service (D4 pilot) — talks to local Ollama, no cloud
+    Petals {
+        #[command(subcommand)]
+        action: PetalsAction,
+    },
     /// Mode duress — destroy local identity + received files (Axiome 5).
     /// Requires --confirmer (explicit signal, irreversible).
     Duress {
         /// Explicit confirmation that the destruction is intended
         #[arg(long)]
         confirmer: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum PetalsAction {
+    /// List installed models
+    Models,
+    /// Show Ollama status (models + count)
+    Status,
+    /// Ask the local model a question
+    Ask {
+        /// Question
+        #[arg(required = true)]
+        question: Vec<String>,
+        /// Model to use (default: first installed)
+        #[arg(long)]
+        model: Option<String>,
     },
 }
 
@@ -222,6 +245,27 @@ async fn main() -> Result<()> {
         Some(Commands::Test) => {
             self_test::run()?;
         }
+        Some(Commands::Petals { action }) => match action {
+            PetalsAction::Models => {
+                for m in petals::models()? {
+                    println!("{m}");
+                }
+            }
+            PetalsAction::Status => {
+                let models = petals::models()?;
+                println!("⬡ Petals — IA locale via {}", petals::ollama_url());
+                println!("  {} modèles installés :", models.len());
+                for m in models {
+                    println!("    · {m}");
+                }
+                println!("  (aucun cloud, aucun compte, aucune télémétrie)");
+            }
+            PetalsAction::Ask { question, model } => {
+                let q = question.join(" ");
+                let response = petals::ask(&q, model.as_deref())?;
+                println!("{response}");
+            }
+        },
         Some(Commands::Duress { .. }) => {
             unreachable!("handled before identity load")
         }
