@@ -94,6 +94,18 @@ Pas de YAML. Pas de `config.toml`. Pas de provider à choisir.
 4. [`COUNCIL_DECISIONS.md`](./COUNCIL_DECISIONS.md) — pourquoi chaque choix existe.
 5. [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) — pourquoi l'ambre, pourquoi le suspense.
 
+### Documentation produit
+
+| Doc | Contenu |
+|---|---|
+| [`docs/cli.md`](./docs/cli.md) | Référence complète de la commande `polygone` |
+| [`docs/STRATEGIE.md`](./docs/STRATEGIE.md) | Les 3 angles, le pitch, le modèle économique |
+| [`docs/config.md`](./docs/config.md) | Fichiers de configuration |
+| [`docs/threat-commodity.md`](./docs/threat-commodity.md) | Menace — utilisateur quotidien (SLA 5 min) |
+| [`docs/threat-high-value.md`](./docs/threat-high-value.md) | Menace — dissident (SLA 30 min) |
+| [`docs/kill-switch.md`](./docs/kill-switch.md) | Mode duress + runbook opérateur |
+| [`STAGING.md`](./STAGING.md) | Services archivés + conditions de retour |
+
 ---
 
 ## Statut honnête
