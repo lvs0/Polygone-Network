@@ -4,9 +4,7 @@
 //! into concrete allocations. Lightweight, deterministic, no ML.
 
 use crate::allocator::Allocation;
-use crate::resources::{
-    CpuAffinityMode, BandwidthInfo, NetInterface,
-};
+use crate::resources::CpuAffinityMode;
 use crate::system::SystemSnapshot;
 use crate::Platform;
 use std::collections::VecDeque;
@@ -281,7 +279,6 @@ impl GlowUpEngine {
     fn compute_ideal(&self, snap: &SystemSnapshot, limits: &ResourceLimits) -> Allocation {
         let total_ram = snap.memory.total_bytes;
         let bw_estimate = snap.bandwidth.total_mbps.max(10.0) as u32;
-        let total_vram: u32 = snap.gpu.iter().map(|g| g.vram_total_mb).sum();
 
         let ram_bytes = (total_ram as f32 * limits.max_ram_percent as f32 / 100.0) as u64;
         let bandwidth_mbps = (bw_estimate as f32 * limits.max_bandwidth_percent as f32 / 100.0) as u32;

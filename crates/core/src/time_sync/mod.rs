@@ -32,8 +32,6 @@ pub use types::{Timestamp, TimeOffset, SyncConfig, SyncStats, PeerId, PeerTimeSt
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_offset_calculation() {
         // T1=1000, T2=1005, T3=1010, T4=1015

@@ -43,9 +43,9 @@ User A                        User B
 
 | Aspect | v1 | v2 |
 |---|---|---|
-| Crypto | ✅ ML-KEM + Shamir (proven) | ✅ Same, but tested |
+| Crypto | ✅ ML-KEM + Shamir (proven) | ✅ Same, tested in `polygone-core` |
 | P2P | libp2p (draft) | libp2p (stable, minimal) |
-| Demo | Doesn't exist | One command: `cargo run --example send` |
+| Demo | Doesn't exist | `cargo run -p polygone-client -- demo` — E2E real crypto |
 | Relay | Module exists | Fully implemented, stateless, auditable |
 | Daemon | None | `polygoned` (resource allocation) |
 | Config | Dispersed across crates | Single `polygone.toml` |
@@ -62,9 +62,9 @@ polygone/               — Workspace root (Cargo workspace)
 │   └── main.rs         — Entry point
 │
 ├── core/               — Crypto + protocol core
-│   ├── src/crypto/    — ML-KEM-1024, AES-256-GCM, BLAKE3
-│   ├── src/shamir/    — Shamir 4-of-7
-│   ├── src/packet.rs   — Packet format
+│   ├── src/crypto/    — ML-KEM-1024, AES-256-GCM, BLAKE3, Shamir 4-of-7
+│   ├── src/sign.rs    — ML-DSA-65 (FIPS 204)
+│   ├── src/envelope.rs — Packet format
 │   └── src/lib.rs
 │
 ├── relay/             — The relay node (stateless)
@@ -118,19 +118,20 @@ git clone https://github.com/lvs0/Polygone-Network
 cd Polygone-Network
 
 # 2. Build
-cargo build --release
+cargo build --workspace
 
-# 3. Terminal 1 — start relay
-cargo run --release -p polygone-relay
-
-# 4. Terminal 2 — start node A
-cargo run --release -p polygone-client -- --mode send --to bob --file secret.txt
-
-# 5. Terminal 3 — start node B (receives)
-cargo run --release -p polygone-client -- --mode recv
-
-# Result: Bob receives secret.txt. Relay logs show only: [received] [forwarded].
+# 3. The flagship demo — real post-quantum crypto, one command
+cargo run -p polygone-client -- demo
+#    Alice → blind relay → Bob
+#    ML-KEM-1024 encapsulate → BLAKE3 KDF → AES-256-GCM encrypt → ML-DSA-65 sign
+#    Shamir 4-of-7 fragments transit the relay (log: only [recv]/[fwd])
+#    Relay audit: 0 plaintext, 0 keys — « on voit rien » ✓
+#    Adversary: 3/7 fragments → nothing; 7/7 without the KEM key → nothing
+#    Bob: reconstruct (4/7) → verify signature → decapsulate → decrypt ✓
 ```
+
+Result: Bob receives the message, the signature proves it's really Alice, and
+the relay's raw sight contains zero plaintext and zero key material.
 
 ## Non-Goals (What v2 is NOT)
 

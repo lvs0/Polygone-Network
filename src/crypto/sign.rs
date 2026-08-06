@@ -2,7 +2,7 @@
 
 use crate::{PolygoneError, Result};
 use pqcrypto_mldsa::mldsa65;
-use pqcrypto_traits::sign::{PublicKey, SecretKey, SignedMessage};
+use pqcrypto_traits::sign::{PublicKey as TraitPublicKey, SecretKey as TraitSecretKey, SignedMessage};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 

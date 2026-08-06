@@ -43,7 +43,25 @@ Refonte complète du TUI de `Menu + Dashboard + Favoris + Settings` vers **2 ong
 **Fin S2** (≈ 13 juillet 2026).
 
 ### Statut
-🟡 **PENDING**.
+🟡 **PENDING — bench data recorded (2026-08-06)**.
+
+`cargo bench -p polygone-core` (release, AVX2 actif) sur la machine de dev :
+
+```
+keygen  : ~92 µs
+sign    : ~265 µs   ← goulot
+verify  : ~79 µs
+total   : ~270–344 µs (selon charge) — gate 200 µs NON atteint
+capacity: ~2900 handshakes/sec/cœur
+```
+
+**Lecture honnête** : le gate ≤ 200 µs est dépassé d'environ 1,4–1,7× sur ce
+matériel. La capacité résultante (~2900 auths/sec/cœur) reste largement
+suffisante pour des sessions éphémères — ce n'est pas un bloqueur produit.
+L'option « retour à ML-DSA-87 » du D2 n'améliore PAS la perf (clé 3840 B,
+signature 5667 B, plus lent) ; elle aggraverait le gate. Recommandation :
+garder ML-DSA-65 et réviser la cible à ≤ 400 µs, ou valider empiriquement
+~2900/sec comme suffisant. Décision finale : à Lévy.
 
 ---
 

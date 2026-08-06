@@ -25,8 +25,14 @@ Thumbs.db
 
 # ── Test artifacts ─────────────────────────────────────────────────────────────
 benches/
+# The D2 handshake gate bench is source, not an artifact — keep it tracked.
+!crates/core/benches/
+!crates/core/benches/handshake_bench.rs
 perf.data
 perf.data.old
+
+# ── Graphify generated output (local only) ───────────────────────────────────
+graphify-out/
 
 # ── Report artifacts ────────────────────────────────────────────────────────────
 NIGHT-REPORT.md

@@ -94,7 +94,6 @@ impl SystemSnapshot {
             .unwrap_or_else(|| "unknown".to_string());
 
         let (rx_mbps, tx_mbps) = bw_info.primary_rx_tx();
-        let total_mbps = rx_mbps + tx_mbps;
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()

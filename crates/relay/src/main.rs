@@ -25,7 +25,6 @@ mod relay;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::future::Future;
 
 /// Poll-based main — wraps the async relay::run() inside a tiny Tokio runtime.
 /// We do this instead of #[tokio::main] because we need conditional setup

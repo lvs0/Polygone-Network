@@ -8,6 +8,7 @@
 //! 4. Run the example: Alice sends a message to Charlie via relay
 
 mod client;
+mod demo;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -38,9 +39,10 @@ enum Commands {
     Receive,
     /// Start client and print its NodeId
     Id,
-    /// Run the full E2E demo: Alice → relay → Charlie
+    /// Run the flagship E2E demo: Alice → blind relay → Bob, real
+    /// post-quantum crypto + relay audit (« on voit rien »)
     Demo {
-        /// Relay address [default: 127.0.0.1:7000]
+        /// Relay address (reserved for future TCP mode)
         #[arg(long)]
         relay: Option<String>,
     },
@@ -57,12 +59,14 @@ async fn main() -> Result<()> {
 
     match args.command {
         Commands::Id => {
-            use polygone_core::{NodeId, Envelope, EnvelopeKind};
+            use polygone_core::NodeId;
             let id = NodeId::random();
             println!("NodeId: {}", id);
         }
-        Commands::Demo { relay } => {
-            client::demo(relay.unwrap_or_else(|| "127.0.0.1:7000".into())).await?;
+        Commands::Demo { relay: _ } => {
+            // The flagship demo: Alice → blind relay → Bob, real post-quantum
+            // crypto end to end, plus the "on voit rien" relay audit.
+            demo::run()?;
         }
         Commands::Send { msg } => {
             let msg = msg.join(" ");

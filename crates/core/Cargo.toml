@@ -13,6 +13,25 @@ thiserror = { workspace = true }
 log = { workspace = true }
 hex = "0.4"
 rand = "0.8"
+# Post-quantum KEM (ML-KEM-1024, NIST FIPS 203)
+pqcrypto-mlkem = "0.1"
+# Post-quantum signatures (ML-DSA-65, NIST FIPS 204)
+pqcrypto-mldsa = "0.1"
+pqcrypto-traits = "0.3"
+# Symmetric encryption (AES-256-GCM)
+aes-gcm = { version = "0.10", features = ["aes"] }
+# Hashing / KDF (BLAKE3)
+blake3 = "1"
+# Shamir secret sharing (4-of-7)
+sharks = { version = "0.5", default-features = false }
+# Secure memory clearing
+zeroize = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
+
+[[bench]]
+name = "handshake_bench"
+path = "benches/handshake_bench.rs"
+harness = false
+

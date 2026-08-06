@@ -39,6 +39,12 @@ C'est tout. v2.0.0-rc1 livre ces deux choses, point.
 ```bash
 cargo build --release
 ./target/release/polygone
+
+# Le truc le plus rapide à montrer : la démo E2E post-quantique complète
+cargo run -p polygone-client -- demo
+#   Alice ── ML-KEM-1024 + ML-DSA-65 ──► Bob
+#   AES-256-GCM (BLAKE3 KDF) · Shamir 4-of-7 · relay aveugle
+#   → audit « on voit rien » + simulation d'adversaire (3/7, 7/7)
 ```
 
 TUI actuelle : 4 onglets (Phase 3). Cible 2 onglets au v2.0.0-final lorsque **D1** GO — voir [`DECISIONS.md`](./DECISIONS.md).
@@ -59,8 +65,12 @@ Pas de YAML. Pas de `config.toml`. Pas de provider à choisir.
 
 ## Statut honnête
 
-- `cargo test` → ✅
-- `cargo build` → ✅
+- `cargo test --workspace` → ✅ (58 tests)
+- `cargo build --workspace` → ✅
+- Crypto core (`polygone-core`) → ✅ **complet** : ML-KEM-1024, ML-DSA-65,
+  AES-256-GCM, BLAKE3 KDF, Shamir 4-of-7 — tous branchés, tous testés
+- Démo E2E (`polygone-client demo`) → ✅ relay aveugle + audit « on voit rien »
+- Bench handshake D2 → 📊 données enregistrées (voir [`DECISIONS.md`](./DECISIONS.md) D2)
 - Audit externe → **NON RÉALISÉ** (cf. `LEGAL.md` §5)
 - Production-grade P2P → ⚠️ wired in, transport simulé
 - Documentation complète → 🟡 en cours (S2 livrable threat model)
