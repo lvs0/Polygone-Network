@@ -99,6 +99,12 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1:7000")]
         relay: String,
     },
+    /// RES — your free compute + the ghost nodes on the LAN (notes Bear)
+    Compute {
+        /// Scan duration in seconds for LAN peers
+        #[arg(long, default_value_t = 3)]
+        duree: u64,
+    },
     /// Show your ML-KEM-1024 public key (what you share to receive)
     Clef,
     /// Print this node's random NodeId
@@ -307,6 +313,32 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Annoncer { relay }) => {
             mesh::announce(&net::node_id(&identity), &relay).await?;
+        }
+        Some(Commands::Compute { duree }) => {
+            println!("⬡ RES — ressources et nœuds fantômes");
+            println!();
+            match mesh::free_ram_mb() {
+                Some(ram) => println!("  ce nœud : {ram} Mo de RAM libre"),
+                None => println!("  ce nœud : RAM libre inconnue"),
+            }
+            let peers = mesh::discover(std::time::Duration::from_secs(duree))?;
+            println!();
+            if peers.is_empty() {
+                println!("  aucun nœud fantôme sur le LAN (lancez « polygone annoncer » ailleurs)");
+            } else {
+                println!("  nœuds fantômes trouvés (prêts à prêter du compute) :");
+                for p in &peers {
+                    match p.free_ram_mb {
+                        Some(ram) => println!(
+                            "    · {}  →  relay {}  · {ram} Mo libres",
+                            p.node_id, p.relay
+                        ),
+                        None => println!("    · {}  →  relay {}", p.node_id, p.relay),
+                    }
+                }
+            }
+            println!();
+            println!("  (la couche de prêt P2P arrive — staging `compute`)");
         }
         Some(Commands::Clef) => {
             println!("{}", identity.kem_pk_hex);
