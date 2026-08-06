@@ -8,7 +8,7 @@
 ## 1. PRODUIT — Polygone v2.0.0-rc2 (le « truc de fou »)
 
 ### État vérifié
-- **109 tests** (`cargo test --workspace`) · 0 warning · fmt propre
+- **119 tests** (`cargo test --workspace`) · 0 warning · fmt propre
 - Binaire : `polygone` (alias `polygone-client`) + `polygone-relay` + `polygoned`
 - Repo : `~/Projets/Polygone-v2` → GitHub `lvs0/Polygone-Network` (60 commits)
 
@@ -48,6 +48,15 @@
     (goulot), verify ~79 µs, ~2900 handshakes/sec/cœur — gate 200 µs non
     atteint, capacité non-bloquante ; retour ML-DSA-87 serait PLUS lent.
     Décision finale : à Lévy.
+
+### Ajouts ultérieurs (après la rédaction initiale)
+- **Exécution WASM** — `polygone compute --wasm <fichier.wasm>` : le module
+  (base64) traverse le relay et tourne dans le **sandbox wasmi** du fantôme
+  (memory-safe, vérifiable). wasmi/wasmi_wasi ajoutés (crates.io était revenu).
+- **`:wasm <fichier>` dans la TUI** — l'exécution WASM native au produit.
+- **Réputation des fantômes** — `~/.polygone/reputation.json` (ok/fail/score),
+  affichée dans `polygone compute` (« réputation 100% »). La couche de
+  confiance RES est livrée ; les reçus signés ML-DSA restent Phase 8+.
 
 ### Commandes produit (résumé)
 ```
