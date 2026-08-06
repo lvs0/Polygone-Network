@@ -16,6 +16,7 @@ mod duress;
 mod identity;
 mod msg;
 mod net;
+mod self_test;
 mod tui;
 
 use anyhow::Result;
@@ -85,6 +86,8 @@ enum Commands {
     Clef,
     /// Print this node's random NodeId
     Id,
+    /// Run the real crypto self-test suite (exit 0 = all green)
+    Test,
     /// Mode duress — destroy local identity + received files (Axiome 5).
     /// Requires --confirmer (explicit signal, irreversible).
     Duress {
@@ -215,6 +218,9 @@ async fn main() -> Result<()> {
             use polygone_core::NodeId;
             let id = NodeId::random();
             println!("{id}");
+        }
+        Some(Commands::Test) => {
+            self_test::run()?;
         }
         Some(Commands::Duress { .. }) => {
             unreachable!("handled before identity load")
