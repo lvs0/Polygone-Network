@@ -5,6 +5,15 @@ edition.workspace = true
 license.workspace = true
 description = "Polygone client — user-side P2P node, listens to polygoned"
 
+[[bin]]
+name = "polygone-client"
+path = "src/main.rs"
+
+# The product command: `polygone` = the unified user-facing binary (D1 TUI + CLI).
+[[bin]]
+name = "polygone"
+path = "src/main.rs"
+
 [dependencies]
 polygone-core = { path = "../core" }
 tokio = { workspace = true }
@@ -14,3 +23,6 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
 env_logger = "0.11"
+crossterm = "0.28"
+hex = "0.4"
+rand = "0.8"
