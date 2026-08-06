@@ -14,7 +14,7 @@
 | **drive**  | 🟢 Live | ✅ fichiers E2E via relay aveugle (4/7) |
 | **brain**  | 🟢 Live | ✅ IA locale (`polygone petals` → Ollama, zéro cloud) |
 | **mesh**   | 🟢 Live | ✅ découverte LAN (`voisins`/`annoncer`, Phase 4) |
-| `compute`  | 🟡 Protocole live | ✅ visibilité + prêt (grant via relay) — exécution staging |
+| `compute`  | 🟢 Live (MVP) | ✅ visibilité + prêt + exécution sandboxée — WASM/reputation en Phase 8 |
 | `hide`     | ⚪ Staging | ❌ |
 | `petals`   | ⚪ Staging | ❌ (distribution *distribuée* — le local est livré sous `brain`) |
 | `shell`    | ⚪ Staging | ❌ |
