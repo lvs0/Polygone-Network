@@ -138,6 +138,60 @@ pub async fn borrow_compute(
     identity: &LocalIdentity,
     timeout: std::time::Duration,
 ) -> Result<Option<String>> {
+    let body = serde_json::json!({"action": "compute", "task": task});
+    borrow_request(relay, ghost_node, body, identity, timeout).await
+}
+
+/// Send a WASM module to a ghost node for sandboxed execution.
+pub async fn borrow_wasm(
+    relay: &str,
+    ghost_node: &str,
+    wasm: &[u8],
+    identity: &LocalIdentity,
+    timeout: std::time::Duration,
+) -> Result<Option<String>> {
+    let body = serde_json::json!({
+        "action": "wasm",
+        "wasm": base64_encode(wasm),
+    });
+    borrow_request(relay, ghost_node, body, identity, timeout).await
+}
+
+/// Minimal base64 encoder (no external dep).
+fn base64_encode(data: &[u8]) -> String {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(TABLE[(n >> 18) as usize & 63] as char);
+        out.push(TABLE[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// The shared request/grant exchange (borrow or wasm).
+async fn borrow_request(
+    relay: &str,
+    ghost_node: &str,
+    body: serde_json::Value,
+    identity: &LocalIdentity,
+    timeout: std::time::Duration,
+) -> Result<Option<String>> {
     let mut stream = connect(relay, identity).await?;
     let from = node_id(identity);
 
@@ -151,12 +205,7 @@ pub async fn borrow_compute(
         idx: 0,
         threshold: 0,
         total: 0,
-        payload: serde_json::json!({
-            "action": "compute",
-            "task": task,
-        })
-        .to_string()
-        .into_bytes(),
+        payload: body.to_string().into_bytes(),
         name: None,
     };
     stream
@@ -227,16 +276,51 @@ fn grant_for(req: &NetEnvelope, identity: &LocalIdentity) -> NetEnvelope {
 
 /// Run the task from a RES request inside the systemd sandbox and return
 /// the output. Empty input = no execution (grant without output).
+/// If the request carries WASM bytes, they run in the wasmi sandbox instead.
 fn run_res_task(req: &NetEnvelope) -> Option<String> {
     let body: serde_json::Value = serde_json::from_slice(&req.payload).ok()?;
-    let task = body.get("task")?.as_str()?;
-    if task.trim().is_empty() {
-        return None;
+    if let Some(wasm_b64) = body.get("wasm").and_then(|w| w.as_str()) {
+        // WASM execution (Phase 8): decode, run in wasmi, return output.
+        let wasm = base64_decode(wasm_b64)?;
+        match crate::exec::run_wasm(&wasm, std::time::Duration::from_secs(20)) {
+            Ok(out) => Some(out),
+            Err(e) => Some(format!("[erreur wasm] {e}")),
+        }
+    } else {
+        let task = body.get("task")?.as_str()?;
+        if task.trim().is_empty() {
+            return None;
+        }
+        match crate::exec::run_sandboxed(task, 256, 50, std::time::Duration::from_secs(30)) {
+            Ok(out) => Some(out),
+            Err(e) => Some(format!("[erreur sandbox] {e}")),
+        }
     }
-    match crate::exec::run_sandboxed(task, 256, 50, std::time::Duration::from_secs(30)) {
-        Ok(out) => Some(out),
-        Err(e) => Some(format!("[erreur sandbox] {e}")),
+}
+
+/// Minimal base64 decoder (no external dep) for WASM transport.
+fn base64_decode(s: &str) -> Option<Vec<u8>> {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::with_capacity(s.len() * 3 / 4);
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for c in s.bytes() {
+        if c == b'=' {
+            break;
+        }
+        let v = match TABLE.iter().position(|&t| t == c) {
+            Some(i) => i as u32,
+            None => return None,
+        };
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
     }
+    Some(out)
 }
 
 /// Process one wire line against the session map. Returns `Some` when a

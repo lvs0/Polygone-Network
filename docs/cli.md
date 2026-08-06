@@ -72,6 +72,9 @@ Annonce le nœud + relay sur le LAN, répond aux PING de découverte.
   au fantôme, qui l'exécute DANS sa sandbox (MemoryMax 256 Mo,
   NoNewPrivileges, ProtectSystem=strict, PrivateTmp, PrivateNetwork,
   CPU 50 %) et renvoie la sortie via le relay.
+- `--wasm <fichier.wasm> --emprunter <node> --via <relay>` : envoie un
+  module WASM (compilé `--target wasm32-wasi`) qui tourne dans le sandbox
+  wasmi du fantôme ; la sortie revient via le relay.
 
 ### `polygone petals <status|models|ask>`
 IA locale via Ollama (`POLYGONE_OLLAMA_URL`, défaut 127.0.0.1:11434).

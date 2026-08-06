@@ -26,14 +26,17 @@
 ## Service : `compute` (Polygone Compute)
 
 **Concept.** Lend/borrow compute pour distributed work. Idle detection → allocation → exécution sandboxée.
-**Statut v2.0.0-rc2 : 🟢 PROTOCOLE + EXÉCUTION LIVE (MVP sandbox).**
+**Statut v2.0.0-rc2 : 🟢 PROTOCOLE + EXÉCUTION LIVE (shell sandbox + WASM).**
 - Visibilité : `polygone compute` — RAM libre locale + nœuds fantômes du LAN.
 - Prêt : `polygone compute --emprunter <node> --via <relay>` → le fantôme
   (`ecouter --compute`) répond par un grant via le relay aveugle.
-- **Exécution** : `polygone compute --executer "<cmd>" --emprunter <node>`
+- **Exécution shell** : `polygone compute --executer "<cmd>" --emprunter <node>`
   → la tâche tourne DANS la sandbox systemd du fantôme (MemoryMax 256 Mo,
   NoNewPrivileges, ProtectSystem=strict, PrivateTmp, PrivateNetwork,
   CPUQuota 50 %) et la sortie revient via le relay.
+- **Exécution WASM** : `polygone compute --wasm <fichier.wasm> --emprunter <node>`
+  → le module tourne dans le **sandbox wasmi** du fantôme (pure Rust,
+  memory-safe, vérifiable) — la Phase 8 du plan, livrée.
 - **Honnête** : sandbox *système* (isolation contre accidents et abus
   opportunistes), PAS une sandbox cryptographique. Requêtes non chiffrées
   E2E (métadonnées) — les données de tâche sensibles attendent WASM.

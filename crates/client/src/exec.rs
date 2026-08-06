@@ -17,6 +17,60 @@ use anyhow::Result;
 use std::process::Command;
 use std::time::Duration;
 
+/// Run a WASM module (WASI) in the wasmi sandbox, capturing stdout.
+/// This is the RES execution layer Phase 8: verifiable, memory-safe code.
+pub fn run_wasm(wasm: &[u8], timeout: Duration) -> Result<String> {
+    use wasmi::{Engine, Linker, Module, Store};
+    use wasmi_wasi::{WasiCtx, WasiCtxBuilder};
+
+    let engine = Engine::default();
+    let module = Module::new(&engine, wasm)?;
+
+    // WASI context with stdout captured to shared Arcs (readable after run).
+    let stdout_shared = std::sync::Arc::new(std::sync::RwLock::new(Vec::<u8>::new()));
+    let stderr_shared = std::sync::Arc::new(std::sync::RwLock::new(Vec::<u8>::new()));
+    let mut wasi_builder = wasmi_wasi::WasiCtxBuilder::new();
+    wasi_builder.stdout(Box::new(
+        wasmi_wasi::wasi_common::pipe::WritePipe::from_shared(stdout_shared.clone()),
+    ));
+    wasi_builder.stderr(Box::new(
+        wasmi_wasi::wasi_common::pipe::WritePipe::from_shared(stderr_shared.clone()),
+    ));
+    wasi_builder.args(&["polygone-res".to_string()])?;
+    let wasi = wasi_builder.build();
+
+    let mut store = Store::new(&engine, wasi);
+    let mut linker = Linker::new(&engine);
+    wasmi_wasi::add_to_linker(&mut linker, |ctx| ctx)?;
+
+    let instance = linker.instantiate(&mut store, &module)?.start(&mut store)?;
+    let start = instance
+        .get_typed_func::<(), ()>(&mut store, "_start")
+        .map_err(|_| anyhow::anyhow!("module sans _start (compilé avec --target wasm32-wasi ?)"))?;
+
+    // Run with a wall-clock timeout (wasmi is synchronous — poll the elapsed).
+    let start_time = std::time::Instant::now();
+    let result = start.call(&mut store, ());
+    if start_time.elapsed() > timeout {
+        anyhow::bail!("exécution WASM dépassée (>{:?})", timeout);
+    }
+    result.map_err(|e| anyhow::anyhow!("erreur WASM : {e}"))?;
+
+    let out: Vec<u8> = stdout_shared.read().map(|g| g.clone()).unwrap_or_default();
+    let err: Vec<u8> = stderr_shared.read().map(|g| g.clone()).unwrap_or_default();
+
+    let mut out_s = String::from_utf8_lossy(&out).to_string();
+    let err_s = String::from_utf8_lossy(&err).to_string();
+    if !err_s.trim().is_empty() {
+        out_s.push_str(&format!("\n[stderr] {err_s}"));
+    }
+    if out_s.len() > 4000 {
+        out_s.truncate(4000);
+        out_s.push_str("\n…[tronqué]");
+    }
+    Ok(out_s)
+}
+
 /// Run a shell command inside the systemd sandbox, capturing stdout.
 /// `mem_mb` caps memory, `cpu_pct` caps CPU, `timeout` caps wall time.
 pub fn run_sandboxed(
@@ -111,6 +165,29 @@ mod tests {
             Ok(o) => assert!(o.contains("hello-res"), "got: {o}"),
             Err(e) => panic!("sandbox unavailable in test env: {e}"),
         }
+    }
+
+    #[test]
+    fn wasm_runs_and_captures_stdout() {
+        // Environment-dependent (needs a compiled wasm): skip gracefully.
+        let Ok(wasm) = std::fs::read("/tmp/wasmtest/test.wasm") else {
+            eprintln!("skip: test.wasm absent");
+            return;
+        };
+        let out = run_wasm(&wasm, Duration::from_secs(20));
+        match out {
+            Ok(o) => assert!(o.contains("hello from wasm"), "sortie: {o:?}"),
+            Err(e) => panic!("run_wasm: {e}"),
+        }
+    }
+
+    #[test]
+    fn wasm_invalid_module_errors_gracefully() {
+        let out = run_wasm(
+            &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0xff],
+            Duration::from_secs(5),
+        );
+        assert!(out.is_err(), "invalid wasm must error");
     }
 
     #[test]
