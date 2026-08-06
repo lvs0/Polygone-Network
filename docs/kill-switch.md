@@ -37,13 +37,32 @@ Polygone peut être configuré pour reconnaître un déclencheur parmi :
 Aucun de ces modes n'est activé par défaut. L'activation est explicite
 dans `~/.config/polygone/state.json` (ou autre fichier de config à venir).
 
-## 4. Implémentation — volontairement non détaillée ici
+## 4. Implémentation — le code réel
 
-**Ce document ne contient pas les détails d'implémentation.**
+Le kill-switch **existe dans le produit** depuis v2.0.0-rc2 :
 
-L'implémentation vit dans `src/crypto/kill_switch.rs` et `src/tui/app.rs`.
-Elle n'est volontairement pas détaillée ici pour empêcher la rétro-ingénierie
-par un adversaire qui lirait la doc publique.
+```bash
+polygone duress                # affiche le plan + refuse (confirmation requise)
+polygone duress --confirmer    # détruit l'identité + les fichiers reçus
+```
+
+Ce que la commande détruit, réellement :
+
+- `~/.polygone/identity.json` — clés ML-KEM-1024 + ML-DSA-65 (chmod 600)
+- `~/.polygone/received/` — fichiers reçus via le relay
+
+Ce qu'elle ne détruit **pas** (et pourquoi) :
+
+- Les fragments chez les destinataires et les backups hors-ligne —
+  mais sans vos clés, ils deviennent **définitivement illisibles**. C'est
+  le point du mode duress.
+- L'implémentation reste volontairement simple et lisible : le signal
+  explicite `--confirmer` évite le déclenchement accidentel.
+
+Les détails d'implémentation du capteur matériel / bouton panique
+(`src/crypto/kill_switch.rs` historiquement) restent non détaillés ici
+pour empêcher la rétro-ingénierie par un adversaire qui lirait la doc
+publique.
 
 Un audit par tierce partie est requis pour ce module avant v1.
 Aucun audit externe n'a encore été réalisé à ce jour.
