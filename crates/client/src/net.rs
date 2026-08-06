@@ -134,6 +134,68 @@ struct SessionBuffer {
     fragments: Vec<shamir::Fragment>,
 }
 
+/// What a completed session produced.
+pub enum Received {
+    Message(String),
+    File { name: String, bytes: Vec<u8> },
+}
+
+/// Process one wire line against the session map. Returns `Some` when a
+/// session completes (>= 4/7 fragments) and decrypts. Pure logic — no sockets.
+fn process_line(
+    line: &str,
+    identity: &LocalIdentity,
+    sessions: &mut HashMap<String, SessionBuffer>,
+) -> Result<Option<(String, Received)>> {
+    let raw = line.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let env: NetEnvelope = match serde_json::from_str(raw) {
+        Ok(e) => e,
+        Err(_) => return Ok(None),
+    };
+    if env.kind != "fragment" {
+        return Ok(None);
+    }
+
+    let buf = sessions.entry(env.session.clone()).or_default();
+    match env.typ.as_str() {
+        "kem" => match kem::KemCiphertext::from_bytes(&env.payload) {
+            Ok(ct) => {
+                buf.kem_ct = Some(ct);
+                buf.name = env.name.clone();
+            }
+            Err(_) => {}
+        },
+        "frag" => {
+            buf.fragments.push(shamir::Fragment {
+                id: shamir::FragmentId(env.idx),
+                data: env.payload,
+            });
+        }
+        _ => {}
+    }
+
+    if buf.kem_ct.is_none() || buf.fragments.len() < 4 {
+        return Ok(None);
+    }
+
+    let kem_ct = buf.kem_ct.clone().expect("checked");
+    let shared = kem::decapsulate(&identity.kem_secret_key()?, &kem_ct)?;
+    let key = symmetric::SessionKey::derive_from_secret(&shared);
+    let ciphertext = shamir::reconstruct(&buf.fragments, 4)?;
+    let plain = symmetric::decrypt(&ciphertext, &key)?;
+
+    let session = env.session.clone();
+    let received = match buf.name.clone() {
+        Some(name) => Received::File { name, bytes: plain },
+        None => Received::Message(String::from_utf8_lossy(&plain).to_string()),
+    };
+    sessions.remove(&session);
+    Ok(Some((session, received)))
+}
+
 /// Listen for incoming messages through the relay. Blocks until interrupted.
 /// Reconstructs and decrypts each session as soon as 4/7 fragments arrive.
 /// File transfers are saved to `~/.polygone/received/`.
@@ -157,80 +219,28 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity) -> Result<()
             println!("relay déconnecté.");
             return Ok(());
         }
-        let raw = line.trim();
-        if raw.is_empty() {
-            continue;
-        }
-        let env: NetEnvelope = match serde_json::from_str(raw) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        if env.kind != "fragment" {
-            continue;
-        }
-
-        let buf = sessions.entry(env.session.clone()).or_default();
-
-        match env.typ.as_str() {
-            "kem" => match kem::KemCiphertext::from_bytes(&env.payload) {
-                Ok(ct) => {
-                    buf.kem_ct = Some(ct);
-                    buf.name = env.name.clone();
-                }
-                Err(_) => {}
-            },
-            "frag" => {
-                buf.fragments.push(shamir::Fragment {
-                    id: shamir::FragmentId(env.idx),
-                    data: env.payload,
-                });
+        match process_line(&line, identity, &mut sessions)? {
+            Some((session, Received::Message(text))) => {
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("⬡ message reçu (session {session} · 4/7 fragments)");
+                println!();
+                println!("{text}");
+                println!();
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             }
-            _ => {}
-        }
-
-        // Enough fragments to attempt reconstruction?
-        if buf.kem_ct.is_some() && buf.fragments.len() >= 4 {
-            let kem_ct = buf.kem_ct.clone().expect("checked");
-            let shared = kem::decapsulate(&identity.kem_secret_key()?, &kem_ct)?;
-            let key = symmetric::SessionKey::derive_from_secret(&shared);
-            let ciphertext = shamir::reconstruct(&buf.fragments, 4)?;
-            match symmetric::decrypt(&ciphertext, &key) {
-                Ok(plain) => match buf.name.clone() {
-                    Some(name) => {
-                        let dir = received_dir()?;
-                        let path = dir.join(sanitize_name(&name));
-                        std::fs::write(&path, &plain)?;
-                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                        println!(
-                            "⬡ fichier reçu : {} ({} octets · session {} · {} fragments)",
-                            path.display(),
-                            plain.len(),
-                            env.session,
-                            buf.fragments.len()
-                        );
-                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                        sessions.remove(&env.session);
-                    }
-                    None => {
-                        let text = String::from_utf8_lossy(&plain).to_string();
-                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                        println!(
-                            "⬡ message reçu (session {} · {} fragments)",
-                            env.session,
-                            buf.fragments.len()
-                        );
-                        println!();
-                        println!("{text}");
-                        println!();
-                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                        sessions.remove(&env.session);
-                    }
-                },
-                Err(e) => {
-                    println!("⚠ reconstruction échouée : {e}");
-                    sessions.remove(&env.session);
-                }
+            Some((session, Received::File { name, bytes })) => {
+                let dir = received_dir()?;
+                let path = dir.join(sanitize_name(&name));
+                std::fs::write(&path, &bytes)?;
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!(
+                    "⬡ fichier reçu : {} ({} octets · session {session} · 4/7 fragments)",
+                    path.display(),
+                    bytes.len()
+                );
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             }
+            None => {}
         }
     }
 }
@@ -251,4 +261,114 @@ fn sanitize_name(name: &str) -> String {
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "fichier".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::LocalIdentity;
+
+    fn envelope_json(
+        session: &str,
+        typ: &str,
+        idx: u8,
+        payload: &[u8],
+        name: Option<&str>,
+    ) -> String {
+        let env = NetEnvelope {
+            kind: "fragment".into(),
+            from: "alice".into(),
+            to: "bob".into(),
+            session: session.into(),
+            seq: 0,
+            typ: typ.into(),
+            idx,
+            threshold: 4,
+            total: 7,
+            payload: payload.to_vec(),
+            name: name.map(|s| s.to_string()),
+        };
+        serde_json::to_string(&env).unwrap()
+    }
+
+    #[test]
+    fn full_pipeline_message_round_trip() {
+        let bob = LocalIdentity::generate();
+        let pk = bob.kem_public_key().unwrap();
+        let output = crate::msg::send("message réseau test", &pk).unwrap();
+        let session = "test-session-1";
+
+        let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
+
+        // KEM envelope first, then only 4 of the 7 fragments.
+        let kem_line = envelope_json(session, "kem", 0, output.kem_ct.as_bytes(), None);
+        let r = process_line(&kem_line, &bob, &mut sessions).unwrap();
+        assert!(r.is_none(), "kem alone must not complete a session");
+
+        for frag in output.fragments.iter().take(4) {
+            let line = envelope_json(session, "frag", frag.index, &frag.share, None);
+            let r = process_line(&line, &bob, &mut sessions).unwrap();
+            if frag.index == 4 {
+                // The 4th fragment completes the session.
+                let (sid, recv) = r.expect("4/7 must complete");
+                assert_eq!(sid, session);
+                match recv {
+                    Received::Message(text) => assert_eq!(text, "message réseau test"),
+                    _ => panic!("expected a message"),
+                }
+            } else {
+                assert!(r.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn full_pipeline_file_round_trip() {
+        let bob = LocalIdentity::generate();
+        let pk = bob.kem_public_key().unwrap();
+        let bytes = b"contenu secret du fichier".to_vec();
+        let output = crate::msg::send_bytes(&bytes, &pk).unwrap();
+        let session = "test-session-file";
+
+        let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
+        let kem_line = envelope_json(
+            session,
+            "kem",
+            0,
+            output.kem_ct.as_bytes(),
+            Some("plan.txt"),
+        );
+        process_line(&kem_line, &bob, &mut sessions).unwrap();
+
+        for frag in output.fragments.iter().take(4) {
+            let line = envelope_json(session, "frag", frag.index, &frag.share, None);
+            let r = process_line(&line, &bob, &mut sessions).unwrap();
+            if let Some((_, Received::File { name, bytes: got })) = r {
+                assert_eq!(name, "plan.txt");
+                assert_eq!(got, bytes);
+                return;
+            }
+        }
+        panic!("file session never completed");
+    }
+
+    #[test]
+    fn three_fragments_never_complete() {
+        let bob = LocalIdentity::generate();
+        let pk = bob.kem_public_key().unwrap();
+        let output = crate::msg::send("trop peu de fragments", &pk).unwrap();
+        let session = "test-incomplete";
+
+        let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
+        process_line(
+            &envelope_json(session, "kem", 0, output.kem_ct.as_bytes(), None),
+            &bob,
+            &mut sessions,
+        )
+        .unwrap();
+        for frag in output.fragments.iter().take(3) {
+            let line = envelope_json(session, "frag", frag.index, &frag.share, None);
+            assert!(process_line(&line, &bob, &mut sessions).unwrap().is_none());
+        }
+    }
 }
