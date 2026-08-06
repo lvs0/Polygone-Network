@@ -37,6 +37,16 @@ promesse du SPEC : crypto post-quantique complète et testée.
 - **`polygone test`** — self-test crypto réel (7/7 : ML-KEM, AES-GCM,
   BLAKE3 KDF, Shamir 4/7 + 3/7, ML-DSA sign/verify + tamper), exit 0
   uniquement si tout est vert.
+- **Mesh (Phase 4)** — `polygone voisins` / `annoncer` : découverte LAN par
+  UDP broadcast (7642), PING avec port de réponse, zéro dépendance.
+- **Envoi zéro configuration** — `ecouter --annoncer` + `envoyer --a <node>`
+  sans `--via` : le relay du destinataire est trouvé sur le LAN.
+- **RES — nœuds fantômes** — `polygone compute` : RAM libre locale + carte
+  des nœuds du LAN qui annoncent leur compute (l'idée « coup de génie »
+  des notes Bear, socle du prêt P2P).
+- **TUI complète** — `:envoyer :recevoir :voisins :compute :ia :demo
+  :clef :statut :quitter` — tout le produit est dans les 2 commandes
+  + le `:` (Axiome 2).
 - **Messagerie E2E réelle** (`crates/client/src/msg.rs`) — ML-KEM-1024 →
   BLAKE3 KDF → AES-256-GCM → Shamir 4/7 ; format filaire
   `KEM_CT/SENDER_PK/FRAG` interopérable.
