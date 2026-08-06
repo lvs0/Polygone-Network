@@ -40,6 +40,9 @@ struct NetEnvelope {
     threshold: u8,
     total: u8,
     payload: Vec<u8>,
+    /// Present only on the KEM envelope of a file transfer.
+    #[serde(default)]
+    name: Option<String>,
 }
 
 /// The node id of an identity: first 16 hex chars of the KEM public key.
@@ -65,21 +68,23 @@ async fn connect(relay: &str, identity: &LocalIdentity) -> Result<TcpStream> {
     Ok(stream)
 }
 
-/// Send a message to a peer through the relay. Returns the session id.
+/// Send a message (or a file, when `name` is set) to a peer through the
+/// relay. Returns the session id.
 pub async fn send_network(
     relay: &str,
     dest_node: &str,
-    message: &str,
+    payload: &[u8],
+    name: Option<&str>,
     recipient_pk: &kem::KemPublicKey,
     identity: &LocalIdentity,
 ) -> Result<String> {
-    let output = msg::send(message, recipient_pk)?;
+    let output = msg::send_bytes(payload, recipient_pk)?;
     let session = session_id();
     let from = node_id(identity);
 
     let mut stream = connect(relay, identity).await?;
 
-    // 1. The KEM ciphertext envelope.
+    // 1. The KEM ciphertext envelope (carries the file name, if any).
     let kem_env = NetEnvelope {
         kind: "fragment".into(),
         from: from.clone(),
@@ -91,6 +96,7 @@ pub async fn send_network(
         threshold: 4,
         total: 7,
         payload: output.kem_ct.as_bytes().to_vec(),
+        name: name.map(|s| s.to_string()),
     };
     stream
         .write_all(format!("{}\n", serde_json::to_string(&kem_env)?).as_bytes())
@@ -109,6 +115,7 @@ pub async fn send_network(
             threshold: 4,
             total: 7,
             payload: frag.share.clone(),
+            name: None,
         };
         stream
             .write_all(format!("{}\n", serde_json::to_string(&env)?).as_bytes())
@@ -123,11 +130,13 @@ pub async fn send_network(
 #[derive(Default)]
 struct SessionBuffer {
     kem_ct: Option<kem::KemCiphertext>,
+    name: Option<String>,
     fragments: Vec<shamir::Fragment>,
 }
 
 /// Listen for incoming messages through the relay. Blocks until interrupted.
 /// Reconstructs and decrypts each session as soon as 4/7 fragments arrive.
+/// File transfers are saved to `~/.polygone/received/`.
 pub async fn receive_network(relay: &str, identity: &LocalIdentity) -> Result<()> {
     let stream = connect(relay, identity).await?;
     let mut reader = BufReader::new(stream);
@@ -160,7 +169,10 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity) -> Result<()
 
         match env.typ.as_str() {
             "kem" => match kem::KemCiphertext::from_bytes(&env.payload) {
-                Ok(ct) => buf.kem_ct = Some(ct),
+                Ok(ct) => {
+                    buf.kem_ct = Some(ct);
+                    buf.name = env.name.clone();
+                }
                 Err(_) => {}
             },
             "frag" => {
@@ -179,16 +191,37 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity) -> Result<()
             let key = symmetric::SessionKey::derive_from_secret(&shared);
             let ciphertext = shamir::reconstruct(&buf.fragments, 4)?;
             match symmetric::decrypt(&ciphertext, &key) {
-                Ok(plain) => {
-                    let text = String::from_utf8_lossy(&plain).to_string();
-                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                    println!("⬡ message reçu (session {} · {} fragments)", env.session, buf.fragments.len());
-                    println!();
-                    println!("{text}");
-                    println!();
-                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                    sessions.remove(&env.session);
-                }
+                Ok(plain) => match buf.name.clone() {
+                    Some(name) => {
+                        let dir = received_dir()?;
+                        let path = dir.join(sanitize_name(&name));
+                        std::fs::write(&path, &plain)?;
+                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        println!(
+                            "⬡ fichier reçu : {} ({} octets · session {} · {} fragments)",
+                            path.display(),
+                            plain.len(),
+                            env.session,
+                            buf.fragments.len()
+                        );
+                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        sessions.remove(&env.session);
+                    }
+                    None => {
+                        let text = String::from_utf8_lossy(&plain).to_string();
+                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        println!(
+                            "⬡ message reçu (session {} · {} fragments)",
+                            env.session,
+                            buf.fragments.len()
+                        );
+                        println!();
+                        println!("{text}");
+                        println!();
+                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        sessions.remove(&env.session);
+                    }
+                },
                 Err(e) => {
                     println!("⚠ reconstruction échouée : {e}");
                     sessions.remove(&env.session);
@@ -196,4 +229,22 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity) -> Result<()
             }
         }
     }
+}
+
+/// Directory where received files land.
+fn received_dir() -> Result<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let dir = home.join(".polygone").join("received");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Keep only the file base name (strip any path component).
+fn sanitize_name(name: &str) -> String {
+    std::path::Path::new(name)
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "fichier".to_string())
 }
