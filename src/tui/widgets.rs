@@ -3,11 +3,9 @@
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
-    Frame, layout::Rect,
+    widgets::{Block, BorderType, Borders},
 };
 
-use super::app::App;
 
 /// Create a themed block card.
 pub fn block_card(title: &str, accent: Color) -> Block<'static> {

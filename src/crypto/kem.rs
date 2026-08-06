@@ -55,6 +55,12 @@ impl KemSecretKey {
 #[derive(Clone)]
 pub struct KemCiphertext(mlkem1024::Ciphertext);
 
+impl std::fmt::Debug for KemCiphertext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("KemCiphertext").field(&hex::encode(self.as_bytes())).finish()
+    }
+}
+
 impl KemCiphertext {
     pub fn as_bytes(&self) -> &[u8] { PqcCiphertext::as_bytes(&self.0) }
     pub fn to_hex(&self) -> String { hex::encode(self.as_bytes()) }

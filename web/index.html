@@ -1,231 +1,827 @@
-<!doctype html>
-<html lang="fr">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Polygone — Confidentialité post-quantique</title>
-<meta name="description" content="Polygone. Écosystème P2P souverain. Chiffré de bout en bout. Résistant à l'informatique quantique. Open source. Zéro serveur central." />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polygone — L'information n'existe pas. Elle traverse.</title>
+  <meta name="description" content="Post-quantum ephemeral transit network. ML-KEM-1024 · Shamir 4-of-7 · No server sees the message.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><polygon points='50,5 95,27.5 95,72.5 50,95 5,72.5 5,27.5' fill='%23000' stroke='%23fff' stroke-width='5'/><text x='50' y='62' font-size='38' text-anchor='middle' fill='%23fff'>⬡</text></svg>">
+  <style>
+    /* ── RESET ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    /* ── TOKENS ── */
+    :root {
+      --bg: #030306;
+      --surface: #0c0c14;
+      --border: #1e1e30;
+      --accent: #7c3aed;
+      --accent-bright: #a78bfa;
+      --accent-glow: rgba(124, 58, 237, 0.25);
+      --text: #e2e2f0;
+      --text-muted: #6b6b8a;
+      --green: #10b981;
+      --green-dim: #065f46;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --radius: 8px;
+    }
+
+    /* ── BASE ── */
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    a { color: var(--accent-bright); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+    /* ── LAYOUT ── */
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section { padding: 80px 0; }
+    section + section { border-top: 1px solid var(--border); }
+
+    /* ── HEADER ── */
+    header {
+      padding: 80px 0;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    header::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 60% 50% at 50% 0%, var(--accent-glow), transparent 70%);
+      pointer-events: none;
+    }
+
+    .logo-hex {
+      font-size: 80px;
+      line-height: 1;
+      color: var(--accent-bright);
+      text-shadow: 0 0 60px var(--accent-glow), 0 0 120px var(--accent-glow);
+      animation: pulse 4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; text-shadow: 0 0 60px var(--accent-glow), 0 0 120px var(--accent-glow); }
+      50% { opacity: 0.85; text-shadow: 0 0 40px var(--accent-glow), 0 0 80px var(--accent-glow); }
+    }
+
+    .logo-name {
+      font-size: 42px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      margin-top: 16px;
+      color: #fff;
+    }
+
+    .logo-tagline {
+      font-size: 18px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      font-style: italic;
+      font-family: Georgia, serif;
+    }
+    .logo-tagline-footnote {
+      font-size: 12px;
+      color: var(--accent-bright);
+      margin-top: 4px;
+      font-family: var(--font);
+      letter-spacing: 0.02em;
+    }
+
+    .logo-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 24px;
+      letter-spacing: 0.05em;
+    }
+    .logo-sub span { color: var(--accent-bright); }
+
+    /* Badges */
+    .badges {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 28px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .badge-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+    .badge-dot.yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+    .badge-dot.purple { background: var(--accent-bright); box-shadow: 0 0 6px var(--accent-bright); }
+
+    /* ── CTA ── */
+    .cta-row {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 36px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 24px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-family: var(--font);
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: none;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: var(--accent-bright);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px var(--accent-glow);
+      text-decoration: none;
+    }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    /* ── MANIFEST ── */
+    .manifest {
+      text-align: center;
+    }
+    .manifest-quote {
+      font-size: clamp(20px, 3vw, 30px);
+      color: #fff;
+      font-weight: 300;
+      font-family: Georgia, serif;
+      font-style: italic;
+      max-width: 640px;
+      margin: 0 auto 20px;
+      line-height: 1.5;
+    }
+    .manifest-source {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ── DIAGRAM ── */
+    .diagram {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-x: auto;
+      color: var(--text-muted);
+    }
+    .diagram .line { display: block; }
+    .diagram .hi { color: var(--accent-bright); }
+    .diagram .green { color: var(--green); }
+    .diagram .red { color: var(--red); }
+    .diagram .yellow { color: var(--yellow); }
+    .diagram .white { color: var(--text); }
+    .diagram .comment { color: #444; font-style: italic; }
+
+    /* ── CRYPTO ── */
+    .crypto-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+    }
+    .crypto-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .crypto-card .algo {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .crypto-card .standard {
+      font-size: 10px;
+      color: var(--accent-bright);
+      margin-top: 2px;
+      font-family: var(--font);
+    }
+    .crypto-card .purpose {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+    .crypto-card .status {
+      font-size: 10px;
+      margin-top: 8px;
+      color: var(--green);
+    }
+    .crypto-card .status::before {
+      content: '✓ ';
+    }
+
+    /* ── TUI PREVIEW ── */
+    .tui-frame {
+      background: #0a0a0f;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .tui-bar {
+      background: #111;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tui-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .tui-dot.r { background: #ff5f56; }
+    .tui-dot.y { background: #ffbd2e; }
+    .tui-dot.g { background: #27c93f; }
+    .tui-title { margin-left: 8px; font-size: 11px; color: var(--text-muted); }
+    .tui-body {
+      padding: 16px;
+      font-size: 11px;
+      line-height: 1.6;
+      color: #888;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .tui-body .bright { color: #ccc; }
+    .tui-body .accent { color: var(--accent-bright); }
+    .tui-body .green { color: var(--green); }
+    .tui-body .yellow { color: var(--yellow); }
+    .tui-body .red { color: var(--red); }
+
+    /* ── FEATURES ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .feature {
+      background: var(--surface);
+      padding: 24px;
+    }
+    .feature-icon {
+      font-size: 24px;
+      margin-bottom: 12px;
+    }
+    .feature-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    .feature-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ── STATUS BADGES (Phase 2 — honest site) ── */
+    .feat-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 8px;
+      vertical-align: middle;
+      border: 1px solid var(--border);
+      font-weight: normal;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .feat-badge.live { color: var(--green); border-color: var(--green-dim); background: rgba(16, 185, 129, 0.1); }
+    .feat-badge.wip  { color: var(--yellow); border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1); }
+    .feat-badge.plan { color: var(--text-muted); border-color: var(--border); background: var(--surface); }
+
+    /* ── INSTALL ── */
+    .install-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .install-header {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .install-header span { color: var(--accent-bright); }
+    pre {
+      padding: 20px;
+      font-size: 13px;
+      overflow-x: auto;
+      color: var(--text-muted);
+    }
+    pre .prompt { color: var(--accent-bright); }
+    pre .cmd { color: var(--text); }
+    pre .comment { color: #444; font-style: italic; }
+    pre .output { color: var(--green); }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 0;
+      text-align: center;
+    }
+    .footer-license {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin-top: 16px;
+    }
+    .footer-links a {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .footer-links a:hover { color: var(--text); }
+
+    /* ── SECTION TITLE ── */
+    .section-eyebrow {
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      color: var(--accent-bright);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .section-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    .section-sub {
+      font-size: 14px;
+      color: var(--text-muted);
+      max-width: 540px;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 600px) {
+      .logo-name { font-size: 28px; letter-spacing: 0.1em; }
+      .logo-hex { font-size: 56px; }
+      .logo-tagline { font-size: 15px; }
+      .logo-tagline-footnote { font-size: 10px; letter-spacing: 0; line-height: 1.5; }
+      .section-title { font-size: 22px; }
+      pre { font-size: 11px; }
+    }
+
+    /* ── SCROLL REVEAL ── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── FOOTER ── */
+    .footer-bottom {
+      padding: 12px 0;
+      border-top: 1px solid var(--border);
+      margin-top: 60px;
+    }
+  </style>
 </head>
 <body>
 
-<!-- ─── Top nav ────────────────────────────────────────────────────── -->
-<header class="nav">
-  <div class="nav__inner">
-    <a class="brand" href="#">
-      <svg viewBox="0 0 32 32" class="brand__mark" aria-hidden="true">
-        <polygon points="16,2 30,10 30,22 16,30 2,22 2,10" fill="none" stroke="currentColor" stroke-width="2" />
-        <polygon points="16,8 24,12.5 24,19.5 16,24 8,19.5 8,12.5" fill="none" stroke="currentColor" stroke-width="1.2" />
-      </svg>
-      <span>Polygone</span>
-    </a>
-    <nav>
-      <a href="#modules">Modules</a>
-      <a href="#crypto">Crypto</a>
-      <a href="#install">Installer</a>
-      <a href="#network">Réseau</a>
-      <a href="https://github.com/lvs0/Polygone" target="_blank" rel="noopener">GitHub →</a>
-    </nav>
+<!-- ═══════════════════════════════════════════════════════════
+     HEADER
+═══════════════════════════════════════════════════════════ -->
+<header>
+  <div class="container">
+    <div class="logo-hex">⬡</div>
+    <div class="logo-name">POLYGONE</div>
+    <div class="logo-tagline">L'information n'existe pas. Elle traverse.</div>
+    <div class="logo-tagline-footnote">— aucun fragment reconstructible sans 4-of-7 fragments Shamir pendant le TTL —</div>
+    <div class="logo-sub">
+      Post-quantum ephemeral transit network · ML-KEM-1024 · Shamir 4-of-7 · AES-256-GCM · BLAKE3
+    </div>
+
+    <div class="badges">
+      <div class="badge"><div class="badge-dot"></div>v2.0.0-rc1</div>
+      <div class="badge"><div class="badge-dot purple"></div>Rust 2021</div>
+      <div class="badge"><div class="badge-dot yellow"></div>No investors</div>
+      <div class="badge"><div class="badge-dot"></div>No token</div>
+      <div class="badge"><div class="badge-dot"></div>MIT</div>
+    </div>
+
+    <div class="cta-row">
+      <a href="https://github.com/lvs0/Polygone-Network" class="btn btn-primary" target="_blank">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+        Source
+      </a>
+      <a href="#install" class="btn btn-secondary">
+        ↓ Install
+      </a>
+    </div>
   </div>
 </header>
 
-<!-- ─── Hero ──────────────────────────────────────────────────────── -->
-<section class="hero">
-  <div class="hero__grid"></div>
-  <div class="hero__inner">
-    <p class="eyebrow">v1.0 · open source · MIT</p>
-    <h1>
-      Une <em>sphère</em> privée<br />
-      dans un monde surveillé.
-    </h1>
-    <p class="lede">
-      Polygone est un écosystème P2P auto-hébergé. Messagerie, fichiers,
-      tunnel, IA — chiffrés, fragmentés, distribués. Aucun serveur ne voit
-      tes données. Aucun observateur ne peut prouver qu'elles existent.
+<!-- ═══════════════════════════════════════════════════════════
+     MANIFEST
+═══════════════════════════════════════════════════════════ -->
+<section>
+  <div class="container manifest reveal">
+    <div class="section-eyebrow">The principle</div>
+    <blockquote class="manifest-quote">
+      "No server sees the message.<br>
+      No observer can prove a message existed."
+    </blockquote>
+    <p class="manifest-source">
+      — MIT License. Pas d'investisseurs. Pas de token. Pas de télémétrie.
     </p>
-    <div class="cta">
-      <a class="btn btn--primary" href="#install">polygone install</a>
-      <a class="btn btn--ghost" href="#modules">Voir les modules</a>
-    </div>
-    <ul class="hero__pills">
-      <li>ML-KEM-1024</li>
-      <li>Shamir 4-of-7</li>
-      <li>AES-256-GCM</li>
-      <li>BLAKE3</li>
-      <li>libp2p</li>
-      <li>Rust</li>
-    </ul>
   </div>
 </section>
 
-<!-- ─── Modules ───────────────────────────────────────────────────── -->
-<section id="modules" class="section">
-  <h2 class="section__title">Cinq modules. <span>Un écosystème.</span></h2>
-  <div class="grid">
-
-    <article class="card">
-      <div class="card__icon">💬</div>
-      <h3>Msg</h3>
-      <p>Messagerie E2E éphémère. Chaque message éclate en sept fragments. Quatre suffisent à le lire — même si trois pairs disparaissent.</p>
-      <span class="card__version">v0.1</span>
-    </article>
-
-    <article class="card">
-      <div class="card__icon">👻</div>
-      <h3>Hide</h3>
-      <p>Proxy SOCKS5 chiffré en local. Sortie par n'importe quel nœud du réseau. Aucune trace côté fournisseur d'accès.</p>
-      <span class="card__version">v0.1</span>
-    </article>
-
-    <article class="card">
-      <div class="card__icon">📁</div>
-      <h3>Drive</h3>
-      <p>Stockage distribué chiffré. Drag &amp; drop, liens éphémères, expiration automatique, interface web locale sur <code>:8080</code>.</p>
-      <span class="card__version">v0.5</span>
-    </article>
-
-    <article class="card">
-      <div class="card__icon">🔗</div>
-      <h3>Mesh</h3>
-      <p>Réseau local P2P entre tes machines. Découverte mDNS WiFi ou Bluetooth BLE. Calcul distribué adaptatif.</p>
-      <span class="card__version">v0.3</span>
-    </article>
-
-    <article class="card">
-      <div class="card__icon">🧠</div>
-      <h3>Brain</h3>
-      <p>IA locale avec fallback automatique. Petals distribué en priorité, puis Ollama, Groq, OpenRouter. Ton prompt ne quitte jamais ton réseau si tu veux.</p>
-      <span class="card__version">α</span>
-    </article>
-
-  </div>
-</section>
-
-<!-- ─── Crypto ────────────────────────────────────────────────────── -->
-<section id="crypto" class="section section--alt">
-  <h2 class="section__title">Cryptographie. <span>Pas de marketing.</span></h2>
-  <p class="section__lede">
-    Chaque primitive est un standard reconnu. Aucune n'est maison. Aucune n'est en bêta.
-  </p>
-
-  <div class="crypto">
-    <div class="crypto__row">
-      <div class="crypto__name">ML-KEM-1024</div>
-      <div class="crypto__tag">FIPS 203 · NIST 2024</div>
-      <div class="crypto__desc">Échange de clés post-quantique. Le standard que le NIST a sélectionné après six ans de compétition internationale.</div>
+<!-- ═══════════════════════════════════════════════════════════
+     HOW IT WORKS
+═══════════════════════════════════════════════════════════ -->
+<section>
+  <div class="container reveal">
+    <div class="section-eyebrow">How it works</div>
+    <div class="section-title">Messages exist only in transit</div>
+    <div class="section-sub" style="margin-bottom: 32px;">
+      Every message is encrypted post-quantum, split into 7 fragments,
+      and routed through nodes that see nothing — not the content,
+      not the sender, not the receiver.
     </div>
-    <div class="crypto__row">
-      <div class="crypto__name">Shamir SSS 4-of-7</div>
-      <div class="crypto__tag">Shamir 1979</div>
-      <div class="crypto__desc">Partage de secret. Le message est coupé en sept parts — quatre reconstruisent, trois sont inutiles seules. Tolérance aux nœuds morts.</div>
-    </div>
-    <div class="crypto__row">
-      <div class="crypto__name">AES-256-GCM</div>
-      <div class="crypto__tag">NIST SP 800-38D</div>
-      <div class="crypto__desc">Chiffrement authentifié. Nonce unique par opération, tag d'intégrité de 128 bits. Lecture impossible sans la clé.</div>
-    </div>
-    <div class="crypto__row">
-      <div class="crypto__name">BLAKE3</div>
-      <div class="crypto__tag">RFC draft · Aumasson 2020</div>
-      <div class="crypto__desc">Hachage rapide, sûr, parallélisable. Utilisé pour la dérivation de clés et la vérification d'intégrité des fragments.</div>
-    </div>
-    <div class="crypto__row">
-      <div class="crypto__name">Ed25519</div>
-      <div class="crypto__tag">RFC 8032</div>
-      <div class="crypto__desc">Signatures compactes. Authentifie l'origine de chaque paquet circulant sur le réseau.</div>
-    </div>
-    <div class="crypto__row">
-      <div class="crypto__name">libp2p · Noise · Yamux</div>
-      <div class="crypto__tag">Protocol Labs · Trevor Perrin</div>
-      <div class="crypto__desc">Transport P2P. Multiplexage de flux, découverte Kademlia DHT, gossip pubsub. La même stack qu'Ethereum et IPFS.</div>
+
+    <div class="diagram">
+<span class="line comment">┌─────────────────────────────────────────────────────────────────────────┐</span>
+<span class="line">│                          POLYGONE TRANSIT LAYER                           │</span>
+<span class="line comment">└─────────────────────────────────────────────────────────────────────────┘</span>
+<span class="line"></span>
+<span class="line"><span class="white">  Alice</span>  <span class="comment">────────────── step 1: ML-KEM-1024 handshake ──────────────▶</span>  <span class="white">Bob</span></span>
+<span class="line">           <span class="yellow">KEM public key</span>                               <span class="yellow">KEM secret key</span></span>
+<span class="line">                 │                                               ▲</span>
+<span class="line">                 ▼                                               │</span>
+<span class="line">           <span class="comment">─────────────────────────────────────────────────────</span></span>
+<span class="line">                          <span class="green">Shared secret established</span></span>
+<span class="line">           <span class="comment">─────────────────────────────────────────────────────</span></span>
+<span class="line">                 │                                               │</span>
+<span class="line">                 ▼                                               │</span>
+<span class="line">           <span class="white">step 2: AES-256-GCM encrypts the message</span></span>
+<span class="line">           <span class="hi">encrypted payload (opaque to relay)</span></span>
+<span class="line">                 │</span>
+<span class="line">                 ▼</span>
+<span class="line">           <span class="white">step 3: Shamir 4-of-7 splits into 7 fragments</span></span>
+<span class="line">           <span class="accent">[f1] [f2] [f3] [f4] [f5] [f6] [f7]</span></span>
+<span class="line">                 │</span>
+<span class="line">                 ▼</span>
+<span class="line">     <span class="comment">────────── relay (knows nothing) ──────────</span></span>
+<span class="line">     <span class="red">no plaintext · no keys · no sender · no receiver</span></span>
+<span class="line">     <span class="comment">─────────────────────────────────────────</span></span>
+<span class="line">                 │</span>
+<span class="line">                 ▼</span>
+<span class="line">           <span class="white">step 4: Bob receives ≥4 fragments → reconstructs</span></span>
+<span class="line">           <span class="green">✓ Message delivered · Relay has zero knowledge</span></span>
+<span class="line">           <span class="green">✓ Message expired after TTL · Zero trace</span></span>
+<span class="line"></span>
+<span class="line comment">┌─────────────────────────────────────────────────────────────────────────┐</span>
+<span class="line">│  Relay: <span class="red">transfers opaque bytes only</span>                                  │</span>
+<span class="line">│  Observer: <span class="red">cannot prove a message existed</span>                          │</span>
+<span class="line">│  Quantum computer: <span class="red">cannot break ML-KEM-1024</span> (NIST FIPS 203)       │</span>
+<span class="line">│  Fragment loss: <span class="green">tolerated — 4 of 7 recover the message</span>             │</span>
+<span class="line comment">└─────────────────────────────────────────────────────────────────────────┘</span>
     </div>
   </div>
 </section>
 
-<!-- ─── Install ───────────────────────────────────────────────────── -->
-<section id="install" class="section">
-  <h2 class="section__title">Une commande. <span>Trois OS.</span></h2>
+<!-- ═══════════════════════════════════════════════════════════
+     CRYPTOGRAPHIC STACK
+═══════════════════════════════════════════════════════════ -->
+<section>
+  <div class="container reveal">
+    <div class="section-eyebrow">The stack</div>
+    <div class="section-title">Post-quantum by default</div>
+    <div class="section-sub" style="margin-bottom: 32px;">
+      Every layer uses standard, peer-reviewed algorithms.
+      No Snake Oil. No marketing. Real math.
+    </div>
 
-  <div class="install">
-    <div class="install__tab install__tab--active" data-os="unix">
-      <span>Linux · macOS</span>
+    <div class="crypto-grid">
+      <div class="crypto-card">
+        <div class="algo">ML-KEM-1024</div>
+        <div class="standard">NIST FIPS 203</div>
+        <div class="purpose">Post-quantum key exchange. Quantum computers cannot break it in reasonable time.</div>
+        <div class="status">In production</div>
+      </div>
+      <div class="crypto-card">
+        <div class="algo">ML-DSA-87</div>
+        <div class="standard">NIST FIPS 204</div>
+        <div class="purpose">Post-quantum digital signatures. Identity and non-repudiation.</div>
+        <div class="status">In production</div>
+      </div>
+      <div class="crypto-card">
+        <div class="algo">AES-256-GCM</div>
+        <div class="standard">NIST SP 800-38D</div>
+        <div class="purpose">Authenticated symmetric encryption. Payload integrity + confidentiality.</div>
+        <div class="status">In production</div>
+      </div>
+      <div class="crypto-card">
+        <div class="algo">BLAKE3</div>
+        <div class="standard"> — </div>
+        <div class="purpose">Fast cryptographic hash. Fragment IDs, key derivation, domain separation.</div>
+        <div class="status">In production</div>
+      </div>
+      <div class="crypto-card">
+        <div class="algo">Shamir 4-of-7</div>
+        <div class="standard"> — </div>
+        <div class="purpose">Secret sharing scheme. Split a message into 7 shares. Recover from 4.</div>
+        <div class="status">In production</div>
+      </div>
+      <div class="crypto-card">
+        <div class="algo">libp2p 0.53</div>
+        <div class="standard">Kad · GossipSub · Relay</div>
+        <div class="purpose">Peer-to-peer transport. NAT traversal. Peer discovery. No central server.</div>
+        <div class="status" style="color: var(--yellow);">Wired in, transport simulated</div>
+      </div>
     </div>
-    <div class="install__tab" data-os="win">
-      <span>Windows</span>
-    </div>
-    <pre class="install__code" data-os="unix"><code>curl -fsSL https://raw.githubusercontent.com/lvs0/Polygone/main/installer/install.sh | bash</code></pre>
-    <pre class="install__code" data-os="win" hidden><code>irm https://raw.githubusercontent.com/lvs0/Polygone/main/installer/install.ps1 | iex</code></pre>
   </div>
-
-  <p class="install__note">
-    Détecte ton OS, ton architecture, propose sudo, installe le service système,
-    lance l'assistant de configuration en huit étapes. Aucun fichier caché,
-    aucune télémétrie. <code>polygone</code> apparaît dans ton PATH.
-  </p>
 </section>
 
-<!-- ─── Network ───────────────────────────────────────────────────── -->
-<section id="network" class="section section--alt">
-  <h2 class="section__title">Le réseau. <span>Personne au centre.</span></h2>
+<!-- ═══════════════════════════════════════════════════════════
+     PROJECT STATE
+═══════════════════════════════════════════════════════════ -->
+<section id="status">
+  <div class="container reveal">
+    <div class="section-eyebrow">Project state</div>
+    <div class="section-title">What works. What's next.</div>
+    <div class="section-sub" style="margin-bottom: 32px;">
+      Honesty first. We don't sell vaporware. Here is the exact status of the Polygone project today.
+    </div>
 
-  <div class="network">
-    <svg viewBox="0 0 600 280" class="network__svg" aria-hidden="true">
-      <defs>
-        <radialGradient id="g1" cx="50%" cy="50%">
-          <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.6" />
-          <stop offset="100%" stop-color="#22d3ee" stop-opacity="0" />
-        </radialGradient>
-      </defs>
-
-      <!-- Connection lines -->
-      <line x1="300" y1="140" x2="120" y2="80"  stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
-      <line x1="300" y1="140" x2="480" y2="80"  stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
-      <line x1="300" y1="140" x2="100" y2="220" stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
-      <line x1="300" y1="140" x2="500" y2="220" stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
-      <line x1="300" y1="140" x2="220" y2="240" stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
-      <line x1="300" y1="140" x2="380" y2="240" stroke="#22d3ee" stroke-opacity="0.3" stroke-width="1" />
-      <line x1="120" y1="80"  x2="220" y2="240" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="1" />
-      <line x1="480" y1="80"  x2="380" y2="240" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="1" />
-      <line x1="100" y1="220" x2="380" y2="240" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="1" />
-      <line x1="500" y1="220" x2="220" y2="240" stroke="#22d3ee" stroke-opacity="0.15" stroke-width="1" />
-
-      <!-- Center node (you) -->
-      <circle cx="300" cy="140" r="38" fill="url(#g1)" />
-      <circle cx="300" cy="140" r="14" fill="#22d3ee" />
-      <text x="300" y="195" fill="#cbd5e1" font-size="12" text-anchor="middle" font-family="ui-monospace">toi</text>
-
-      <!-- Peers -->
-      <circle cx="120" cy="80"  r="6" fill="#34d399" />
-      <circle cx="480" cy="80"  r="6" fill="#34d399" />
-      <circle cx="100" cy="220" r="6" fill="#a78bfa" />
-      <circle cx="500" cy="220" r="6" fill="#a78bfa" />
-      <circle cx="220" cy="240" r="6" fill="#34d399" />
-      <circle cx="380" cy="240" r="6" fill="#fbbd24" />
-    </svg>
+    <div class="crypto-grid">
+      <div class="crypto-card">
+        <div class="algo" style="color: var(--green)">✓ Available (MVP)</div>
+        <div class="purpose" style="margin-top: 16px;">
+          <ul style="padding-left: 16px; line-height: 2;">
+            <li><strong>Crypto core:</strong> ML-KEM-1024, AES-256-GCM, Shamir 4/7</li>
+            <li><strong>CLI &amp; TUI:</strong> Minimalist terminal interface</li>
+            <li><strong>Local Demo:</strong> Simulated local routing &amp; fragmentation</li>
+          </ul>
+        </div>
+      </div>
+      <div class="crypto-card">
+        <div class="algo" style="color: var(--yellow)">⟳ Building</div>
+        <div class="purpose" style="margin-top: 16px;">
+          <ul style="padding-left: 16px; line-height: 2;">
+            <li><strong>True P2P:</strong> Multi-node DHT routing over network</li>
+            <li><strong>Distribution:</strong> Zero-friction signed binaries</li>
+            <li><strong>Persistence:</strong> Secure identity storage</li>
+          </ul>
+        </div>
+      </div>
+      <div class="crypto-card">
+        <div class="algo" style="color: var(--text-muted)">○ Planned</div>
+        <div class="purpose" style="margin-top: 16px;">
+          <ul style="padding-left: 16px; line-height: 2;">
+            <li><strong>Services:</strong> Drive, Hide, Compute, AI Runtime</li>
+            <li><strong>Interfaces:</strong> Desktop &amp; Mobile GUI</li>
+            <li><strong>Mesh Network:</strong> LAN discovery &amp; local compute sharing</li>
+          </ul>
+        </div>
+      </div>
+    </div>
   </div>
-
-  <p class="network__lede">
-    Ton nœud ne contacte jamais un serveur central. Il découvre ses pairs
-    par gossip et Kademlia DHT. Chaque fragment transite par trois chemins
-    indépendants. Coupe trois pairs au hasard, ton message reste lisible.
-  </p>
 </section>
 
-<!-- ─── Footer ────────────────────────────────────────────────────── -->
-<footer class="footer">
-  <div>
-    <p class="footer__brand">⬡ Polygone</p>
-    <p>MIT · Pas d'investisseur · Pas de token · Pas de télémétrie.</p>
+<!-- ═══════════════════════════════════════════════════════════
+     INTERFACE
+═══════════════════════════════════════════════════════════ -->
+<section>
+  <div class="container reveal">
+    <div class="section-eyebrow">Interface</div>
+    <div class="section-title">Arrow-key dashboard</div>
+    <div class="section-sub" style="margin-bottom: 32px;">
+      One command. No YAML. No config file. Every service visible at a glance.
+    </div>
+
+    <div class="tui-frame">
+      <div class="tui-bar">
+        <div class="tui-dot r"></div>
+        <div class="tui-dot y"></div>
+        <div class="tui-dot g"></div>
+        <div class="tui-title">polygone — terminal dashboard</div>
+      </div>
+      <div class="tui-body">╔══════════════════════════════════════════════════════════════╗
+║   ⬡  P O L Y G O N E   ·   v1.0.0   ·   Online          ║
+╠══════════════════════════════════════════════════════════════╣
+║  [Dashboard]   [Favorites]   [Services]   [Composer]   [⚙] ║
+╠══════════════════════════════════════════════════════════════╣
+║                                                              ║
+║   ◈ Session       <span class="accent">ACTIVE</span>       Peers: <span class="green">3</span>    Fragments: <span class="yellow">12</span>   ║
+║   ─────────────────────────────────────────────────────     ║
+║   ◈ Crypto   ML-KEM-1024 · AES-256-GCM · BLAKE3            ║
+║              Key: <span class="green">✓</span>   Sig: <span class="green">✓</span>   Frag: <span class="green">✓</span>                           ║
+║   ─────────────────────────────────────────────────────     ║
+║   ◈ Services                                                     ║
+║     drive    <span class="green">running</span>   <span class="bright">2/7 peers</span>   encrypted · sharded      ║
+║     hide     <span class="green">running</span>   <span class="bright">0 proxies</span>   SOCKS5 mesh           ║
+║     brain    <span class="yellow">idle</span>      <span class="bright">model: gemma4</span>                       ║
+║     compute  <span class="green">running</span>   <span class="bright">CPU 12% · RAM 4.2 GB</span>              ║
+║   ─────────────────────────────────────────────────────     ║
+║   ◈ Network   P2P: <span class="green">●</span> 127.0.0.1:0   Relay: <span class="green">connected</span>    ║
+║   ◈ Transit   Sent: 47.2 MB  ·  Rcvd: 38.1 MB  ·  Drops: 0 ║
+║   ─────────────────────────────────────────────────────     ║
+║   ◈ Memory    0/1024 fragments cached  ·  TTL: 3600s      ║
+╚══════════════════════════════════════════════════════════════╝
+<span class="text-muted">↑↓ navigate · Enter select · q quit · ? help</span></div>
+    </div>
   </div>
-  <div class="footer__links">
-    <a href="https://github.com/lvs0/Polygone" target="_blank" rel="noopener">Code source</a>
-    <a href="./node.html">Dashboard</a>
-    <a href="./drive.html">Drive</a>
-    <a href="./mesh.html">Mesh</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     FEATURES
+═══════════════════════════════════════════════════════════ -->
+<section>
+  <div class="container reveal">
+    <div class="section-eyebrow">Status</div>
+    <div class="section-title">Status by feature</div>
+    <div class="section-sub" style="margin-bottom: 32px;">
+      Not just a roadmap. A realistic overview of what is currently implemented, in progress, or planned.
+    </div>
+
+    <div class="features-grid">
+      <div class="feature">
+        <div class="feature-icon">💬</div>
+        <div class="feature-title">Ephemeral Messaging <span class="feat-badge wip">Building</span></div>
+        <div class="feature-desc">Messages encrypted end-to-end, fragmented through the mesh, TTL-based expiry. No server, no logs, no metadata.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🔐</div>
+        <div class="feature-title">Post-Quantum Crypto <span class="feat-badge live">Live</span></div>
+        <div class="feature-desc">ML-KEM-1024 key exchange + ML-DSA-87 signatures. Quantum computers cannot break the encryption.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🖥️</div>
+        <div class="feature-title">Compute Lending <span class="feat-badge plan">Planned</span></div>
+        <div class="feature-desc">Idle GPU/CPU cycles lent to peers. Earn karma. Run distributed LLM inference via the Petals protocol.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">📦</div>
+        <div class="feature-title">Distributed Drive <span class="feat-badge plan">Planned</span></div>
+        <div class="feature-desc">Files encrypted, sharded 4-of-7, distributed across peers. Recover from any 4 of 7. No single point of failure.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🌐</div>
+        <div class="feature-title">Hide Proxy <span class="feat-badge plan">Planned</span></div>
+        <div class="feature-desc">SOCKS5 proxy through the mesh. No exit node logs. No ISP tracking. Traffic looks like random encrypted bytes.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🧠</div>
+        <div class="feature-title">AI Orchestrator <span class="feat-badge plan">Planned</span></div>
+        <div class="feature-desc">Plan-based AI orchestration. Local LLM interface (Ollama, llama.cpp, Notch SLM). SSE events. Extensible service model.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🔀</div>
+        <div class="feature-title">P2P Transport <span class="feat-badge wip">Building</span></div>
+        <div class="feature-desc">libp2p with Kad DHT, GossipSub, Relay, mDNS, AutoNAT, DCUtR. NAT traversal built-in. Zero port forwarding required.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">⏱️</div>
+        <div class="feature-title">TUI Dashboard <span class="feat-badge wip">Building</span></div>
+        <div class="feature-desc">ratatui v2. Five tabs. Sparklines. Real-time metrics. Arrow-key navigation. Zero configuration.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     INSTALL
+═══════════════════════════════════════════════════════════ -->
+<section id="install">
+  <div class="container reveal">
+    <div class="section-eyebrow">Get started</div>
+    <div class="section-title">Build from source</div>
+    <div class="section-sub" style="margin-bottom: 32px;">
+      Currently developer-only. Requires Rust 1.75+. Pre-compiled binaries for regular users coming soon.
+    </div>
+
+    <div class="install-block">
+      <div class="install-header">$ <span>bash</span> — clone + build</div>
+<pre>
+<span class="prompt">$</span> <span class="cmd">git clone https://github.com/lvs0/Polygone-Network.git</span>
+<span class="comment"># Clones into Polygone-Network/</span>
+
+<span class="prompt">$</span> <span class="cmd">cd Polygone-Network</span>
+
+<span class="prompt">$</span> <span class="cmd">cargo build --release</span>
+<span class="comment"># Compiles all binaries (~2 min on modern hardware)</span>
+<span class="output">   Compiling polygone v1.0.0
+    Finished release [optimized] target(s) in 1m 54s</span>
+
+<span class="prompt">$</span> <span class="cmd">./target/release/polygone --help</span>
+<span class="output">Post-quantum ephemeral transit network.
+
+  menu     Launch the interactive TUI dashboard
+  status   Show system status
+  test     Run the crypto self-test suite
+  serve    Start the web dashboard on :8080
+  send     Encrypt and fragment a message
+  receive  Reconstruct a message from fragments</span>
+
+<span class="prompt">$</span> <span class="cmd">./target/release/polygone test</span>
+<span class="output">  [1/5] ML-KEM-1024 round-trip      ✔
+  [2/5] AES-256-GCM encrypt/decrypt ✔
+  [3/5] Shamir 4-of-7               ✔
+  [4/5] Insufficient fragments      ✔
+  [5/5] Session round-trip          ✔
+  ✔ Tous les tests passent. Polygone est opérationnel.</span>
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     FOOTER
+═══════════════════════════════════════════════════════════ -->
+<footer>
+  <div class="container">
+    <div class="logo-hex" style="font-size: 40px;">⬡</div>
+    <div class="logo-name" style="font-size: 20px; margin-top: 8px;">POLYGONE</div>
+    <div class="footer-license">
+      MIT License · No investors · No token · No telemetry<br>
+      Built with care by the Polygone community · 2024–2026
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/lvs0/Polygone-Network" target="_blank">GitHub</a>
+      <a href="https://github.com/lvs0/Polygone-Network/releases" target="_blank">Releases</a>
+      <a href="https://github.com/lvs0/Polygone-Network/issues" target="_blank">Issues</a>
+    </div>
   </div>
 </footer>
 
-<script src="app.js"></script>
+<div class="footer-bottom">
+  <div class="container">
+    <span style="font-size: 11px; color: var(--text-muted);">
+      L'information n'existe pas. Elle traverse.
+    </span>
+  </div>
+</div>
+
+<script>
+  // Scroll reveal
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+
 </body>
 </html>

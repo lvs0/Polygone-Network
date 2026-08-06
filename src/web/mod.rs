@@ -14,7 +14,7 @@ use crate::VERSION;
 
 pub mod assets;
 
-use crate::computer::{Computer, PlanAction, PlanState};
+use crate::computer::Computer;
 
 #[derive(Debug, Default, Clone)]
 pub struct NodeState {

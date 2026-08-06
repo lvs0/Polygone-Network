@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POLYGONE — L'information n'existe pas. Elle traverse.</title>
+  <meta name="description" content="Un réseau post-quantique éphémère où l'information n'existe que le temps d'un transit. Open-source. Décentralisé. Invisible.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,700;1,300&display=swap" rel="stylesheet">
+  <style>
+    /* ═══════════════════════════════════
+       DESIGN SYSTEM
+    ═══════════════════════════════════ */
+    :root {
+      --void:         #0A0A0F;
+      --surface:      #111118;
+      --surface-2:    #16161F;
+      --border:       #1E1E2E;
+      --border-b:     #2A2A3E;
+      --text-dim:     #4A4A6A;
+      --text:         #C8C8E8;
+      --text-bright:  #F0F0FF;
+      --cobalt:       #1A6BFF;
+      --cobalt-dim:   rgba(26,107,255,0.15);
+      --cobalt-glow:  rgba(26,107,255,0.07);
+      --font-d: 'Bebas Neue', sans-serif;
+      --font-m: 'IBM Plex Mono', monospace;
+      --ease: cubic-bezier(0.25,0.46,0.45,0.94);
+    }
+
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html { scroll-behavior: smooth; overflow-x: hidden; }
+
+    body {
+      background: var(--void);
+      color: var(--text);
+      font-family: var(--font-m);
+      font-size: 13px;
+      line-height: 1.9;
+      overflow-x: hidden;
+      cursor: none;
+    }
+    a { color: inherit; text-decoration: none; }
+    button { cursor: none; }
+
+    /* ═══════════════════════════════════
+       CURSOR
+    ═══════════════════════════════════ */
+    .cur { position:fixed; pointer-events:none; z-index:9999; border-radius:50%;
+           transform:translate(-50%,-50%); transition: width .2s, height .2s; }
+    #cur  { width:6px; height:6px; background:var(--cobalt); }
+    #cur2 { width:6px; height:6px; border:1px solid var(--cobalt); z-index:9998;
+            transition: width .4s var(--ease), height .4s var(--ease); }
+    body.hov #cur  { opacity:0; }
+    body.hov #cur2 { width:28px; height:28px; }
+
+    /* ═══════════════════════════════════
+       NAV
+    ═══════════════════════════════════ */
+    nav {
+      position: fixed; top:0; left:0; right:0; height:52px; z-index:1000;
+      background: rgba(10,10,15,0.88); backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-i {
+      max-width:1200px; margin:0 auto; padding:0 40px;
+      height:100%; display:flex; align-items:center; justify-content:space-between;
+    }
+    .nav-logo { font-family:var(--font-d); font-size:22px; color:var(--cobalt); letter-spacing:.08em; }
+    .nav-links { display:flex; align-items:center; gap:32px; }
+    .nav-links a {
+      font-size:10px; font-weight:500; letter-spacing:.2em; text-transform:uppercase;
+      color:var(--text-dim); position:relative; transition:color .3s;
+    }
+    .nav-links a::after {
+      content:''; position:absolute; bottom:-2px; left:0; width:0; height:1px;
+      background:var(--cobalt); transition:width .3s var(--ease);
+    }
+    .nav-links a:hover { color:var(--text-bright); }
+    .nav-links a:hover::after { width:100%; }
+    .nav-links .ncta {
+      color:var(--cobalt); border:1px solid var(--cobalt-dim); padding:6px 14px;
+    }
+    .nav-links .ncta:hover { background:var(--cobalt-glow); }
+    .nav-links .ncta::after { display:none; }
+
+    .burger { display:none; flex-direction:column; gap:5px; background:none; border:none; padding:4px; }
+    .burger span { display:block; width:22px; height:1px; background:var(--text); transition:.3s; }
+
+    .mob {
+      display:flex; position:fixed; inset:0; background:var(--void); z-index:999;
+      flex-direction:column; align-items:center; justify-content:center; gap:32px;
+      opacity:0; pointer-events:none; transition:opacity .3s;
+    }
+    .mob.open { opacity:1; pointer-events:all; }
+    .mob a { font-family:var(--font-d); font-size:40px; letter-spacing:.1em; color:var(--text-dim); transition:.3s; }
+    .mob a:hover { color:var(--cobalt); }
+
+    /* ═══════════════════════════════════
+       HERO
+    ═══════════════════════════════════ */
+    #hero {
+      position:relative; height:100vh; min-height:600px;
+      display:flex; align-items:center; justify-content:center; overflow:hidden;
+    }
+    #cnv { position:absolute; inset:0; width:100%; height:100%; }
+
+    .hero-c { position:relative; z-index:2; text-align:center; padding:0 24px; }
+
+    .hero-title {
+      font-family:var(--font-d); font-size:clamp(72px,16vw,210px);
+      letter-spacing:.05em; color:var(--text-bright); line-height:.9;
+    }
+    .char { display:inline-block; opacity:0; transform:translateY(40px); animation:charUp .05s forwards; }
+
+    .hero-rule { width:0; height:1px; background:var(--cobalt); margin:24px auto;
+                 animation: rulex .6s .7s var(--ease) forwards; }
+
+    .hero-tag {
+      font-size:clamp(9px,1.4vw,13px); letter-spacing:.3em;
+      color:var(--text-dim); text-transform:uppercase;
+      opacity:0; animation:fup .6s .9s forwards;
+    }
+    .hero-sub {
+      font-size:10px; letter-spacing:.4em; color:var(--cobalt);
+      text-transform:uppercase; margin-top:8px;
+      opacity:0; animation:fup .6s 1.1s forwards;
+    }
+    .hero-ctas {
+      display:flex; gap:16px; justify-content:center; margin-top:40px;
+      opacity:0; animation:fup .6s 1.3s forwards;
+    }
+
+    .btn {
+      display:inline-block; padding:12px 28px;
+      border:1px solid var(--cobalt); font-family:var(--font-m);
+      font-size:10px; font-weight:500; letter-spacing:.2em; text-transform:uppercase;
+      color:var(--cobalt); position:relative; overflow:hidden; transition:color .3s;
+    }
+    .btn::before {
+      content:''; position:absolute; inset:0; background:var(--cobalt);
+      transform:translateX(-100%); transition:transform .3s var(--ease);
+    }
+    .btn:hover::before { transform:translateX(0); }
+    .btn:hover { color:var(--void); }
+    .btn span { position:relative; z-index:1; }
+
+    .btn-g {
+      display:inline-flex; align-items:center; gap:8px; padding:12px 20px;
+      font-family:var(--font-m); font-size:10px; font-weight:500;
+      letter-spacing:.2em; text-transform:uppercase; color:var(--text-dim); transition:color .3s;
+    }
+    .btn-g:hover { color:var(--text); }
+
+    .scroll-ind {
+      position:absolute; bottom:32px; left:50%; transform:translateX(-50%); z-index:2;
+      opacity:0; animation:fin 1s 1.9s forwards;
+    }
+    .scroll-line { width:1px; height:48px; background:var(--border); margin:0 auto; overflow:hidden; }
+    .scroll-dot  { width:1px; height:16px; background:var(--cobalt); animation:sdrop 1.6s 2.1s infinite; }
+
+    /* ═══════════════════════════════════
+       SHARED SECTION
+    ═══════════════════════════════════ */
+    .sec { max-width:1200px; margin:0 auto; padding:120px 48px; }
+    .sec-border { border-top:1px solid var(--border); }
+    .sec-label {
+      font-size:10px; letter-spacing:.4em; text-transform:uppercase;
+      color:var(--cobalt); margin-bottom:24px;
+    }
+    .sec-title {
+      font-family:var(--font-d); font-size:clamp(30px,5vw,64px);
+      letter-spacing:.05em; color:var(--text-bright); line-height:1; margin-bottom:64px;
+    }
+
+    /* Reveal */
+    .rv { opacity:0; transform:translateY(20px); transition:opacity .7s var(--ease), transform .7s var(--ease); }
+    .rv.on { opacity:1; transform:translateY(0); }
+    .rv:nth-child(2){transition-delay:.1s} .rv:nth-child(3){transition-delay:.2s}
+    .rv:nth-child(4){transition-delay:.3s} .rv:nth-child(5){transition-delay:.4s}
+
+    /* ═══════════════════════════════════
+       PROBLEM
+    ═══════════════════════════════════ */
+    .prob-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--border); border:1px solid var(--border); }
+
+    .prob-item {
+      background:var(--surface); padding:48px 40px; position:relative; overflow:hidden;
+      transition:background .3s;
+    }
+    .prob-item:hover { background:var(--surface-2); }
+
+    .prob-num {
+      font-family:var(--font-d); font-size:80px; color:var(--border-b);
+      line-height:1; margin-bottom:8px; transition:color .3s;
+    }
+    .prob-item:hover .prob-num { color:rgba(26,107,255,.22); }
+
+    .prob-shape { position:absolute; right:24px; top:24px; opacity:.04; }
+    .ps-tri { width:0; height:0; border-left:50px solid transparent; border-right:50px solid transparent; border-bottom:86px solid var(--cobalt); }
+    .ps-hex { width:80px; height:92px; background:var(--cobalt); clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%); }
+    .ps-oct { width:80px; height:80px; background:var(--cobalt); clip-path:polygon(30% 0%,70% 0%,100% 30%,100% 70%,70% 100%,30% 100%,0% 70%,0% 30%); }
+
+    .prob-item p { color:var(--text-dim); font-size:12px; line-height:1.85; margin-top:16px; }
+
+    /* ═══════════════════════════════════
+       VAGUE
+    ═══════════════════════════════════ */
+    .vague-wrap { display:grid; grid-template-columns:1fr 1.6fr; gap:80px; align-items:center; }
+
+    .wave-box {
+      display:flex; flex-direction:column; align-items:center; gap:20px;
+    }
+    .wave-svg {
+      width:100%; max-width:380px; background:var(--surface);
+      border:1px solid var(--border); padding:24px;
+    }
+    .wave-cap { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--text-dim); text-align:center; }
+
+    .vague-p {
+      font-size:13px; color:var(--text-dim); line-height:1.95;
+      margin-bottom:28px; border-left:1px solid var(--border);
+      padding-left:24px; transition:border-color .3s, color .3s;
+    }
+    .vague-p:hover { border-color:var(--cobalt); color:var(--text); }
+
+    /* ═══════════════════════════════════
+       ARCHITECTURE
+    ═══════════════════════════════════ */
+    .diag-wrap { max-width:1200px; margin:0 auto; border:1px solid var(--border); background:var(--surface); overflow:hidden; }
+
+    .diag-bar { height:2px; background:var(--border); }
+    .diag-fill { height:100%; background:var(--cobalt); transition:width 3.5s linear; width:25%; }
+
+    .diag-steps { min-height:320px; }
+    .diag-step { display:none; grid-template-columns:220px 1fr; padding:56px; gap:64px; align-items:center; animation:fin .4s ease; }
+    .diag-step.on { display:grid; }
+
+    .step-n { font-family:var(--font-d); font-size:72px; color:var(--border); line-height:1; margin-bottom:8px; }
+    .step-t { font-family:var(--font-d); font-size:28px; color:var(--text-bright); letter-spacing:.1em; margin-bottom:16px; }
+    .diag-step p { font-size:12px; color:var(--text-dim); line-height:1.9; }
+
+    .diag-nav {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:18px 28px; border-top:1px solid var(--border);
+    }
+    .diag-btn {
+      background:none; border:1px solid var(--border); color:var(--text-dim);
+      font-family:var(--font-m); font-size:13px; width:36px; height:36px;
+      display:flex; align-items:center; justify-content:center;
+      transition:border-color .3s, color .3s;
+    }
+    .diag-btn:hover { border-color:var(--cobalt); color:var(--cobalt); }
+    .diag-dots { display:flex; gap:8px; align-items:center; }
+    .d-dot { width:4px; height:4px; border-radius:50%; background:var(--border-b); transition:.3s; }
+    .d-dot.on { background:var(--cobalt); width:20px; border-radius:2px; }
+
+    /* ═══════════════════════════════════
+       STACK
+    ═══════════════════════════════════ */
+    .stack-grid {
+      display:grid; grid-template-columns:1fr 1fr; gap:1px;
+      background:var(--border); border:1px solid var(--border);
+    }
+    .stack-row {
+      display:flex; align-items:baseline; padding:16px 28px;
+      background:var(--surface); transition:background .3s;
+    }
+    .stack-row:hover { background:var(--surface-2); }
+    .sk { font-size:9px; letter-spacing:.2em; text-transform:uppercase; color:var(--text-dim); flex-shrink:0; width:160px; }
+    .sd { flex:1; border-bottom:1px dotted var(--border-b); margin:0 12px 4px; }
+    .sv { font-size:11px; font-weight:500; color:var(--text-bright); flex-shrink:0; }
+    .sv.c { color:var(--cobalt); }
+    .sv.p { color:var(--text-dim); font-style:italic; }
+
+    /* ═══════════════════════════════════
+       MANIFESTE
+    ═══════════════════════════════════ */
+    .man-wrap { max-width:860px; margin:0 auto; text-align:center; }
+    .man-q {
+      font-family:var(--font-d); font-size:clamp(22px,3.5vw,44px);
+      color:var(--text-bright); letter-spacing:.04em; line-height:1.3; margin-bottom:32px;
+    }
+    .man-rule { width:200px; height:1px; background:var(--cobalt); margin:0 auto 24px; }
+    .man-auth { font-size:10px; letter-spacing:.4em; text-transform:uppercase; color:var(--cobalt); margin-bottom:56px; }
+    .man-body { font-size:13px; color:var(--text-dim); line-height:2; max-width:600px; margin:0 auto; }
+    .man-body p + p { margin-top:20px; }
+
+    /* ═══════════════════════════════════
+       REJOINDRE
+    ═══════════════════════════════════ */
+    .rj-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); border:1px solid var(--border); }
+    .rj-card { background:var(--surface); padding:56px 48px; display:flex; flex-direction:column; gap:24px; transition:background .3s; }
+    .rj-card:hover { background:var(--surface-2); }
+    .c-tag { font-size:9px; letter-spacing:.4em; text-transform:uppercase; color:var(--cobalt); border:1px solid var(--cobalt-dim); display:inline-block; padding:4px 10px; width:fit-content; }
+    .c-title { font-family:var(--font-d); font-size:32px; letter-spacing:.08em; color:var(--text-bright); }
+    .rj-card p { font-size:12px; color:var(--text-dim); line-height:1.9; flex:1; }
+
+    /* ═══════════════════════════════════
+       FOOTER
+    ═══════════════════════════════════ */
+    footer { border-top:1px solid var(--border); padding:40px 48px; max-width:1200px; margin:0 auto; }
+    .ft { display:flex; justify-content:space-between; align-items:center; gap:24px; }
+    .ft-l { font-size:10px; color:var(--text-dim); letter-spacing:.08em; line-height:1.9; }
+    .ft-l strong { color:var(--cobalt); font-weight:400; }
+    .ft-links { display:flex; gap:24px; }
+    .ft-links a { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--text-dim); transition:.3s; }
+    .ft-links a:hover { color:var(--cobalt); }
+
+    /* ═══════════════════════════════════
+       KEYFRAMES
+    ═══════════════════════════════════ */
+    @keyframes charUp  { to { opacity:1; transform:translateY(0); } }
+    @keyframes rulex   { to { width:160px; } }
+    @keyframes fup     { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+    @keyframes fin     { from { opacity:0; } to { opacity:1; } }
+    @keyframes sdrop   { 0%{transform:translateY(-100%);opacity:0} 20%{opacity:1} 80%{opacity:1} 100%{transform:translateY(300%);opacity:0} }
+
+    /* ═══════════════════════════════════
+       RESPONSIVE
+    ═══════════════════════════════════ */
+    @media(max-width:900px){
+      .nav-links { display:none; }
+      .burger    { display:flex; }
+      .prob-grid, .vague-wrap, .stack-grid, .rj-grid { grid-template-columns:1fr; }
+      .wave-box  { order:-1; }
+      .sec       { padding:80px 24px; }
+      .diag-step { grid-template-columns:1fr; padding:32px; gap:32px; }
+      .ft        { flex-direction:column; align-items:flex-start; }
+    }
+    @media(prefers-reduced-motion:reduce){ *,*::before,*::after{ animation-duration:.01ms!important; transition-duration:.01ms!important; } }
+  </style>
+</head>
+<body>
+
+  <div id="cur"  class="cur"></div>
+  <div id="cur2" class="cur"></div>
+
+  <!-- ── NAV ── -->
+  <nav>
+    <div class="nav-i">
+      <a href="#" class="nav-logo">POLYGONE</a>
+      <div class="nav-links">
+        <a href="#problem">Le Problème</a>
+        <a href="#vague">Le Concept</a>
+        <a href="#arch">Protocole</a>
+        <a href="#manifeste">Manifeste</a>
+        <a href="#rj" class="ncta">Devenir Nœud</a>
+      </div>
+      <button class="burger" id="burger" aria-label="Menu">
+        <span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ── MOBILE MENU ── -->
+  <div class="mob" id="mob">
+    <a href="#problem">Le Problème</a>
+    <a href="#vague">Le Concept</a>
+    <a href="#arch">Protocole</a>
+    <a href="#manifeste">Manifeste</a>
+    <a href="#rj">Devenir Nœud</a>
+  </div>
+
+  <!-- ═══════════════════════════════
+       HERO
+  ═══════════════════════════════ -->
+  <section id="hero">
+    <canvas id="cnv"></canvas>
+    <div class="hero-c">
+      <h1 class="hero-title" id="htitle"></h1>
+      <div class="hero-rule"></div>
+      <p class="hero-tag">L'information n'existe pas. Elle traverse.</p>
+      <p class="hero-sub">Post-Quantum &nbsp;·&nbsp; Éphémère &nbsp;·&nbsp; Invisible</p>
+      <div class="hero-ctas">
+        <a href="#manifeste" class="btn"><span>Lire le Manifeste</span></a>
+        <a href="https://github.com/lvs0/Polygone" target="_blank" class="btn-g">↗ GitHub Open Source</a>
+      </div>
+    </div>
+    <div class="scroll-ind">
+      <div class="scroll-line"><div class="scroll-dot"></div></div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════
+       PROBLEM
+  ═══════════════════════════════ -->
+  <section id="problem" class="sec sec-border">
+    <div class="sec-label">01 — Le Problème</div>
+    <h2 class="sec-title rv">LE CHIFFREMENT ACTUEL<br>PARIE SUR LE TEMPS</h2>
+    <div class="prob-grid">
+      <div class="prob-item rv">
+        <div class="prob-num">256</div>
+        <div class="prob-shape ps-tri"></div>
+        <p>Les algorithmes actuels cachent le contenu. Pas l'existence du transit. Un message existe. Il est chiffré. Mais il voyage — et ce voyage est observable.</p>
+      </div>
+      <div class="prob-item rv">
+        <div class="prob-num">2048</div>
+        <div class="prob-shape ps-hex"></div>
+        <p>Un observateur patient cartographie le réseau. La corrélation temporelle suffit. Le contenu n'a jamais été nécessaire pour identifier les parties.</p>
+      </div>
+      <div class="prob-item rv">
+        <div class="prob-num">∞</div>
+        <div class="prob-shape ps-oct"></div>
+        <p>L'IA et l'informatique quantique volent ce temps. Le pari expire. La question doit changer : pas comment cacher — mais comment ne pas exister.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════
+       LA VAGUE
+  ═══════════════════════════════ -->
+  <section id="vague" class="sec sec-border">
+    <div class="sec-label">02 — Le Concept</div>
+    <div class="vague-wrap">
+      <div class="wave-box rv">
+        <svg class="wave-svg" viewBox="0 0 360 240" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <clipPath id="wclip"><rect x="0" y="0" width="360" height="210"/></clipPath>
+          </defs>
+          <!-- Grid -->
+          <line x1="0" y1="120" x2="360" y2="120" stroke="rgba(30,30,46,.9)" stroke-width="1"/>
+          <line x1="0" y1="72"  x2="360" y2="72"  stroke="rgba(30,30,46,.4)" stroke-width=".5" stroke-dasharray="4,4"/>
+          <line x1="0" y1="168" x2="360" y2="168" stroke="rgba(30,30,46,.4)" stroke-width=".5" stroke-dasharray="4,4"/>
+          <!-- Scrolling wave (double width, translateX loop) -->
+          <g clip-path="url(#wclip)">
+            <path fill="none" stroke="rgba(26,107,255,.45)" stroke-width="1.5"
+              d="M-180,120 C-150,72 -120,72 -90,120 C-60,168 -30,168 0,120 C30,72 60,72 90,120 C120,168 150,168 180,120 C210,72 240,72 270,120 C300,168 330,168 360,120 C390,72 420,72 450,120 C480,168 510,168 540,120">
+              <animateTransform attributeName="transform" type="translate" from="0,0" to="180,0" dur="3s" repeatCount="indefinite"/>
+            </path>
+            <path fill="none" stroke="rgba(26,107,255,.15)" stroke-width="1"
+              d="M-180,120 C-150,72 -120,72 -90,120 C-60,168 -30,168 0,120 C30,72 60,72 90,120 C120,168 150,168 180,120 C210,72 240,72 270,120 C300,168 330,168 360,120 C390,72 420,72 450,120 C480,168 510,168 540,120">
+              <animateTransform attributeName="transform" type="translate" from="-90,0" to="90,0" dur="3s" repeatCount="indefinite"/>
+            </path>
+          </g>
+          <!-- Oscillating molecules (fixed x, vertical only) -->
+          <g font-family="IBM Plex Mono" font-size="8" fill="rgba(74,74,106,.9)" text-anchor="middle">
+            <text x="60"  y="44">A</text>
+            <text x="120" y="44">B</text>
+            <text x="180" y="44">C</text>
+            <text x="240" y="44">D</text>
+            <text x="300" y="44">E</text>
+          </g>
+          <line x1="60"  y1="52" x2="60"  y2="185" stroke="rgba(30,30,46,.7)" stroke-width=".5" stroke-dasharray="2,3"/>
+          <line x1="120" y1="52" x2="120" y2="185" stroke="rgba(30,30,46,.7)" stroke-width=".5" stroke-dasharray="2,3"/>
+          <line x1="180" y1="52" x2="180" y2="185" stroke="rgba(30,30,46,.7)" stroke-width=".5" stroke-dasharray="2,3"/>
+          <line x1="240" y1="52" x2="240" y2="185" stroke="rgba(30,30,46,.7)" stroke-width=".5" stroke-dasharray="2,3"/>
+          <line x1="300" y1="52" x2="300" y2="185" stroke="rgba(30,30,46,.7)" stroke-width=".5" stroke-dasharray="2,3"/>
+          <circle cx="60"  cy="120" r="4.5" fill="rgba(26,107,255,.85)"><animate attributeName="cy" values="120;72;120;168;120" dur="3s" repeatCount="indefinite"/></circle>
+          <circle cx="120" cy="120" r="4.5" fill="rgba(26,107,255,.85)"><animate attributeName="cy" values="120;72;120;168;120" dur="3s" begin="-.75s" repeatCount="indefinite"/></circle>
+          <circle cx="180" cy="120" r="4.5" fill="rgba(26,107,255,.85)"><animate attributeName="cy" values="120;72;120;168;120" dur="3s" begin="-1.5s" repeatCount="indefinite"/></circle>
+          <circle cx="240" cy="120" r="4.5" fill="rgba(26,107,255,.85)"><animate attributeName="cy" values="120;72;120;168;120" dur="3s" begin="-2.25s" repeatCount="indefinite"/></circle>
+          <circle cx="300" cy="120" r="4.5" fill="rgba(26,107,255,.85)"><animate attributeName="cy" values="120;72;120;168;120" dur="3s" begin="-.5s" repeatCount="indefinite"/></circle>
+          <!-- Direction arrow -->
+          <line x1="20" y1="205" x2="340" y2="205" stroke="rgba(26,107,255,.3)" stroke-width=".8"/>
+          <polygon points="340,201 350,205 340,209" fill="rgba(26,107,255,.5)"/>
+          <text x="185" y="225" text-anchor="middle" font-family="IBM Plex Mono" font-size="7.5" fill="rgba(74,74,106,.8)" letter-spacing="2">DIRECTION DE LA VAGUE →</text>
+        </svg>
+        <div class="wave-cap">Les molécules (A–E) oscillent. Elles ne voyagent pas.</div>
+      </div>
+      <div class="vague-text">
+        <h2 class="sec-title">UNE VAGUE N'A PAS<br>DE MOLÉCULES</h2>
+        <p class="vague-p rv">L'information ne voyage pas. Elle n'existe momentanément que dans la dynamique d'interaction entre des nœuds éphémères.</p>
+        <p class="vague-p rv">Aucun nœud ne porte un fragment. Chaque nœud participe à une computation distribuée pendant quelques millisecondes. La signification n'existe qu'à l'intersection de tous les états simultanés.</p>
+        <p class="vague-p rv">Un observateur externe ne voit pas un message chiffré. Il voit du bruit ambiant — indiscernable de l'activité normale. Il n'y a pas de cible. Pas de surface d'attaque stable.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════
+       ARCHITECTURE
+  ═══════════════════════════════ -->
+  <section id="arch" style="border-top:1px solid var(--border); padding:120px 48px;">
+    <div style="max-width:1200px;margin:0 auto;">
+      <div class="sec-label">03 — Protocole</div>
+      <h2 class="sec-title rv">COMMENT ÇA FONCTIONNE</h2>
+      <div class="diag-wrap rv">
+        <div class="diag-bar"><div class="diag-fill" id="dprog"></div></div>
+        <div class="diag-steps" id="dsteps">
+
+          <!-- STEP 1 -->
+          <div class="diag-step on">
+            <div style="display:flex;align-items:center;justify-content:center;">
+              <svg width="180" height="160" viewBox="0 0 180 160">
+                <circle cx="35" cy="80" r="14" fill="none" stroke="rgba(26,107,255,.5)" stroke-width="1.5"/>
+                <text x="35" y="85" text-anchor="middle" fill="var(--cobalt)" font-family="IBM Plex Mono" font-size="10">A</text>
+                <circle cx="145" cy="80" r="14" fill="none" stroke="rgba(26,107,255,.5)" stroke-width="1.5"/>
+                <text x="145" y="85" text-anchor="middle" fill="var(--cobalt)" font-family="IBM Plex Mono" font-size="10">B</text>
+                <line x1="49" y1="80" x2="131" y2="80" stroke="rgba(26,107,255,.25)" stroke-width="1" stroke-dasharray="5,3"/>
+                <circle cx="90" cy="56" r="7" fill="none" stroke="rgba(26,107,255,.7)" stroke-width="1.5"/>
+                <line x1="90" y1="63" x2="90" y2="74" stroke="rgba(26,107,255,.7)" stroke-width="1.5"/>
+                <line x1="87" y1="71" x2="90" y2="74" stroke="rgba(26,107,255,.7)" stroke-width="1.5"/>
+                <line x1="93" y1="68" x2="90" y2="71" stroke="rgba(26,107,255,.7)" stroke-width="1.5"/>
+                <text x="90" y="102" text-anchor="middle" fill="rgba(74,74,106,.9)" font-family="IBM Plex Mono" font-size="7.5" letter-spacing="1">ML-KEM-1024</text>
+                <text x="90" y="114" text-anchor="middle" fill="rgba(74,74,106,.5)" font-family="IBM Plex Mono" font-size="7">une seule fois · hors-bande</text>
+                <line x1="49" y1="80" x2="131" y2="80" stroke="rgba(255,45,85,.25)" stroke-width=".5" stroke-dasharray="2,5">
+                  <animate attributeName="opacity" values="0;.8;0" dur="2.2s" repeatCount="indefinite"/>
+                </line>
+                <text x="90" y="145" text-anchor="middle" fill="rgba(255,45,85,.45)" font-family="IBM Plex Mono" font-size="7">↳ clé détruite après</text>
+              </svg>
+            </div>
+            <div>
+              <div class="step-n">01</div>
+              <div class="step-t">SYNCHRONISATION</div>
+              <p>Alice et Bob échangent une clé ML-KEM-1024. Une seule fois. Hors-bande. Cette clé ne chiffre rien — elle définit l'architecture du réseau pour cet échange précis. Puis elle est détruite.</p>
+            </div>
+          </div>
+
+          <!-- STEP 2 -->
+          <div class="diag-step">
+            <div style="display:flex;align-items:center;justify-content:center;">
+              <svg width="180" height="160" viewBox="0 0 180 160">
+                <circle cx="90" cy="35"  r="5" fill="rgba(26,107,255,.8)"><animate attributeName="opacity" values="0;1" dur=".4s" fill="freeze"/></circle>
+                <circle cx="148" cy="78" r="5" fill="rgba(26,107,255,.8)"><animate attributeName="opacity" values="0;0;1" dur=".9s" fill="freeze"/></circle>
+                <circle cx="118" cy="138" r="5" fill="rgba(26,107,255,.8)"><animate attributeName="opacity" values="0;0;0;1" dur="1.3s" fill="freeze"/></circle>
+                <circle cx="58"  cy="128" r="5" fill="rgba(26,107,255,.8)"><animate attributeName="opacity" values="0;0;0;0;1" dur="1.7s" fill="freeze"/></circle>
+                <circle cx="36"  cy="72"  r="5" fill="rgba(26,107,255,.8)"><animate attributeName="opacity" values="0;0;0;0;0;1" dur="2.1s" fill="freeze"/></circle>
+                <line x1="90" y1="35" x2="148" y2="78"  stroke="rgba(26,107,255,.2)" stroke-width="1"/>
+                <line x1="148" y1="78" x2="118" y2="138" stroke="rgba(26,107,255,.2)" stroke-width="1"/>
+                <line x1="118" y1="138" x2="58" y2="128" stroke="rgba(26,107,255,.2)" stroke-width="1"/>
+                <line x1="58" y1="128" x2="36" y2="72"   stroke="rgba(26,107,255,.2)" stroke-width="1"/>
+                <line x1="36" y1="72" x2="90" y2="35"    stroke="rgba(26,107,255,.2)" stroke-width="1"/>
+                <line x1="90" y1="35" x2="58" y2="128"   stroke="rgba(26,107,255,.08)" stroke-width=".5" stroke-dasharray="2,4"/>
+                <line x1="148" y1="78" x2="36" y2="72"   stroke="rgba(26,107,255,.08)" stroke-width=".5" stroke-dasharray="2,4"/>
+                <text x="90" y="155" text-anchor="middle" fill="rgba(74,74,106,.8)" font-family="IBM Plex Mono" font-size="7.5" letter-spacing="1">5 NŒUDS ÉPHÉMÈRES</text>
+              </svg>
+            </div>
+            <div>
+              <div class="step-n">02</div>
+              <div class="step-t">NAISSANCE</div>
+              <p>Un réseau éphémère naît. Sa topologie est entièrement dérivée de la clé partagée — non d'une découverte dynamique. Les nœuds participants ne connaissent pas leur rôle dans le schéma global.</p>
+            </div>
+          </div>
+
+          <!-- STEP 3 -->
+          <div class="diag-step">
+            <div style="display:flex;align-items:center;justify-content:center;">
+              <svg width="180" height="160" viewBox="0 0 180 160">
+                <circle cx="90" cy="35"  r="5" fill="rgba(26,107,255,.5)"><animate attributeName="r" values="5;10;5" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values=".8;.2;.8" dur="1.2s" repeatCount="indefinite"/></circle>
+                <circle cx="148" cy="78" r="5" fill="rgba(26,107,255,.5)"><animate attributeName="r" values="5;10;5" dur="1.2s" begin="-.3s" repeatCount="indefinite"/><animate attributeName="opacity" values=".8;.2;.8" dur="1.2s" begin="-.3s" repeatCount="indefinite"/></circle>
+                <circle cx="118" cy="138" r="5" fill="rgba(26,107,255,.5)"><animate attributeName="r" values="5;10;5" dur="1.2s" begin="-.6s" repeatCount="indefinite"/><animate attributeName="opacity" values=".8;.2;.8" dur="1.2s" begin="-.6s" repeatCount="indefinite"/></circle>
+                <circle cx="58"  cy="128" r="5" fill="rgba(26,107,255,.5)"><animate attributeName="r" values="5;10;5" dur="1.2s" begin="-.9s" repeatCount="indefinite"/><animate attributeName="opacity" values=".8;.2;.8" dur="1.2s" begin="-.9s" repeatCount="indefinite"/></circle>
+                <circle cx="36"  cy="72"  r="5" fill="rgba(26,107,255,.5)"><animate attributeName="r" values="5;10;5" dur="1.2s" begin="-1.1s" repeatCount="indefinite"/><animate attributeName="opacity" values=".8;.2;.8" dur="1.2s" begin="-1.1s" repeatCount="indefinite"/></circle>
+                <line x1="90" y1="35" x2="148" y2="78"   stroke="rgba(26,107,255,.18)" stroke-width="1"/>
+                <line x1="148" y1="78" x2="118" y2="138"  stroke="rgba(26,107,255,.18)" stroke-width="1"/>
+                <line x1="118" y1="138" x2="58" y2="128"  stroke="rgba(26,107,255,.18)" stroke-width="1"/>
+                <line x1="58" y1="128" x2="36" y2="72"    stroke="rgba(26,107,255,.18)" stroke-width="1"/>
+                <line x1="36" y1="72" x2="90" y2="35"     stroke="rgba(26,107,255,.18)" stroke-width="1"/>
+                <text x="90" y="155" text-anchor="middle" fill="rgba(74,74,106,.8)" font-family="IBM Plex Mono" font-size="7.5" letter-spacing="1">ÉTAT DISTRIBUÉ</text>
+              </svg>
+            </div>
+            <div>
+              <div class="step-n">03</div>
+              <div class="step-t">TRANSIT</div>
+              <p>Le message devient un état distribué temporaire. Aucun nœud ne voit plus d'une computation locale. La signification n'existe qu'à l'intersection de tous les états simultanés — pendant quelques millisecondes.</p>
+            </div>
+          </div>
+
+          <!-- STEP 4 -->
+          <div class="diag-step">
+            <div style="display:flex;align-items:center;justify-content:center;">
+              <svg width="180" height="160" viewBox="0 0 180 160">
+                <circle cx="90" cy="35"   r="5" fill="rgba(26,107,255,.3)"><animate attributeName="opacity" values="1;0" dur="1.8s" repeatCount="indefinite"/><animate attributeName="r" values="5;18" dur="1.8s" repeatCount="indefinite"/></circle>
+                <circle cx="148" cy="78"  r="5" fill="rgba(26,107,255,.3)"><animate attributeName="opacity" values="1;0" dur="1.8s" begin="-.45s" repeatCount="indefinite"/><animate attributeName="r" values="5;18" dur="1.8s" begin="-.45s" repeatCount="indefinite"/></circle>
+                <circle cx="118" cy="138" r="5" fill="rgba(26,107,255,.3)"><animate attributeName="opacity" values="1;0" dur="1.8s" begin="-.9s" repeatCount="indefinite"/><animate attributeName="r" values="5;18" dur="1.8s" begin="-.9s" repeatCount="indefinite"/></circle>
+                <circle cx="58"  cy="128" r="5" fill="rgba(26,107,255,.3)"><animate attributeName="opacity" values="1;0" dur="1.8s" begin="-1.35s" repeatCount="indefinite"/><animate attributeName="r" values="5;18" dur="1.8s" begin="-1.35s" repeatCount="indefinite"/></circle>
+                <circle cx="36"  cy="72"  r="5" fill="rgba(26,107,255,.3)"><animate attributeName="opacity" values="1;0" dur="1.8s" begin="-1.6s" repeatCount="indefinite"/><animate attributeName="r" values="5;18" dur="1.8s" begin="-1.6s" repeatCount="indefinite"/></circle>
+                <text x="90" y="155" text-anchor="middle" fill="rgba(74,74,106,.5)" font-family="IBM Plex Mono" font-size="7.5" letter-spacing="1">L'ÉCHANGE N'A PAS EU LIEU</text>
+              </svg>
+            </div>
+            <div>
+              <div class="step-n">04</div>
+              <div class="step-t">DISPARITION</div>
+              <p>Le réseau se dissout. La clé est détruite. Les nœuds retournent au bruit ambiant. Il ne reste aucune trace exploitable, aucun artefact, aucune corrélation temporelle mesurable.</p>
+            </div>
+          </div>
+
+        </div>
+        <div class="diag-nav">
+          <button class="diag-btn" id="dprev">←</button>
+          <div class="diag-dots" id="ddots"></div>
+          <button class="diag-btn" id="dnext">→</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════
+       STACK
+  ═══════════════════════════════ -->
+  <section id="stack" class="sec sec-border">
+    <div class="sec-label">04 — Stack</div>
+    <h2 class="sec-title rv">CONSTRUIT POUR DURER</h2>
+    <div class="stack-grid rv">
+      <div class="stack-row"><span class="sk">Langage</span><span class="sd"></span><span class="sv">Rust (nightly)</span></div>
+      <div class="stack-row"><span class="sk">KEM</span><span class="sd"></span><span class="sv c">ML-KEM-1024</span></div>
+      <div class="stack-row"><span class="sk">Signature</span><span class="sd"></span><span class="sv c">ML-DSA-87</span></div>
+      <div class="stack-row"><span class="sk">Réseau</span><span class="sd"></span><span class="sv">libp2p / DHT Kademlia</span></div>
+      <div class="stack-row"><span class="sk">Fragmentation</span><span class="sd"></span><span class="sv">Shamir Secret Sharing</span></div>
+      <div class="stack-row"><span class="sk">Symétrique</span><span class="sd"></span><span class="sv">AES-256-GCM</span></div>
+      <div class="stack-row"><span class="sk">Hash / VDF</span><span class="sd"></span><span class="sv">BLAKE3</span></div>
+      <div class="stack-row"><span class="sk">Transport</span><span class="sd"></span><span class="sv">Binary custom packet</span></div>
+      <div class="stack-row"><span class="sk">Licence</span><span class="sd"></span><span class="sv c">MIT — Open Source</span></div>
+      <div class="stack-row"><span class="sk">Nœuds actifs</span><span class="sd"></span><span class="sv" id="nc">0</span></div>
+      <div class="stack-row"><span class="sk">Audits</span><span class="sd"></span><span class="sv p">en cours —</span></div>
+      <div class="stack-row"><span class="sk">Origine</span><span class="sd"></span><span class="sv">France · collectif Hope · l-vs</span></div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════
+       MANIFESTE
+  ═══════════════════════════════ -->
+  <section id="manifeste" style="border-top:1px solid var(--border); background:var(--surface); padding:120px 48px; max-width:100%;">
+    <div class="man-wrap">
+      <blockquote class="man-q rv">
+        "La confidentialité n'est pas un paramètre.<br>
+        C'est une propriété architecturale.<br>
+        Elle ne s'ajoute pas après.<br>
+        Elle doit être impossible à retirer."
+      </blockquote>
+      <div class="man-rule"></div>
+      <p class="man-auth">— l-vs, collectif Hope, France</p>
+      <div class="man-body rv">
+        <p>POLYGONE est open-source. Sans investisseurs. Sans données revendues. Sans serveur central. C'est la seule façon honnête de construire ça.</p>
+        <p>La surveillance n'est pas un problème de logiciel. C'est un problème d'architecture. Les systèmes actuels chiffrent les données, mais ils ne peuvent pas cacher qu'une communication a eu lieu. POLYGONE change la question.</p>
+        <p>Ce projet est en développement actif. Il n'est pas parfait. Il n'est pas fini. Mais il est honnête — et l'honnêteté dans ce domaine est rare.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════
+       REJOINDRE
+  ═══════════════════════════════ -->
+  <section id="rj" class="sec sec-border">
+    <div class="sec-label">05 — Rejoindre</div>
+    <h2 class="sec-title rv">DEVENIR UN NŒUD</h2>
+    <div class="rj-grid">
+      <div class="rj-card rv">
+        <span class="c-tag">Développeurs</span>
+        <div class="c-title">CONTRIBUER</div>
+        <p>Lire le code. Trouver les failles. Proposer des améliorations. Tout le protocole est public — chaque ligne peut être remise en question. C'est comme ça que ça devient solide.</p>
+        <a href="https://github.com/lvs0/Polygone" target="_blank" class="btn"><span>↗ Voir GitHub</span></a>
+      </div>
+      <div class="rj-card rv">
+        <span class="c-tag">Opérateurs</span>
+        <div class="c-title">OPÉRER</div>
+        <p>Faire tourner un nœud. Contribuer de la bande passante. Renforcer le réseau. Aucune donnée ne transite par vous — vous participez à une computation que vous ne voyez pas. C'est le point.</p>
+        <a href="#" class="btn"><span>Documentation Nœud</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════
+       FOOTER
+  ═══════════════════════════════ -->
+  <footer>
+    <div class="ft">
+      <div class="ft-l">
+        <strong>POLYGONE</strong> — 2026 — France<br>
+        MIT Licence · Aucune collecte de données · by Hope · l-vs
+      </div>
+      <div class="ft-links">
+        <a href="https://github.com/lvs0/Polygone" target="_blank">GitHub</a>
+        <a href="#">Discord</a>
+        <a href="https://cnil.fr" target="_blank">CNIL</a>
+        <a href="#">Whitepaper</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ═══════════════════════════════
+       SCRIPTS
+  ═══════════════════════════════ -->
+  <script>
+  /* ── CURSOR ── */
+  const c1 = document.getElementById('cur'), c2 = document.getElementById('cur2');
+  let mx=0, my=0, rx=0, ry=0;
+  document.addEventListener('mousemove', e => {
+    mx = e.clientX; my = e.clientY;
+    c1.style.left = mx+'px'; c1.style.top = my+'px';
+  });
+  (function loop(){ rx+=(mx-rx)*.1; ry+=(my-ry)*.1;
+    c2.style.left=rx+'px'; c2.style.top=ry+'px'; requestAnimationFrame(loop); })();
+  document.querySelectorAll('a,button').forEach(el=>{
+    el.addEventListener('mouseenter',()=>document.body.classList.add('hov'));
+    el.addEventListener('mouseleave',()=>document.body.classList.remove('hov'));
+  });
+
+  /* ── NETWORK CANVAS ── */
+  const cv = document.getElementById('cnv'), ctx = cv.getContext('2d');
+  let W, H, nodes=[], pulses=[], frame=0, cmx=-999, cmy=-999;
+  const resize=()=>{ W=cv.width=innerWidth; H=cv.height=innerHeight; };
+  resize(); addEventListener('resize',resize);
+  document.addEventListener('mousemove',e=>{cmx=e.clientX;cmy=e.clientY;});
+  function mkNode(){return{x:Math.random()*W,y:Math.random()*H,
+    vx:(Math.random()-.5)*.22,vy:(Math.random()-.5)*.22,
+    life:0,max:350+Math.random()*450,r:1.2+Math.random()*1.2};}
+  function la(n){return Math.min(n.life/40,1)*Math.min((n.max-n.life)/40,1);}
+  function tick(){
+    frame++;
+    if(nodes.length<55&&Math.random()<.04)nodes.push(mkNode());
+    nodes=nodes.filter(n=>{n.x+=n.vx;n.y+=n.vy;n.life++;
+      if(n.x<0||n.x>W)n.vx*=-1; if(n.y<0||n.y>H)n.vy*=-1;
+      return n.life<n.max;});
+    if(frame%140===0&&nodes.length>5){
+      const s=nodes[0|Math.random()*nodes.length];
+      pulses.push({x:s.x,y:s.y,r:0,max:110});}
+    pulses=pulses.filter(p=>{p.r+=1.1;return p.r<p.max;});
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    const D=130;
+    for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+      const a=nodes[i],b=nodes[j],dx=a.x-b.x,dy=a.y-b.y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<D){ctx.beginPath();ctx.strokeStyle=`rgba(26,107,255,${(1-d/D)*.11*la(a)*la(b)})`;
+        ctx.lineWidth=.5;ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}
+    nodes.forEach(n=>{
+      const mdx=n.x-cmx,mdy=n.y-cmy,md=Math.sqrt(mdx*mdx+mdy*mdy);
+      const mb=md<110?(1-md/110)*.35:0,a=(0.45+mb)*la(n);
+      ctx.beginPath();ctx.fillStyle=`rgba(26,107,255,${a})`;
+      ctx.arc(n.x,n.y,n.r+mb*2,0,Math.PI*2);ctx.fill();});
+    pulses.forEach(p=>{const a=(1-p.r/p.max)*.3;
+      ctx.beginPath();ctx.strokeStyle=`rgba(26,107,255,${a})`;
+      ctx.lineWidth=.8;ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.stroke();});
+    tick(); requestAnimationFrame(draw);
+  }
+  for(let i=0;i<28;i++){const n=mkNode();n.life=0|Math.random()*180;nodes.push(n);}
+  draw();
+
+  /* ── TITLE REVEAL ── */
+  const ht=document.getElementById('htitle');
+  'POLYGONE'.split('').forEach((ch,i)=>{
+    const s=document.createElement('span'); s.className='char'; s.textContent=ch;
+    s.style.animationDelay=`${.1+i*.065}s`; ht.appendChild(s);});
+
+  /* ── SCROLL REVEAL ── */
+  const obs=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('on');}),
+    {threshold:.12,rootMargin:'0px 0px -30px 0px'});
+  document.querySelectorAll('.rv').forEach(el=>obs.observe(el));
+  setTimeout(()=>document.querySelectorAll('.rv').forEach(el=>{
+    if(el.getBoundingClientRect().top<innerHeight)el.classList.add('on');}),400);
+
+  /* ── DIAGRAM STEPPER ── */
+  const steps=[...document.querySelectorAll('.diag-step')];
+  const ddots=document.getElementById('ddots'), dprog=document.getElementById('dprog');
+  let cur=0, dtimer=null;
+  steps.forEach((_,i)=>{const d=document.createElement('div');d.className='d-dot'+(i===0?' on':'');
+    d.onclick=()=>goTo(i); ddots.appendChild(d);});
+  function goTo(i){
+    steps[cur].classList.remove('on'); cur=(i+steps.length)%steps.length;
+    steps[cur].classList.add('on');
+    document.querySelectorAll('.d-dot').forEach((d,j)=>d.classList.toggle('on',j===cur));
+    dprog.style.width=((cur+1)/steps.length*100)+'%'; dprog.style.transition='width 3.5s linear';
+    clearInterval(dtimer); dtimer=setInterval(()=>goTo(cur+1),3500);}
+  document.getElementById('dprev').onclick=()=>goTo(cur-1);
+  document.getElementById('dnext').onclick=()=>goTo(cur+1);
+  new IntersectionObserver(es=>{if(es[0].isIntersecting){dtimer||(dtimer=setInterval(()=>goTo(cur+1),3500));}
+    else{clearInterval(dtimer);dtimer=null;}},{threshold:.5}).observe(document.getElementById('dsteps'));
+  dprog.style.width='25%';
+
+  /* ── NODE COUNTER ── */
+  const nce=document.getElementById('nc'); let ncs=false;
+  new IntersectionObserver(es=>{if(es[0].isIntersecting&&!ncs){ncs=true;let v=0;
+    const iv=setInterval(()=>{v++;nce.textContent=v;if(v>=9)clearInterval(iv);},130);}},{threshold:.5}).observe(nce);
+
+  /* ── BURGER ── */
+  const burg=document.getElementById('burger'), mob=document.getElementById('mob');
+  let mop=false;
+  burg.onclick=()=>{mop=!mop;mob.classList.toggle('open',mop);
+    const ss=burg.querySelectorAll('span');
+    ss[0].style.transform=mop?'rotate(45deg) translate(4px,4px)':'';
+    ss[1].style.transform=mop?'rotate(-45deg) translate(4px,-4px)':'';};
+  mob.querySelectorAll('a').forEach(a=>a.onclick=()=>{mop=false;mob.classList.remove('open');
+    burg.querySelectorAll('span').forEach(s=>s.style.transform='');});
+  </script>
+</body>
+</html>

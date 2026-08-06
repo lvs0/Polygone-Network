@@ -119,6 +119,7 @@ enum NodeChoice { None, Passive, Active }
 enum Lang { EN, FR }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum MenuAction { None, Update, Reinstall, Uninstall, Launch }
 
 // ─── Config ─────────────────────────────────────────────────────────────────

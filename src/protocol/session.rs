@@ -2,9 +2,8 @@
 //!
 //! Handles session lifecycle, key derivation, and secure channel creation.
 
-use crate::crypto::{KeyPair, SharedSecret};
+use crate::crypto::SharedSecret;
 use crate::network::NodeId;
-use crate::Result;
 
 /// A secure session between two peers.
 #[derive(Debug, Clone)]

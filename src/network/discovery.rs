@@ -3,11 +3,11 @@
 //! Provides peer discovery logic using Kademlia DHT and mDNS
 
 use libp2p::{
-    kad::{QueryResult, GetRecordOk, Record},
+    kad::QueryResult,
     PeerId,
 };
 use std::collections::HashSet;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// DiscoveryResult contains discovered peer information
 #[derive(Debug, Clone)]
@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn test_discovery_service() {
-        let mut service = DiscoveryService::new();
+        let service = DiscoveryService::new();
         assert_eq!(service.peer_count(), 0);
         assert!(!service.has_peers());
     }

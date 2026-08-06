@@ -1,6 +1,6 @@
 [package]
 name = "polygone"
-version = "1.0.0"
+version = "2.0.0-rc1"
 edition = "2021"
 authors = ["Lévy <polygone@proton.me>"]
 description = "Post-quantum ephemeral privacy network — ML-KEM-1024 · Shamir 4-of-7 · AES-256-GCM"
@@ -9,26 +9,11 @@ repository = "https://github.com/lvs0/Polygone-Network"
 keywords = ["post-quantum", "p2p", "privacy", "cryptography", "ephemeral"]
 categories = ["cryptography", "network-programming", "command-line-utilities"]
 rust-version = "1.75"
-
-# ── Profiles ──────────────────────────────────────────────────────────────────
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
-
-[profile.dev]
-opt-level = 1
-
-# ── Library ───────────────────────────────────────────────────────────────────
+publish = false
 
 [lib]
 name = "polygone"
 path = "src/lib.rs"
-
-# ── Binaries ──────────────────────────────────────────────────────────────────
 
 [[bin]]
 name = "polygone"
@@ -42,65 +27,65 @@ path = "src/bin/polygone-server.rs"
 name = "polygone-install"
 path = "src/bin/polygone-install.rs"
 
-# ── Dependencies ──────────────────────────────────────────────────────────────
-
 [dependencies]
-# ── Post-Quantum KEM (ML-KEM-1024, FIPS 203) ─────────────────────────────────
+# Post-Quantum KEM (ML-KEM-1024, NIST FIPS 203)
 pqcrypto-mlkem    = "0.1"
 pqcrypto-traits   = "0.3"
 
-# ── Post-Quantum Signatures (ML-DSA-87, FIPS 204) ────────────────────────────
+# Post-Quantum Signatures (ML-DSA-65, NIST FIPS 204) — handshake-friendly sweet spot
 pqcrypto-mldsa    = "0.1"
 
-# ── Symmetric Encryption (AES-256-GCM) ───────────────────────────────────────
+# Symmetric encryption (AES-256-GCM)
 aes-gcm          = { version = "0.10", features = ["aes"] }
 
-# ── Hashing (BLAKE3) ─────────────────────────────────────────────────────────
+# Hashing (BLAKE3)
 blake3           = "1"
 
-# ── Zeroize (secure memory clearing) ─────────────────────────────────────────
+# Secure memory clearing
 zeroize          = { version = "1", features = ["derive"] }
 subtle           = "2"
 
-# ── Ed25519 Signatures (ML-DSA swap-ready via trait) ─────────────────────────
+# Ed25519 (legacy/ML-DSA-swap-ready)
 ed25519-dalek    = { version = "2", features = ["rand_core"] }
 
-# ── Shamir Secret Sharing ────────────────────────────────────────────────────
+# Shamir Secret Sharing
 sharks           = { version = "0.5", default-features = false }
 rand             = "0.8"
 getrandom        = "0.2"
 
-# ── Async Runtime ─────────────────────────────────────────────────────────────
+# Async runtime
 tokio            = { version = "1", features = ["full"] }
 async-trait      = "0.1"
 
-# ── Serialization ─────────────────────────────────────────────────────────────
+# Serialization
 serde            = { version = "1", features = ["derive"] }
 serde_json       = "1"
 toml             = "0.5"
 bincode          = "1"
 hex              = "0.4"
+sha2             = "0.10"
 
-# ── Error Handling ────────────────────────────────────────────────────────────
+# Error handling
 thiserror        = "1"
 anyhow           = "1"
 
-# ── CLI & Logging ─────────────────────────────────────────────────────────────
+# CLI & logging
 clap             = { version = "4", features = ["derive", "env"] }
 tracing          = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# ── System ────────────────────────────────────────────────────────────────────
+# System
 dirs             = "5"
+libc             = "0.2"
 
-# ── HTTP (for health endpoint and keepalive) ──────────────────────────────────
+# HTTP
 reqwest          = { version = "0.12", features = ["json"] }
 
-# ── TUI (Ratatui) ────────────────────────────────────────────────────────────
+# TUI (Ratatui)
 ratatui          = "0.30"
-crossterm        = "0.27"
+crossterm        = "0.29"
 
-# ── P2P Network (libp2p) ─────────────────────────────────────────────────────
+# P2P (libp2p)
 libp2p           = { version = "0.53", features = [
     "tokio",
     "tcp",
@@ -119,7 +104,15 @@ libp2p           = { version = "0.53", features = [
     "ping"
 ] }
 
-# ── Dev Dependencies ──────────────────────────────────────────────────────────
-
 [dev-dependencies]
 criterion        = { version = "0.5", features = ["html_reports"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+codegen-units = 1
+panic = "abort"

@@ -6,6 +6,7 @@ use aes_gcm::{
 };
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use crate::crypto::SharedSecret;
 use crate::{PolygoneError, Result};
 
 /// The result of encrypting a payload: ciphertext + nonce.
@@ -24,6 +25,12 @@ pub struct SessionKey([u8; 32]);
 impl SessionKey {
     /// Wrap raw bytes into a session key.
     pub fn from_bytes(bytes: [u8; 32]) -> Self { Self(bytes) }
+
+    /// Derive a session key from a shared secret using BLAKE3 domain-separated KDF.
+    pub fn derive_from_secret(secret: &SharedSecret) -> Self {
+        let (_, session_key_bytes) = secret.derive();
+        Self(session_key_bytes)
+    }
 
     /// Encrypt `plaintext` and return the ciphertext + nonce.
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<EncryptedPayload> {
@@ -45,4 +52,27 @@ impl SessionKey {
             .decrypt(nonce, payload.ciphertext.as_ref())
             .map_err(|_| PolygoneError::AeadError("decryption failed — tag mismatch".into()))
     }
+}
+
+/// Convenience: encrypt plaintext with a session key, return raw bytes.
+/// Format: [nonce: 12 bytes][ciphertext: N bytes]
+pub fn encrypt(plaintext: &[u8], key: &SessionKey) -> Result<Vec<u8>> {
+    let payload = key.encrypt(plaintext)?;
+    let mut out = Vec::with_capacity(12 + payload.ciphertext.len());
+    out.extend_from_slice(&payload.nonce);
+    out.extend_from_slice(&payload.ciphertext);
+    Ok(out)
+}
+
+/// Convenience: decrypt raw bytes with a session key, return plaintext.
+/// Expects format: [nonce: 12 bytes][ciphertext: N bytes]
+pub fn decrypt(data: &[u8], key: &SessionKey) -> Result<Vec<u8>> {
+    if data.len() < 12 {
+        return Err(PolygoneError::Decrypt("data too short".into()));
+    }
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&data[..12]);
+    let ciphertext = data[12..].to_vec();
+    let payload = EncryptedPayload { ciphertext, nonce };
+    key.decrypt(&payload)
 }

@@ -73,6 +73,15 @@ pub enum PolygoneError {
 
     #[error("Peer not found: {0}")]
     PeerNotFound(String),
+
+    #[error("Fragment parse error")]
+    ParseFragment,
+
+    #[error("Missing required field: {0}")]
+    MissingField(&'static str),
+
+    #[error("Message error: {0}")]
+    Message(String),
 }
 
 /// Convenience alias for Results using PolygoneError.
