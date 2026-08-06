@@ -12,6 +12,7 @@
 //! « On voit rien. Et c'est comme ça que ça devrait être. »
 
 mod demo;
+mod duress;
 mod identity;
 mod msg;
 mod net;
@@ -84,6 +85,13 @@ enum Commands {
     Clef,
     /// Print this node's random NodeId
     Id,
+    /// Mode duress — destroy local identity + received files (Axiome 5).
+    /// Requires --confirmer (explicit signal, irreversible).
+    Duress {
+        /// Explicit confirmation that the destruction is intended
+        #[arg(long)]
+        confirmer: bool,
+    },
 }
 
 #[tokio::main]
@@ -92,6 +100,22 @@ async fn main() -> Result<()> {
 
     let level = if args.verbose { "debug" } else { "info" };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
+
+    // Duress runs before any identity materialization — destroying must not
+    // first create.
+    if let Some(Commands::Duress { confirmer }) = &args.command {
+        if !confirmer {
+            anyhow::bail!("mode duress : confirmez avec --confirmer (irréversible)");
+        }
+        println!("{}", duress::plan());
+        println!();
+        for line in duress::execute()? {
+            println!("  ✓ {line}");
+        }
+        println!();
+        println!("L'information n'existait pas. Elle ne traversera plus.");
+        return Ok(());
+    }
 
     // First run: materialise the local identity (keys + pseudo).
     let identity = identity::LocalIdentity::load_or_create()?;
@@ -170,6 +194,9 @@ async fn main() -> Result<()> {
             use polygone_core::NodeId;
             let id = NodeId::random();
             println!("{id}");
+        }
+        Some(Commands::Duress { .. }) => {
+            unreachable!("handled before identity load")
         }
     }
     Ok(())
