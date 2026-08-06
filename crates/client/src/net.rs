@@ -201,6 +201,30 @@ pub enum Received {
     File { name: String, bytes: Vec<u8> },
 }
 
+/// Build the RES grant reply for a compute request (ghost node). Pure —
+/// testable without sockets.
+fn grant_for(req: &NetEnvelope, identity: &LocalIdentity) -> NetEnvelope {
+    NetEnvelope {
+        kind: "fragment".into(),
+        from: node_id(identity),
+        to: req.from.clone(),
+        session: req.session.clone(),
+        seq: 0,
+        typ: "grant".into(),
+        idx: 0,
+        threshold: 0,
+        total: 0,
+        payload: serde_json::json!({
+            "node": node_id(identity),
+            "ram_mb": crate::mesh::free_ram_mb().unwrap_or(0),
+            "ok": true,
+        })
+        .to_string()
+        .into_bytes(),
+        name: None,
+    }
+}
+
 /// Process one wire line against the session map. Returns `Some` when a
 /// session completes (>= 4/7 fragments) and decrypts. Pure logic — no sockets.
 fn process_line(
@@ -289,26 +313,7 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
         // RES compute requests: answer with a grant (ghost node).
         if let Ok(env) = serde_json::from_str::<NetEnvelope>(line.trim()) {
             if env.typ == "req" && compute {
-                let from = env.from.clone();
-                let grant = NetEnvelope {
-                    kind: "fragment".into(),
-                    from: node_id(identity),
-                    to: from,
-                    session: env.session.clone(),
-                    seq: 0,
-                    typ: "grant".into(),
-                    idx: 0,
-                    threshold: 0,
-                    total: 0,
-                    payload: serde_json::json!({
-                        "node": node_id(identity),
-                        "ram_mb": crate::mesh::free_ram_mb().unwrap_or(0),
-                        "ok": true,
-                    })
-                    .to_string()
-                    .into_bytes(),
-                    name: None,
-                };
+                let grant = grant_for(&env, identity);
                 let _ = writer
                     .write_all(format!("{}\n", serde_json::to_string(&grant)?).as_bytes())
                     .await;
@@ -468,5 +473,35 @@ mod tests {
             let line = envelope_json(session, "frag", frag.index, &frag.share, None);
             assert!(process_line(&line, &bob, &mut sessions).unwrap().is_none());
         }
+    }
+
+    #[test]
+    fn grant_reply_routes_back_to_requester() {
+        let ghost = LocalIdentity::generate();
+        let req = NetEnvelope {
+            kind: "fragment".into(),
+            from: "borrower-node".into(),
+            to: "ghost-node".into(),
+            session: "res-session-1".into(),
+            seq: 0,
+            typ: "req".into(),
+            idx: 0,
+            threshold: 0,
+            total: 0,
+            payload: serde_json::json!({"action": "compute", "task": "bench"})
+                .to_string()
+                .into_bytes(),
+            name: None,
+        };
+
+        let grant = grant_for(&req, &ghost);
+        assert_eq!(grant.typ, "grant");
+        assert_eq!(grant.to, "borrower-node"); // routed back to the requester
+        assert_eq!(grant.session, "res-session-1"); // same session context
+        assert_eq!(grant.from, node_id(&ghost)); // granted by the ghost
+        let body: serde_json::Value =
+            serde_json::from_slice(&grant.payload).expect("grant payload is JSON");
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["node"], node_id(&ghost));
     }
 }
