@@ -1,0 +1,52 @@
+name: Release
+
+# Publie les binaires précompilés sur GitHub Releases à chaque tag `v*`.
+# L'installateur les consomme :
+#   curl -fsSL polygone.network/install | bash
+#   → https://github.com/lvs0/Polygone-Network/releases/download/<tag>/polygone-<os>-<arch>.tar.gz
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  release:
+    name: Release (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: macos-latest
+            target: macos-x86_64
+    steps:
+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build --release -p polygone-client -p polygone-relay -p polygoned
+
+      - name: Package tarball
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar -czf "dist/polygone-${{ matrix.target }}.tar.gz" \
+            -C target/release \
+            polygone polygone-client polygone-relay polygoned
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/polygone-${{ matrix.target }}.tar.gz
+          generate_release_notes: true

@@ -80,8 +80,8 @@
 
 | Document | Statut | Quand livré |
 |----------|--------|-------------|
-| `docs/threat-commodity.md` | S2 livrable | Roadmap S2 (= 13 juillet 2026) |
-| `docs/threat-high-value.md` | S2 livrable | Roadmap S2 |
+| `docs/threat-commodity.md` | ✅ Livré | S2 — livré le 2026-08-06 |
+| `docs/threat-high-value.md` | ✅ Livré | S2 — livré le 2026-08-06 |
 | `LEGAL.md` | ✅ Publié v0.2 | cf. repo |
 | `docs/kill-switch.md` | ✅ Publié v0.1 | cf. repo |
 | `.well-known/security.txt` | ✅ Publié v0.1 | cf. repo |
