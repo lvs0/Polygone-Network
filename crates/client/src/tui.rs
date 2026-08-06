@@ -37,6 +37,7 @@ pub enum Command {
     Receive,
     Ask(String),
     Voisins,
+    Compute,
     Unknown(String),
 }
 
@@ -57,6 +58,7 @@ pub fn parse_command(input: &str) -> Command {
         "recevoir" | "r" | "recv" => Command::Receive,
         "ia" | "ask" | "petals" => Command::Ask(rest.trim().to_string()),
         "voisins" | "mesh" | "v" => Command::Voisins,
+        "compute" | "res" => Command::Compute,
         _ => Command::Unknown(raw.to_string()),
     }
 }
@@ -452,6 +454,39 @@ fn execute_command(
             }
             draw(identity, session)?;
         }
+        Command::Compute => {
+            session.command_buffer.clear();
+            session.note = String::new();
+            session.view = View::Output;
+            session.input_prompt = "⬡ RES — scan des nœuds fantômes…".to_string();
+            draw(identity, session)?;
+            let mut out = String::from("⬡ RES — ressources du LAN\n");
+            match crate::mesh::free_ram_mb() {
+                Some(ram) => out.push_str(&format!("\n  ce nœud : {ram} Mo de RAM libre")),
+                None => out.push_str("\n  ce nœud : RAM libre inconnue"),
+            }
+            match crate::mesh::discover(std::time::Duration::from_secs(3)) {
+                Ok(peers) => {
+                    if peers.is_empty() {
+                        out.push_str("\n\n  aucun nœud fantôme.");
+                    } else {
+                        out.push_str("\n\n  nœuds fantômes (prêts à prêter) :");
+                        for p in &peers {
+                            match p.free_ram_mb {
+                                Some(ram) => out.push_str(&format!(
+                                    "\n  · {} → {} · {ram} Mo libres",
+                                    p.node_id, p.relay
+                                )),
+                                None => out.push_str(&format!("\n  · {} → {}", p.node_id, p.relay)),
+                            }
+                        }
+                    }
+                }
+                Err(e) => out.push_str(&format!("\n\n  erreur scan : {e}")),
+            }
+            session.input_prompt = out;
+            draw(identity, session)?;
+        }
         Command::Unknown(what) => {
             session.command_buffer.clear();
             session.note = format!("commande inconnue : « {} » — tapez :aide", what);
@@ -538,6 +573,8 @@ mod tests {
         );
         assert_eq!(parse_command("voisins"), Command::Voisins);
         assert_eq!(parse_command("mesh"), Command::Voisins);
+        assert_eq!(parse_command("compute"), Command::Compute);
+        assert_eq!(parse_command("res"), Command::Compute);
         assert_eq!(parse_command("  aide  "), Command::Help);
     }
 
