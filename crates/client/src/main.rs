@@ -19,6 +19,7 @@ mod mesh;
 mod msg;
 mod net;
 mod petals;
+mod reputation;
 mod self_test;
 mod tui;
 
@@ -368,9 +369,11 @@ async fn main() -> Result<()> {
                             body["node"].as_str().unwrap_or("?")
                         );
                         println!("{}", body["output"].as_str().unwrap_or("(pas de sortie)"));
+                        reputation::ReputationTable::load().record(&ghost, true);
                     }
                     None => {
                         println!("  ✖ aucune réponse — le nœud est-il en `ecouter --compute` ?");
+                        reputation::ReputationTable::load().record(&ghost, false);
                     }
                 }
                 return Ok(());
@@ -399,9 +402,11 @@ async fn main() -> Result<()> {
                             body["node"].as_str().unwrap_or("?")
                         );
                         println!("{}", body["output"].as_str().unwrap_or("(pas de sortie)"));
+                        reputation::ReputationTable::load().record(&ghost, true);
                     }
                     None => {
                         println!("  ✖ aucune réponse — le nœud est-il en `ecouter --compute` ?");
+                        reputation::ReputationTable::load().record(&ghost, false);
                     }
                 }
                 return Ok(());
@@ -422,10 +427,12 @@ async fn main() -> Result<()> {
                 {
                     Some(grant) => {
                         println!("  ⬡ COMPUTE ACCORDÉ :");
+                        reputation::ReputationTable::load().record(&ghost, true);
                         println!("  {grant}");
                     }
                     None => {
                         println!("  ✖ aucun grant reçu — le nœud est-il en `ecouter --compute` ?");
+                        reputation::ReputationTable::load().record(&ghost, false);
                     }
                 }
                 return Ok(());
@@ -443,12 +450,20 @@ async fn main() -> Result<()> {
             } else {
                 println!("  nœuds fantômes trouvés (prêts à prêter du compute) :");
                 for p in &peers {
+                    let rep = reputation::ReputationTable::load();
                     match p.free_ram_mb {
                         Some(ram) => println!(
-                            "    · {}  →  relay {}  · {ram} Mo libres",
-                            p.node_id, p.relay
+                            "    · {}  →  relay {}  · {ram} Mo libres  · réputation {}%",
+                            p.node_id,
+                            p.relay,
+                            rep.score_of(&p.node_id)
                         ),
-                        None => println!("    · {}  →  relay {}", p.node_id, p.relay),
+                        None => println!(
+                            "    · {}  →  relay {}  · réputation {}%",
+                            p.node_id,
+                            p.relay,
+                            rep.score_of(&p.node_id)
+                        ),
                     }
                 }
             }

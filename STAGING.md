@@ -37,12 +37,15 @@
 - **Exécution WASM** : `polygone compute --wasm <fichier.wasm> --emprunter <node>`
   → le module tourne dans le **sandbox wasmi** du fantôme (pure Rust,
   memory-safe, vérifiable) — la Phase 8 du plan, livrée.
-- **Honnête** : sandbox *système* (isolation contre accidents et abus
-  opportunistes), PAS une sandbox cryptographique. Requêtes non chiffrées
-  E2E (métadonnées) — les données de tâche sensibles attendent WASM.
-**Ré-introduction Phase 8+.** Exécution WASM vérifiée (wasmi/wasmtime) +
-reputation + adversary budget. La couche d'allocation existe déjà dans
-`polygoned` (policy GlowUp).
+- **Réputation** : chaque résultat (grant/échec) est enregistré par nœud
+  (`~/.polygone/reputation.json`) et affiché dans `polygone compute` —
+  on préfère les fantômes qui délivrent.
+- **Honnête** : sandbox *système* + WASM wasmi (memory-safe), réputation
+  locale (pas de reçus signés ML-DSA ni d'échange réseau — Phase 8+).
+  Requêtes non chiffrées E2E (métadonnées).
+**Phase 8+ restante.** Reçus vérifiables (grants signés ML-DSA) + échange
+de réputation réseau + adversary budget. La couche d'allocation existe déjà
+dans `polygoned` (policy GlowUp).
 
 ---
 
