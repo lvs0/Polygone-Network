@@ -83,6 +83,9 @@ enum Commands {
         /// Relay address
         #[arg(long, default_value = "127.0.0.1:7000")]
         relay: String,
+        /// Also announce this node + relay on the LAN mesh (Phase 4)
+        #[arg(long)]
+        annoncer: bool,
     },
     /// Scan the LAN for announcing Polygone nodes (mesh, Phase 4)
     Voisins {
@@ -218,6 +221,52 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
 
+            // Mesh mode: --a <node> without --via → find the peer's relay on
+            // the LAN (Phase 4), then route through it. Zero configuration.
+            if let Some(dest_node) = a {
+                let recipient = match dest {
+                    Some(hex) => polygone_core::crypto::kem::KemPublicKey::from_hex(&hex)?,
+                    None => anyhow::bail!("précisez la clef du destinataire avec -d <clef>"),
+                };
+                let peers = mesh::discover(std::time::Duration::from_secs(3))?;
+                let peer = peers.iter().find(|p| p.node_id == dest_node).cloned().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "nœud {dest_node} introuvable sur le LAN — l'annonce-t-il (polygone ecouter --annoncer) ?"
+                    )
+                })?;
+                let name = fichier.as_ref().map(|p| {
+                    std::path::Path::new(p)
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| p.clone())
+                });
+                let session = net::send_network(
+                    &peer.relay,
+                    &dest_node,
+                    &payload,
+                    name.as_deref(),
+                    &recipient,
+                    &identity,
+                )
+                .await?;
+                match &fichier {
+                    Some(_) => {
+                        println!(
+                            "⬡ fichier envoyé via mesh → {dest_node} (relay {})",
+                            peer.relay
+                        )
+                    }
+                    None => {
+                        println!(
+                            "⬡ message envoyé via mesh → {dest_node} (relay {})",
+                            peer.relay
+                        )
+                    }
+                }
+                println!("  session {session} · 7 fragments + KEM_CT (4 suffisent pour lire)");
+                return Ok(());
+            }
+
             let recipient = match dest {
                 Some(hex) => polygone_core::crypto::kem::KemPublicKey::from_hex(&hex)?,
                 None => {
@@ -240,7 +289,16 @@ async fn main() -> Result<()> {
             let plain = msg::receive(&output, &identity.kem_secret_key()?)?;
             println!("{plain}");
         }
-        Some(Commands::Ecouter { relay }) => {
+        Some(Commands::Ecouter { relay, annoncer }) => {
+            // Optionally announce on the LAN so peers can find us without a
+            // hardcoded address (Phase 4 mesh).
+            if annoncer {
+                let node = net::node_id(&identity);
+                let relay = relay.clone();
+                tokio::spawn(async move {
+                    let _ = mesh::announce(&node, &relay).await;
+                });
+            }
             net::receive_network(&relay, &identity).await?;
         }
         Some(Commands::Voisins { duree }) => {
