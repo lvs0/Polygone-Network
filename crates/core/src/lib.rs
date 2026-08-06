@@ -9,9 +9,15 @@ pub mod identity;
 pub mod sign;
 pub mod time_sync;
 
-pub use crypto::{SharedSecret};
-pub use envelope::{Envelope, EnvelopeKind, Fragment, FRAGMENT_THRESHOLD, FRAGMENT_SHARES};
+pub use crypto::SharedSecret;
+pub use envelope::{Envelope, EnvelopeKind, Fragment, FRAGMENT_SHARES, FRAGMENT_THRESHOLD};
 pub use error::{PolygoneError, Result};
 pub use identity::{NodeId, SessionId};
-pub use sign::{KeyPair, Signer, Verifier, PublicKey, SecretKey, Signature, SIGNATURE_SIZE, PUBLIC_KEY_SIZE, SECRET_KEY_SIZE};
-pub use time_sync::{Timestamp, TimeOffset, SyncConfig, SyncStats, PeerTimeState, ClockSource, MedianFilterConfig, WeightedMedianFilter};
+pub use sign::{
+    KeyPair, PublicKey, SecretKey, Signature, Signer, Verifier, PUBLIC_KEY_SIZE, SECRET_KEY_SIZE,
+    SIGNATURE_SIZE,
+};
+pub use time_sync::{
+    ClockSource, MedianFilterConfig, PeerTimeState, SyncConfig, SyncStats, TimeOffset, Timestamp,
+    WeightedMedianFilter,
+};

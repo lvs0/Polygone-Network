@@ -345,9 +345,21 @@ fn execute_command(
             session.view = View::Output;
             session.input_prompt = format!(
                 "Démo terminée — signature {} · relay: {} · adversaire 3/7: {} · message: {}",
-                if report.signature_valid { "VALIDE" } else { "INVALIDE" },
-                if report.relay_saw_plaintext { "a vu du clair !" } else { "n'a rien vu" },
-                if report.adversary_3_reconstructed { "a reconstruit !" } else { "ne peut pas reconstruire" },
+                if report.signature_valid {
+                    "VALIDE"
+                } else {
+                    "INVALIDE"
+                },
+                if report.relay_saw_plaintext {
+                    "a vu du clair !"
+                } else {
+                    "n'a rien vu"
+                },
+                if report.adversary_3_reconstructed {
+                    "a reconstruit !"
+                } else {
+                    "ne peut pas reconstruire"
+                },
                 report.recovered,
             );
             draw(identity, session)?;
@@ -366,8 +378,8 @@ fn execute_command(
             session.command_buffer.clear();
             session.view = View::SendPk;
             session.input_buffer.clear();
-            session.input_prompt = "clef publique ML-KEM du destinataire (hex, Entrée vide = démo) :"
-                .to_string();
+            session.input_prompt =
+                "clef publique ML-KEM du destinataire (hex, Entrée vide = démo) :".to_string();
             session.note = String::new();
             draw_with_prompt(identity, session)?;
         }

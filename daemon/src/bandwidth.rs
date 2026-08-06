@@ -47,7 +47,9 @@ pub struct BandwidthAllocation {
 
 impl BandwidthAllocation {
     /// Total bandwidth (rx + tx) in Mbps.
-    pub fn total_mbps(&self) -> f64 { self.rx_mbps + self.tx_mbps }
+    pub fn total_mbps(&self) -> f64 {
+        self.rx_mbps + self.tx_mbps
+    }
     /// Check if the allocation is saturated (little headroom).
     pub fn is_saturated(&self, threshold_mbps: f64) -> bool {
         self.alloc_mbps as f64 - self.total_mbps() < threshold_mbps
@@ -92,7 +94,8 @@ impl Monitor {
         let now = Instant::now();
         let (rx, tx) = read_counters(&self.interface).unwrap_or((self.last_rx, self.last_tx));
 
-        let elapsed = self.last_instant
+        let elapsed = self
+            .last_instant
             .map(|t| now.duration_since(t).as_secs_f64())
             .unwrap_or(1.0)
             .max(0.001);
@@ -102,7 +105,11 @@ impl Monitor {
         let _tx_bps = (tx.saturating_sub(self.last_tx)) as f64 / elapsed;
 
         // Store absolute counter snapshot (for delta computation next tick)
-        self.history.push_back(Sample { rx_bytes: rx, tx_bytes: tx, elapsed_secs: elapsed });
+        self.history.push_back(Sample {
+            rx_bytes: rx,
+            tx_bytes: tx,
+            elapsed_secs: elapsed,
+        });
         if self.history.len() > BW_WINDOW {
             self.history.pop_front();
         }
@@ -130,7 +137,9 @@ impl Monitor {
     /// Sliding average of rx/tx bandwidth in Mbps over the history window.
     /// Computes per-tick rates then averages them.
     fn avg_mbps(&self) -> (f64, f64) {
-        if self.history.len() < 2 { return (0.0, 0.0); }
+        if self.history.len() < 2 {
+            return (0.0, 0.0);
+        }
 
         let mut rx_rates: Vec<f64> = Vec::new();
         let mut tx_rates: Vec<f64> = Vec::new();
@@ -164,9 +173,13 @@ impl Monitor {
 /// Read current rx/tx byte counters for a network interface.
 fn read_counters(iface: &str) -> std::io::Result<(u64, u64)> {
     let rx = fs::read_to_string(format!("/sys/class/net/{}/statistics/rx_bytes", iface))?
-        .trim().parse().unwrap_or(0);
+        .trim()
+        .parse()
+        .unwrap_or(0);
     let tx = fs::read_to_string(format!("/sys/class/net/{}/statistics/tx_bytes", iface))?
-        .trim().parse().unwrap_or(0);
+        .trim()
+        .parse()
+        .unwrap_or(0);
     Ok((rx, tx))
 }
 
@@ -179,7 +192,9 @@ fn detect_primary_interface() -> Option<String> {
     let mut candidates: Vec<(String, u64)> = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name == "lo" { continue; }
+        if name == "lo" {
+            continue;
+        }
         // Check it has an address (indicating it's up)
         let addr_path = format!("/sys/class/net/{}/address", name);
         if fs::read_to_string(&addr_path).is_ok() {
@@ -221,14 +236,19 @@ mod tests {
     #[test]
     fn detect_primary_interface_skips_loopback() {
         let iface = detect_primary_interface();
-        assert!(iface.is_none() || iface.as_ref().map(|s| s != "lo").unwrap(),
-            "should not return lo");
+        assert!(
+            iface.is_none() || iface.as_ref().map(|s| s != "lo").unwrap(),
+            "should not return lo"
+        );
     }
 
     #[test]
     fn bandwidth_allocation_saturated() {
         let bw = BandwidthAllocation {
-            rx_mbps: 5.0, tx_mbps: 3.0, alloc_mbps: 10, interface: "lo".into()
+            rx_mbps: 5.0,
+            tx_mbps: 3.0,
+            alloc_mbps: 10,
+            interface: "lo".into(),
         };
         // 5+3=8, alloc=10, threshold=3 → 10-8=2 < 3 → saturated
         assert!(bw.is_saturated(3.0));

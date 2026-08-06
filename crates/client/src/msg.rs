@@ -9,8 +9,8 @@
 //! The wire format is the same one the v1 CLI produced, so past and future
 //! clients interoperate: `KEM_CT:...`, `SENDER_PK:...`, `FRAG:<idx>:<hex>`.
 
-use polygone_core::crypto::{kem, shamir, symmetric};
 use polygone_core::crypto::kem::{KemCiphertext, KemPublicKey, KemSecretKey};
+use polygone_core::crypto::{kem, shamir, symmetric};
 
 /// A user-facing message fragment in hex format.
 #[derive(Debug, Clone)]
@@ -94,10 +94,7 @@ pub fn send(plaintext: &str, recipient_pk: &KemPublicKey) -> anyhow::Result<Send
 }
 
 /// Encrypt arbitrary bytes (message or file) and produce 7 Shamir fragments.
-pub fn send_bytes(
-    plaintext: &[u8],
-    recipient_pk: &KemPublicKey,
-) -> anyhow::Result<SendOutput> {
+pub fn send_bytes(plaintext: &[u8], recipient_pk: &KemPublicKey) -> anyhow::Result<SendOutput> {
     // 1. Ephemeral sender keypair
     let (sender_pk, _sender_sk) = kem::generate_keypair()?;
 
@@ -172,8 +169,8 @@ mod tests {
     #[test]
     fn long_message_round_trip() {
         let (recipient_pk, recipient_sk) = kem::generate_keypair().unwrap();
-        let msg = "⬡ The network dissolves. Keys are zeroed. The exchange did not happen. "
-            .repeat(20);
+        let msg =
+            "⬡ The network dissolves. Keys are zeroed. The exchange did not happen. ".repeat(20);
 
         let output = send(&msg, &recipient_pk).unwrap();
         let decrypted = receive(&output, &recipient_sk).unwrap();

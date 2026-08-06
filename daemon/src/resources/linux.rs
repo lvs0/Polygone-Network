@@ -1,13 +1,13 @@
 //! Linux platform implementation for polygoned daemon.
 
 use crate::resources::{
-    BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint,
-    MemoryInfo, NetInterface, Platform, PlatformCaps, ProcessMemory, ServiceConfig,
+    BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint, MemoryInfo, NetInterface,
+    Platform, PlatformCaps, ProcessMemory, ServiceConfig,
 };
+use libc;
 use std::fs;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::Command;
-use libc;
 
 pub struct LinuxPlatform {
     cgroups_v2: bool,
@@ -21,7 +21,9 @@ impl LinuxPlatform {
 }
 
 impl Platform for LinuxPlatform {
-    fn name(&self) -> &'static str { "linux" }
+    fn name(&self) -> &'static str {
+        "linux"
+    }
 
     fn capabilities(&self) -> PlatformCaps {
         PlatformCaps {
@@ -38,20 +40,27 @@ impl Platform for LinuxPlatform {
         }
     }
 
-    fn init(&mut self) -> anyhow::Result<()> { Ok(()) }
+    fn init(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     fn cpu_info(&self) -> anyhow::Result<CpuInfo> {
         let out = Command::new("lscpu").arg("-J").output()?;
         let json: serde_json::Value = serde_json::from_slice(&out.stdout)?;
 
-        let get = |field: &str| json["lscpu"].as_array()
-            .and_then(|a| a.iter().find(|v| v["field"] == field))
-            .and_then(|v| v["data"].as_str())
-            .unwrap_or("");
+        let get = |field: &str| {
+            json["lscpu"]
+                .as_array()
+                .and_then(|a| a.iter().find(|v| v["field"] == field))
+                .and_then(|v| v["data"].as_str())
+                .unwrap_or("")
+        };
 
         let cores = get("CPU(s)").parse().unwrap_or(1);
         let sockets = get("Socket(s)").parse().unwrap_or(1);
-        let cores_per_socket = get("Core(s) per socket").parse().unwrap_or(cores / sockets.max(1));
+        let cores_per_socket = get("Core(s) per socket")
+            .parse()
+            .unwrap_or(cores / sockets.max(1));
         let threads_per_core = get("Thread(s) per core").parse().unwrap_or(1);
         let model = get("Model name").to_string();
 
@@ -69,7 +78,11 @@ impl Platform for LinuxPlatform {
         Ok(CpuInfo {
             cores,
             model,
-            topology: crate::resources::CpuTopology { sockets, cores_per_socket, threads_per_core },
+            topology: crate::resources::CpuTopology {
+                sockets,
+                cores_per_socket,
+                threads_per_core,
+            },
             per_core,
         })
     }
@@ -80,9 +93,13 @@ impl Platform for LinuxPlatform {
         for &core in cores {
             unsafe { libc::CPU_SET(core, &mut set) };
         }
-        let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set) };
+        let res =
+            unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set) };
         if res != 0 {
-            anyhow::bail!("sched_setaffinity failed: {}", std::io::Error::last_os_error());
+            anyhow::bail!(
+                "sched_setaffinity failed: {}",
+                std::io::Error::last_os_error()
+            );
         }
         Ok(())
     }
@@ -122,9 +139,21 @@ impl Platform for LinuxPlatform {
         let mut mem = ProcessMemory::default();
         for line in content.lines() {
             if line.starts_with("VmRSS:") {
-                mem.rss_bytes = line.split_whitespace().nth(1).unwrap_or("0").parse::<u64>().unwrap_or(0) * 1024;
+                mem.rss_bytes = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse::<u64>()
+                    .unwrap_or(0)
+                    * 1024;
             } else if line.starts_with("VmSize:") {
-                mem.vms_bytes = line.split_whitespace().nth(1).unwrap_or("0").parse::<u64>().unwrap_or(0) * 1024;
+                mem.vms_bytes = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse::<u64>()
+                    .unwrap_or(0)
+                    * 1024;
             }
         }
         Ok(mem)
@@ -173,7 +202,9 @@ impl Platform for LinuxPlatform {
     }
 
     fn primary_interface(&self) -> anyhow::Result<String> {
-        let out = Command::new("ip").args(["route", "get", "1.1.1.1"]).output()?;
+        let out = Command::new("ip")
+            .args(["route", "get", "1.1.1.1"])
+            .output()?;
         let s = String::from_utf8_lossy(&out.stdout);
         // "ip route get 1.1.1.1" output: "... dev wlan0 ..."
         if let Some(dev_idx) = s.find("dev ") {
@@ -217,7 +248,11 @@ impl Platform for LinuxPlatform {
     fn suggest_gpu_allocation(&self, ratio: f32) -> anyhow::Result<GpuAllocation> {
         let gpus = self.gpu_info()?;
         if let Some(gpu) = gpus.first() {
-            Ok(GpuAllocation { device_id: gpu.device_id, allocated_mb: (gpu.free_vram_mb() as f32 * ratio) as u32, ratio })
+            Ok(GpuAllocation {
+                device_id: gpu.device_id,
+                allocated_mb: (gpu.free_vram_mb() as f32 * ratio) as u32,
+                ratio,
+            })
         } else {
             Ok(GpuAllocation::default())
         }
@@ -227,9 +262,15 @@ impl Platform for LinuxPlatform {
         let dir = self.data_dir().join("ipc");
         fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.sock", name));
-        if path.exists() { fs::remove_file(&path)?; }
+        if path.exists() {
+            fs::remove_file(&path)?;
+        }
         let _listener = UnixListener::bind(&path)?;
-        Ok(IpcEndpoint { name: name.into(), path, platform_data: vec![] })
+        Ok(IpcEndpoint {
+            name: name.into(),
+            path,
+            platform_data: vec![],
+        })
     }
 
     fn connect_ipc(&self, name: &str) -> anyhow::Result<Box<dyn crate::resources::IpcConnection>> {
@@ -240,14 +281,26 @@ impl Platform for LinuxPlatform {
 
     fn uptime(&self) -> anyhow::Result<u64> {
         let s = fs::read_to_string("/proc/uptime")?;
-        Ok(s.split_whitespace().next().unwrap_or("0").parse::<f64>().unwrap_or(0.0) as u64)
+        Ok(s.split_whitespace()
+            .next()
+            .unwrap_or("0")
+            .parse::<f64>()
+            .unwrap_or(0.0) as u64)
     }
 
-    fn user_active(&self) -> anyhow::Result<bool> { Ok(false) }
+    fn user_active(&self) -> anyhow::Result<bool> {
+        Ok(false)
+    }
 
-    fn config_dir(&self) -> std::path::PathBuf { dirs::config_dir().unwrap().join("polygone") }
-    fn data_dir(&self) -> std::path::PathBuf { dirs::data_local_dir().unwrap().join("polygone") }
-    fn log_dir(&self) -> std::path::PathBuf { dirs::cache_dir().unwrap().join("polygone").join("logs") }
+    fn config_dir(&self) -> std::path::PathBuf {
+        dirs::config_dir().unwrap().join("polygone")
+    }
+    fn data_dir(&self) -> std::path::PathBuf {
+        dirs::data_local_dir().unwrap().join("polygone")
+    }
+    fn log_dir(&self) -> std::path::PathBuf {
+        dirs::cache_dir().unwrap().join("polygone").join("logs")
+    }
 
     fn install_service(&self, config: ServiceConfig) -> anyhow::Result<()> {
         let service = format!(
@@ -268,40 +321,74 @@ WantedBy=default.target
             config.description,
             config.executable.display(),
             config.args.join(" "),
-            config.env.iter().map(|(k,v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(" ")
+            config
+                .env
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join(" ")
         );
-        let path = self.config_dir().join("systemd").join("user").join(format!("{}.service", config.name));
+        let path = self
+            .config_dir()
+            .join("systemd")
+            .join("user")
+            .join(format!("{}.service", config.name));
         fs::create_dir_all(path.parent().unwrap())?;
         fs::write(path, service)?;
-        let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).status();
+        let _ = Command::new("systemctl")
+            .args(["--user", "daemon-reload"])
+            .status();
         if config.auto_start {
-            let _ = Command::new("systemctl").args(["--user", "enable", "--now", &config.name]).status();
+            let _ = Command::new("systemctl")
+                .args(["--user", "enable", "--now", &config.name])
+                .status();
         }
         Ok(())
     }
 
     fn uninstall_service(&self, name: &str) -> anyhow::Result<()> {
-        let _ = Command::new("systemctl").args(["--user", "disable", "--now", name]).status();
-        let path = self.config_dir().join("systemd").join("user").join(format!("{}.service", name));
+        let _ = Command::new("systemctl")
+            .args(["--user", "disable", "--now", name])
+            .status();
+        let path = self
+            .config_dir()
+            .join("systemd")
+            .join("user")
+            .join(format!("{}.service", name));
         let _ = fs::remove_file(path);
-        let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).status();
+        let _ = Command::new("systemctl")
+            .args(["--user", "daemon-reload"])
+            .status();
         Ok(())
     }
 
     fn start_service(&self, name: &str) -> anyhow::Result<()> {
-        Command::new("systemctl").args(["--user", "start", name]).status()?;
+        Command::new("systemctl")
+            .args(["--user", "start", name])
+            .status()?;
         Ok(())
     }
 
     fn stop_service(&self, name: &str) -> anyhow::Result<()> {
-        Command::new("systemctl").args(["--user", "stop", name]).status()?;
+        Command::new("systemctl")
+            .args(["--user", "stop", name])
+            .status()?;
         Ok(())
     }
 }
 
 struct UnixIpcConnection(UnixStream);
 impl crate::resources::IpcConnection for UnixIpcConnection {
-    fn send(&mut self, data: &[u8]) -> anyhow::Result<()> { use std::io::Write; self.0.write_all(data)?; Ok(()) }
-    fn recv(&mut self, buf: &mut [u8]) -> anyhow::Result<usize> { use std::io::Read; Ok(self.0.read(buf)?) }
-    fn close(&mut self) -> anyhow::Result<()> { Ok(()) }
+    fn send(&mut self, data: &[u8]) -> anyhow::Result<()> {
+        use std::io::Write;
+        self.0.write_all(data)?;
+        Ok(())
+    }
+    fn recv(&mut self, buf: &mut [u8]) -> anyhow::Result<usize> {
+        use std::io::Read;
+        Ok(self.0.read(buf)?)
+    }
+    fn close(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }

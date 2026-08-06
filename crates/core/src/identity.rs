@@ -25,7 +25,9 @@ impl NodeId {
         Self(bytes)
     }
 
-    pub fn as_bytes(&self) -> &[u8; 16] { &self.0 }
+    pub fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
 }
 
 impl SessionId {
@@ -35,7 +37,9 @@ impl SessionId {
         rand::rngs::OsRng.fill_bytes(&mut bytes);
         Self(bytes)
     }
-    pub fn as_bytes(&self) -> &[u8; 16] { &self.0 }
+    pub fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
 }
 
 impl fmt::Debug for NodeId {
@@ -65,7 +69,11 @@ impl fmt::Display for SessionId {
 mod hex {
     pub fn encode_short(b: &[u8]) -> String {
         let s = b.iter().map(|x| format!("{:02x}", x)).collect::<String>();
-        if s.len() > 8 { format!("{}…", &s[..8]) } else { s }
+        if s.len() > 8 {
+            format!("{}…", &s[..8])
+        } else {
+            s
+        }
     }
 }
 

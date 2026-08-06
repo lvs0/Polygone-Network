@@ -54,11 +54,15 @@ impl std::error::Error for PolygoneError {}
 pub type Result<T> = std::result::Result<T, PolygoneError>;
 
 impl From<std::io::Error> for PolygoneError {
-    fn from(e: std::io::Error) -> Self { Self::Io(e.to_string()) }
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e.to_string())
+    }
 }
 
 impl From<serde_json::Error> for PolygoneError {
-    fn from(e: serde_json::Error) -> Self { Self::Serde(e.to_string()) }
+    fn from(e: serde_json::Error) -> Self {
+        Self::Serde(e.to_string())
+    }
 }
 
 #[cfg(test)]

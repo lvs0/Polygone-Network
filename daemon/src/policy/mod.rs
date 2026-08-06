@@ -6,6 +6,4 @@
 pub mod glow_up;
 
 // Re-exports for embeddable use (mirrors the types exposed via glow_up)
-pub use glow_up::{
-    GlowUpEngine,
-};
+pub use glow_up::GlowUpEngine;

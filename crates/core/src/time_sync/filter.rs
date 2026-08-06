@@ -17,7 +17,7 @@ pub struct MedianFilterConfig {
 impl Default for MedianFilterConfig {
     fn default() -> Self {
         Self {
-            window_size: 7,  // Odd number for clean median
+            window_size: 7, // Odd number for clean median
             min_samples: 3,
         }
     }
@@ -38,7 +38,10 @@ impl MedianFilter {
             config.window_size
         };
         Self {
-            config: MedianFilterConfig { window_size, ..config },
+            config: MedianFilterConfig {
+                window_size,
+                ..config
+            },
             samples: VecDeque::with_capacity(window_size),
         }
     }
@@ -53,23 +56,23 @@ impl MedianFilter {
     }
 
     /// Get current median without adding sample
-        pub fn median(&self) -> Option<i64> {
-            if self.samples.len() < self.config.min_samples {
-                return None;
-            }
-            let mut sorted: Vec<i64> = self.samples.iter().copied().collect();
-            sorted.sort_unstable();
-            let len = sorted.len();
-            if len % 2 == 0 {
-                // Even number of elements: return the average of the two middle values
-                let mid = len / 2;
-                Some((sorted[mid - 1] + sorted[mid]) / 2)
-            } else {
-                // Odd number of elements: return the middle value
-                let mid = len / 2;
-                Some(sorted[mid])
-            }
+    pub fn median(&self) -> Option<i64> {
+        if self.samples.len() < self.config.min_samples {
+            return None;
         }
+        let mut sorted: Vec<i64> = self.samples.iter().copied().collect();
+        sorted.sort_unstable();
+        let len = sorted.len();
+        if len % 2 == 0 {
+            // Even number of elements: return the average of the two middle values
+            let mid = len / 2;
+            Some((sorted[mid - 1] + sorted[mid]) / 2)
+        } else {
+            // Odd number of elements: return the middle value
+            let mid = len / 2;
+            Some(sorted[mid])
+        }
+    }
 
     /// Get current median and confidence based on sample consistency
     pub fn median_with_confidence(&self) -> Option<(i64, f64)> {
@@ -78,10 +81,7 @@ impl MedianFilter {
             return None;
         }
         // Confidence = 1 - (MAD / median_abs) where MAD is median absolute deviation
-        let deviations: Vec<i64> = self.samples
-            .iter()
-            .map(|&x| (x - median).abs())
-            .collect();
+        let deviations: Vec<i64> = self.samples.iter().map(|&x| (x - median).abs()).collect();
         let mut sorted_dev = deviations;
         sorted_dev.sort_unstable();
         let mad = sorted_dev[sorted_dev.len() / 2] as f64;
@@ -132,7 +132,8 @@ impl WeightedMedianFilter {
         self.samples.push(WeightedSample { value, weight });
         if self.samples.len() > self.max_samples {
             // Remove lowest weight sample
-            let min_idx = self.samples
+            let min_idx = self
+                .samples
                 .iter()
                 .enumerate()
                 .min_by(|a, b| a.1.weight.partial_cmp(&b.1.weight).unwrap())
@@ -164,7 +165,8 @@ impl WeightedMedianFilter {
             if cum_weight >= half_weight {
                 // Confidence based on weight concentration around median
                 let median_val = sample.value;
-                let nearby_weight: f64 = sorted.iter()
+                let nearby_weight: f64 = sorted
+                    .iter()
                     .filter(|s| (s.value - median_val).abs() <= 50) // within 50ms
                     .map(|s| s.weight)
                     .sum();
@@ -203,7 +205,10 @@ mod tests {
 
     #[test]
     fn test_median_filter_outlier_rejection() {
-        let mut filter = MedianFilter::new(MedianFilterConfig { window_size: 7, min_samples: 3 });
+        let mut filter = MedianFilter::new(MedianFilterConfig {
+            window_size: 7,
+            min_samples: 3,
+        });
         // Normal samples around 100
         for v in [98, 102, 101, 99, 100] {
             filter.add(v);
@@ -224,10 +229,10 @@ mod tests {
         let mut filter = WeightedMedianFilter::new(10);
         // Low RTT peers = high weight
         filter.add(100, 10.0); // RTT 10ms
-        filter.add(105, 8.0);  // RTT 12ms
-        filter.add(98, 9.0);   // RTT 11ms
-        // High RTT peer = low weight
-        filter.add(500, 1.0);  // RTT 100ms
+        filter.add(105, 8.0); // RTT 12ms
+        filter.add(98, 9.0); // RTT 11ms
+                             // High RTT peer = low weight
+        filter.add(500, 1.0); // RTT 100ms
 
         let (median, conf) = filter.weighted_median().unwrap();
         assert!((median - 100).abs() <= 5); // Should be near 100, not 500

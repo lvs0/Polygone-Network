@@ -6,9 +6,9 @@
 //! type consumed by the GlowUp allocation engine.
 
 use crate::resources::CpuTopology;
-use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
 // ============================================================================
 // Snapshot types — these match what glow_up.rs and main.rs expect
@@ -83,12 +83,18 @@ impl SystemSnapshot {
             topology: crate::CpuTopology::default(),
             per_core: vec![],
         });
-        let mem_info = platform.memory_info().unwrap_or_else(|_| crate::MemoryInfo::default());
-        let bw_info = platform.bandwidth_info().unwrap_or_else(|_| crate::BandwidthInfo::default());
+        let mem_info = platform
+            .memory_info()
+            .unwrap_or_else(|_| crate::MemoryInfo::default());
+        let bw_info = platform
+            .bandwidth_info()
+            .unwrap_or_else(|_| crate::BandwidthInfo::default());
         let gpus = platform.gpu_info().unwrap_or_default();
         let user_active = platform.user_active().unwrap_or(false);
 
-        let primary_iface = bw_info.interfaces.iter()
+        let primary_iface = bw_info
+            .interfaces
+            .iter()
             .find(|i| !i.is_loopback && i.is_up)
             .map(|i| i.name.clone())
             .unwrap_or_else(|| "unknown".to_string());
@@ -115,7 +121,9 @@ impl SystemSnapshot {
                 used_bytes: mem_info.used_bytes,
                 free_bytes: mem_info.free_bytes,
                 available_bytes: mem_info.available_bytes,
-                swap_used_bytes: mem_info.swap_total_bytes.saturating_sub(mem_info.swap_free_bytes),
+                swap_used_bytes: mem_info
+                    .swap_total_bytes
+                    .saturating_sub(mem_info.swap_free_bytes),
                 swap_total_bytes: mem_info.swap_total_bytes,
             },
             bandwidth: BandwidthSnapshot {
@@ -124,16 +132,19 @@ impl SystemSnapshot {
                 tx_mbps: (tx_mbps as f64) / 1_000_000.0 * 8.0,
                 total_mbps: (rx_mbps + tx_mbps) as f64 * 8.0 / 1_000_000.0,
             },
-            gpu: gpus.into_iter().map(|g| GpuSnapshot {
-                device_id: g.device_id,
-                name: g.name,
-                vram_total_mb: g.total_vram_mb,
-                vram_used_mb: g.used_vram_mb,
-                vram_free_mb: g.free_vram_mb,
-                utilization_pct: g.utilization_pct,
-                temperature_c: g.temperature_c,
-                power_watts: g.power_watts,
-            }).collect(),
+            gpu: gpus
+                .into_iter()
+                .map(|g| GpuSnapshot {
+                    device_id: g.device_id,
+                    name: g.name,
+                    vram_total_mb: g.total_vram_mb,
+                    vram_used_mb: g.used_vram_mb,
+                    vram_free_mb: g.free_vram_mb,
+                    utilization_pct: g.utilization_pct,
+                    temperature_c: g.temperature_c,
+                    power_watts: g.power_watts,
+                })
+                .collect(),
             timestamp: timestamp,
             user_active: user_active,
         }
@@ -193,7 +204,9 @@ pub fn cpu_cores() -> usize {
 pub fn cpu_usage_percent() -> f32 {
     with_sys(|s| {
         let cores = s.cpus().len();
-        if cores == 0 { return 0.0; }
+        if cores == 0 {
+            return 0.0;
+        }
         s.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / cores as f32
     })
 }

@@ -7,16 +7,18 @@ use crate::allocator::Allocation;
 use crate::resources::CpuAffinityMode;
 use crate::system::SystemSnapshot;
 use crate::Platform;
-use std::collections::VecDeque;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 // ============================================================================
 // Policy types — self-contained here, re-exported via lib.rs for embedders
 // ============================================================================
 
 /// Allocation tiers — user-facing presets
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 pub enum AllocationTier {
     Eco,
     #[default]
@@ -88,10 +90,46 @@ pub struct TierPreset {
 
 /// All four named presets
 pub const TIER_PRESETS: [(&'static str, TierPreset); 4] = [
-    ("eco",        TierPreset { name: "eco",        cpu_pct: 25, ram_pct: 30, bandwidth_pct: 40, gpu_pct: 20 }),
-    ("balanced",   TierPreset { name: "balanced",   cpu_pct: 50, ram_pct: 50, bandwidth_pct: 60, gpu_pct: 40 }),
-    ("performance",TierPreset { name: "performance",cpu_pct: 75, ram_pct: 70, bandwidth_pct: 80, gpu_pct: 60 }),
-    ("max",        TierPreset { name: "max",        cpu_pct: 90, ram_pct: 85, bandwidth_pct: 95, gpu_pct: 80 }),
+    (
+        "eco",
+        TierPreset {
+            name: "eco",
+            cpu_pct: 25,
+            ram_pct: 30,
+            bandwidth_pct: 40,
+            gpu_pct: 20,
+        },
+    ),
+    (
+        "balanced",
+        TierPreset {
+            name: "balanced",
+            cpu_pct: 50,
+            ram_pct: 50,
+            bandwidth_pct: 60,
+            gpu_pct: 40,
+        },
+    ),
+    (
+        "performance",
+        TierPreset {
+            name: "performance",
+            cpu_pct: 75,
+            ram_pct: 70,
+            bandwidth_pct: 80,
+            gpu_pct: 60,
+        },
+    ),
+    (
+        "max",
+        TierPreset {
+            name: "max",
+            cpu_pct: 90,
+            ram_pct: 85,
+            bandwidth_pct: 95,
+            gpu_pct: 80,
+        },
+    ),
 ];
 
 /// Behavioural tuning — hysteresis, step sizes, user activity
@@ -232,7 +270,9 @@ impl AllocationHistory {
     }
 
     fn trend_ram(&self) -> i64 {
-        if self.ram_allocations.len() < 2 { return 0; }
+        if self.ram_allocations.len() < 2 {
+            return 0;
+        }
         let first = *self.ram_allocations.front().unwrap() as i64;
         let last = *self.ram_allocations.back().unwrap() as i64;
         last - first
@@ -253,14 +293,20 @@ impl GlowUpEngine {
             .unwrap_or(TIER_PRESETS[1].1);
 
         let initial = Allocation {
-            ram_bytes: (preset.ram_pct as u64 * 1024 * 1024 * 1024 / 100).min(2 * 1024 * 1024 * 1024),
+            ram_bytes: (preset.ram_pct as u64 * 1024 * 1024 * 1024 / 100)
+                .min(2 * 1024 * 1024 * 1024),
             bandwidth_mbps: 10,
             shrink_streak: 0,
             free_mem_avg_bytes: 0,
             shrinking: false,
         };
 
-        Self { config, current: initial, history: AllocationHistory::new(100), platform }
+        Self {
+            config,
+            current: initial,
+            history: AllocationHistory::new(100),
+            platform,
+        }
     }
 
     /// Main tick: compute new allocation from system snapshot
@@ -281,7 +327,8 @@ impl GlowUpEngine {
         let bw_estimate = snap.bandwidth.total_mbps.max(10.0) as u32;
 
         let ram_bytes = (total_ram as f32 * limits.max_ram_percent as f32 / 100.0) as u64;
-        let bandwidth_mbps = (bw_estimate as f32 * limits.max_bandwidth_percent as f32 / 100.0) as u32;
+        let bandwidth_mbps =
+            (bw_estimate as f32 * limits.max_bandwidth_percent as f32 / 100.0) as u32;
 
         Allocation {
             ram_bytes,
@@ -328,11 +375,15 @@ impl GlowUpEngine {
 
         // RAM: grow fast, shrink slow + hysteresis
         if target.ram_bytes > current.ram_bytes {
-            let step = (current.ram_bytes * behavior.grow_step_pct as u64 / 100).max(64 * 1024 * 1024);
+            let step =
+                (current.ram_bytes * behavior.grow_step_pct as u64 / 100).max(64 * 1024 * 1024);
             result.ram_bytes = (current.ram_bytes + step).min(target.ram_bytes);
         } else if target.ram_bytes < current.ram_bytes {
-            if self.history.trend_ram() < 0 && self.history.len() >= behavior.shrink_hysteresis_ticks as usize {
-                let step = (current.ram_bytes * behavior.shrink_step_pct as u64 / 100).max(64 * 1024 * 1024);
+            if self.history.trend_ram() < 0
+                && self.history.len() >= behavior.shrink_hysteresis_ticks as usize
+            {
+                let step = (current.ram_bytes * behavior.shrink_step_pct as u64 / 100)
+                    .max(64 * 1024 * 1024);
                 result.ram_bytes = current.ram_bytes.saturating_sub(step).max(target.ram_bytes);
             } else {
                 result.ram_bytes = current.ram_bytes; // Hold
@@ -341,12 +392,19 @@ impl GlowUpEngine {
 
         // Bandwidth
         if target.bandwidth_mbps > current.bandwidth_mbps {
-            let step = ((current.bandwidth_mbps as f32 * behavior.grow_step_pct as f32 / 100.0) as u32).max(5);
+            let step = ((current.bandwidth_mbps as f32 * behavior.grow_step_pct as f32 / 100.0)
+                as u32)
+                .max(5);
             result.bandwidth_mbps = (current.bandwidth_mbps + step).min(target.bandwidth_mbps);
         } else if target.bandwidth_mbps < current.bandwidth_mbps {
             if self.history.len() >= behavior.shrink_hysteresis_ticks as usize {
-                let step = ((current.bandwidth_mbps as f32 * behavior.shrink_step_pct as f32 / 100.0) as u32).max(5);
-                result.bandwidth_mbps = current.bandwidth_mbps.saturating_sub(step).max(target.bandwidth_mbps);
+                let step = ((current.bandwidth_mbps as f32 * behavior.shrink_step_pct as f32
+                    / 100.0) as u32)
+                    .max(5);
+                result.bandwidth_mbps = current
+                    .bandwidth_mbps
+                    .saturating_sub(step)
+                    .max(target.bandwidth_mbps);
             } else {
                 result.bandwidth_mbps = current.bandwidth_mbps;
             }
@@ -358,7 +416,11 @@ impl GlowUpEngine {
     /// Apply allocation to platform (CPU affinity, priority, memory limit)
     pub fn apply(&self, alloc: &Allocation) -> Result<()> {
         // CPU priority via nice value
-        let nice = if alloc.ram_bytes > 512 * 1024 * 1024 { 0 } else { 5 };
+        let nice = if alloc.ram_bytes > 512 * 1024 * 1024 {
+            0
+        } else {
+            5
+        };
         self.platform.set_cpu_priority(nice)?;
         // Memory limit (best-effort)
         let _ = self.platform.set_memory_limit(alloc.ram_bytes);
@@ -402,7 +464,11 @@ mod tests {
                 per_core: vec![90.0; 8],
                 load_average: [1.0, 1.0, 1.0],
                 frequency_mhz: 3000.0,
-                topology: CpuTopology { sockets: 1, cores_per_socket: 8, threads_per_core: 1 },
+                topology: CpuTopology {
+                    sockets: 1,
+                    cores_per_socket: 8,
+                    threads_per_core: 1,
+                },
             },
             memory: crate::MemorySnapshot {
                 total_bytes: 16 * 1024 * 1024 * 1024,

@@ -28,7 +28,7 @@ pub mod types;
 
 pub use filter::{MedianFilter, MedianFilterConfig, WeightedMedianFilter};
 pub use protocol::TimeSyncMessage;
-pub use types::{Timestamp, TimeOffset, SyncConfig, SyncStats, PeerId, PeerTimeState, ClockSource};
+pub use types::{ClockSource, PeerId, PeerTimeState, SyncConfig, SyncStats, TimeOffset, Timestamp};
 
 #[cfg(test)]
 mod tests {

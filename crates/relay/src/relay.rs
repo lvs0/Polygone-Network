@@ -26,11 +26,7 @@ use tokio::sync::RwLock;
 type PeerTable = Arc<RwLock<HashMap<String, OwnedWriteHalf>>>;
 
 /// Handle one client connection.
-async fn handle_client(
-    stream: TcpStream,
-    peer_addr: SocketAddr,
-    peers: PeerTable,
-) -> Result<()> {
+async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: PeerTable) -> Result<()> {
     let (reader, writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
@@ -173,10 +169,7 @@ mod tests {
     async fn test_relay_starts() {
         // Smoke test: does the relay bind a port? We use port 0 so the OS picks
         // a free port. The timeout tells us it started (run() loops forever).
-        let result = tokio::time::timeout(
-            Duration::from_millis(200),
-            run(0),
-        ).await;
+        let result = tokio::time::timeout(Duration::from_millis(200), run(0)).await;
         // Err(TimeoutElapsed) because run() loops forever — that's fine.
         assert!(result.is_err());
     }
@@ -197,7 +190,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let env = r#"{"kind":"fragment","from":"alice","to":"bob","session":"s1","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[1,2,3]}"#;
-        alice.write_all(format!("{env}\n").as_bytes()).await.unwrap();
+        alice
+            .write_all(format!("{env}\n").as_bytes())
+            .await
+            .unwrap();
 
         // Bob receives the fragment, forwarded verbatim.
         let mut line = String::new();
@@ -208,7 +204,10 @@ mod tests {
         .await
         .unwrap();
         assert!(line.contains("\"session\":\"s1\""), "forwarded: {line}");
-        assert!(line.contains("\"payload\":[1,2,3]"), "forwarded verbatim: {line}");
+        assert!(
+            line.contains("\"payload\":[1,2,3]"),
+            "forwarded verbatim: {line}"
+        );
     }
 
     #[tokio::test]
@@ -221,11 +220,17 @@ mod tests {
 
         // Nobody registered as "ghost" — the relay must drop, not crash.
         let env = r#"{"kind":"fragment","from":"alice","to":"ghost","session":"s9","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[9,9]}"#;
-        alice.write_all(format!("{env}\n").as_bytes()).await.unwrap();
+        alice
+            .write_all(format!("{env}\n").as_bytes())
+            .await
+            .unwrap();
 
         // Alice's connection must still be usable after the drop.
         let env2 = r#"{"kind":"fragment","from":"alice","to":"ghost","session":"s10","seq":2,"type":"frag","idx":2,"threshold":4,"total":7,"payload":[8,8]}"#;
-        alice.write_all(format!("{env2}\n").as_bytes()).await.unwrap();
+        alice
+            .write_all(format!("{env2}\n").as_bytes())
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
@@ -241,7 +246,10 @@ mod tests {
 
         // Handshake/dissolve envelopes are NOT forwarded by the relay.
         let handshake = r#"{"kind":"handshake_init","from":"alice","to":"bob","session":null,"seq":0,"payload":[]}"#;
-        alice.write_all(format!("{handshake}\n").as_bytes()).await.unwrap();
+        alice
+            .write_all(format!("{handshake}\n").as_bytes())
+            .await
+            .unwrap();
 
         // Bob must NOT receive it (read with a short timeout → timeout expected).
         let mut line = String::new();

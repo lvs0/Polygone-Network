@@ -41,7 +41,9 @@ pub struct CpuAllocation {
 
 impl CpuAllocation {
     pub fn ratio(&self) -> f64 {
-        if self.total == 0 { return 0.0; }
+        if self.total == 0 {
+            return 0.0;
+        }
         self.allocated as f64 / self.total as f64
     }
 }
@@ -66,7 +68,9 @@ pub fn detect_cores() -> u32 {
             }
             let hw = hardware_cores();
             let n = count.min(hw);
-            if n > 0 { return n; }
+            if n > 0 {
+                return n;
+            }
         }
     }
     hardware_cores()
@@ -89,7 +93,12 @@ pub fn init() {
 /// Cached CPU count.
 pub fn cpu_cores() -> u32 {
     let cached = CPU_CORES.load(Ordering::Acquire);
-    if cached == 0 { init(); CPU_CORES.load(Ordering::Acquire) } else { cached }
+    if cached == 0 {
+        init();
+        CPU_CORES.load(Ordering::Acquire)
+    } else {
+        cached
+    }
 }
 
 /// Compute CPU allocation based on a free-RAM-derived target ratio.
@@ -106,17 +115,30 @@ pub fn allocate(target_ratio: f64) -> CpuAllocation {
     // Capping, but never below 1
     alloc = alloc.clamp(1, usable);
     // Nice level: if we don't take the whole CPU, be polite (nice = +5)
-    let nice = if (alloc as f64) / (total as f64) < 0.7 { 5 } else { 0 };
+    let nice = if (alloc as f64) / (total as f64) < 0.7 {
+        5
+    } else {
+        0
+    };
 
     // Pick which cores to allocate (avoid core 0 — IRQ 0 lives there)
     let affinity_mask = pick_cores(total, alloc);
 
     log::debug!(
         "cpu alloc: total={} alloc={} ({}%) nice={} mask={:?}",
-        total, alloc, (alloc as f64 / total as f64 * 100.0) as u32, nice, affinity_mask
+        total,
+        alloc,
+        (alloc as f64 / total as f64 * 100.0) as u32,
+        nice,
+        affinity_mask
     );
 
-    CpuAllocation { total, allocated: alloc, nice, affinity_mask }
+    CpuAllocation {
+        total,
+        allocated: alloc,
+        nice,
+        affinity_mask,
+    }
 }
 
 /// Pick a list of core indices to give Polygone.
@@ -134,19 +156,31 @@ fn pick_cores(total: u32, want: u32) -> Vec<u32> {
         let lower = centre as i32 - offset;
         let upper = centre as i32 + offset;
         for &c in &[lower, upper] {
-            if c < 0 || (c as u32) >= total { continue; }
-            if c == 0 { continue; } // avoid IRQ 0
-            if (c as u32) >= total - 1 { continue; } // leave last core alone
+            if c < 0 || (c as u32) >= total {
+                continue;
+            }
+            if c == 0 {
+                continue;
+            } // avoid IRQ 0
+            if (c as u32) >= total - 1 {
+                continue;
+            } // leave last core alone
             if !out.contains(&(c as u32)) {
                 out.push(c as u32);
-                if (out.len() as u32) >= want { break; }
+                if (out.len() as u32) >= want {
+                    break;
+                }
             }
         }
         offset += 1;
     }
     // Sort for stable output
     out.sort_unstable();
-    if out.is_empty() { vec![1.min(total - 1)] } else { out }
+    if out.is_empty() {
+        vec![1.min(total - 1)]
+    } else {
+        out
+    }
 }
 
 /// Apply affinity to the *current* thread.
@@ -155,7 +189,9 @@ fn pick_cores(total: u32, want: u32) -> Vec<u32> {
 /// thread because cryptographically the polling thread should be on the
 /// reserved cores so it doesn't interrupt other threads.
 pub fn apply_thread_affinity(mask: &[u32]) -> Result<()> {
-    if mask.is_empty() { return Ok(()); }
+    if mask.is_empty() {
+        return Ok(());
+    }
     #[cfg(target_os = "linux")]
     unsafe {
         let mut set: libc::cpu_set_t = std::mem::zeroed();
@@ -166,8 +202,7 @@ pub fn apply_thread_affinity(mask: &[u32]) -> Result<()> {
         let sz = std::mem::size_of::<libc::cpu_set_t>();
         let rc = libc::sched_setaffinity(
             0, // current thread
-            sz,
-            &set,
+            sz, &set,
         );
         if rc != 0 {
             return Err(anyhow::anyhow!(

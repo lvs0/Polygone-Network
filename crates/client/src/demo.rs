@@ -197,7 +197,10 @@ pub fn build() -> anyhow::Result<DemoReport> {
 
     // BLAKE3 domain-separated KDF → session key
     let session_key = symmetric::SessionKey::derive_from_secret(&shared_secret);
-    println!("  BLAKE3 KDF domain-séparé ........ {} (session key 32 B)", ok());
+    println!(
+        "  BLAKE3 KDF domain-séparé ........ {} (session key 32 B)",
+        ok()
+    );
 
     // AES-256-GCM encrypt
     let encrypted = symmetric::encrypt(SECRET.as_bytes(), &session_key)?;
@@ -315,9 +318,7 @@ pub fn build() -> anyhow::Result<DemoReport> {
             ko()
         ),
     }
-    println!(
-        "  {DIM}(3 fragments ne révèlent rien : propriété mathématique de Shamir){RESET}"
-    );
+    println!("  {DIM}(3 fragments ne révèlent rien : propriété mathématique de Shamir){RESET}");
 
     // Attacker 2: steals ALL 7 fragments, reconstructs the ciphertext — but
     // without Bob's KEM secret key, decryption must fail.
@@ -398,9 +399,17 @@ pub fn build() -> anyhow::Result<DemoReport> {
         ))
     );
     println!("  {}", box_line("Relay                : n'a rien vu"));
-    println!("  {}", box_line("Fragments            : 4/7 suffisent, 3/7 ne révèlent rien"));
+    println!(
+        "  {}",
+        box_line("Fragments            : 4/7 suffisent, 3/7 ne révèlent rien")
+    );
     println!("  {}", box_empty());
-    println!("  {}", box_line(&format!("{BOLD}L'information n'existe pas. Elle traverse.{RESET}")));
+    println!(
+        "  {}",
+        box_line(&format!(
+            "{BOLD}L'information n'existe pas. Elle traverse.{RESET}"
+        ))
+    );
     println!("  └{}┘", "─".repeat(BOX_WIDTH + 4));
 
     Ok(DemoReport {
@@ -447,10 +456,7 @@ mod tests {
         let mut relay = BlindRelay::new();
         relay.forward("alice", "bob", "fragment 1/7", SECRET.as_bytes());
         for line in &relay.log {
-            assert!(
-                !line.contains(SECRET),
-                "log leaked content: {line}"
-            );
+            assert!(!line.contains(SECRET), "log leaked content: {line}");
         }
     }
 }

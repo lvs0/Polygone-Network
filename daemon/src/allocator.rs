@@ -38,14 +38,14 @@ impl Default for Config {
     fn default() -> Self {
         let total = total_ram_bytes();
         let safety_margin = match total {
-            t if t < 4 * 1024 * 1024 * 1024 => 512 * 1024 * 1024,           // < 4GB → 512MB margin
-            t if t < 8 * 1024 * 1024 * 1024 => 1024 * 1024 * 1024,          // < 8GB → 1GB margin
-            _ => 2 * 1024 * 1024 * 1024,                                    // ≥ 8GB → 2GB margin
+            t if t < 4 * 1024 * 1024 * 1024 => 512 * 1024 * 1024, // < 4GB → 512MB margin
+            t if t < 8 * 1024 * 1024 * 1024 => 1024 * 1024 * 1024, // < 8GB → 1GB margin
+            _ => 2 * 1024 * 1024 * 1024,                          // ≥ 8GB → 2GB margin
         };
         Self {
             safety_margin_bytes: safety_margin,
             max_alloc_ratio: 0.70,
-            min_alloc_bytes: 128 * 1024 * 1024,    // 128MB floor
+            min_alloc_bytes: 128 * 1024 * 1024,      // 128MB floor
             max_alloc_bytes: 8 * 1024 * 1024 * 1024, // 8GB ceiling
             cpu_ceiling_pct: 70.0,
         }
@@ -110,9 +110,15 @@ impl Allocator {
     pub fn current(&self) -> Allocation {
         self.current
     }
-    pub fn config(&self) -> &Config { &self.config }
-    pub fn is_shrinking(&self) -> bool { self.shrinking }
-    pub fn set_ram_bytes(&mut self, bytes: u64) { self.current.ram_bytes = bytes; }
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+    pub fn is_shrinking(&self) -> bool {
+        self.shrinking
+    }
+    pub fn set_ram_bytes(&mut self, bytes: u64) {
+        self.current.ram_bytes = bytes;
+    }
 
     pub fn set_max_alloc_ratio(&mut self, ratio: f64) {
         self.config.max_alloc_ratio = ratio.clamp(0.1, 0.95);
@@ -126,7 +132,13 @@ impl Allocator {
             .max(config.min_alloc_bytes)
             .min(config.max_alloc_bytes);
         let bandwidth_mbps = bandwidth_from_bytes(ram_bytes);
-        Allocation { ram_bytes, bandwidth_mbps, shrink_streak: 0, free_mem_avg_bytes: free, shrinking: false }
+        Allocation {
+            ram_bytes,
+            bandwidth_mbps,
+            shrink_streak: 0,
+            free_mem_avg_bytes: free,
+            shrinking: false,
+        }
     }
 
     /// One tick of the control loop. Reads free RAM, updates memory, computes target.
@@ -175,7 +187,9 @@ impl Allocator {
         if target < self.current.ram_bytes && allow_shrink {
             let delta = self.current.ram_bytes - target;
             let step = (delta / 5).max(64 * 1024 * 1024); // -20% per tick, min 64MB
-            self.current.ram_bytes = self.current.ram_bytes
+            self.current.ram_bytes = self
+                .current
+                .ram_bytes
                 .saturating_sub(step)
                 .max(self.config.min_alloc_bytes);
             self.shrinking = true;
@@ -183,7 +197,9 @@ impl Allocator {
             // Growing: faster than shrinking (capacity unused)
             let delta = target - self.current.ram_bytes;
             let step = delta.min((available / 4).max(64 * 1024 * 1024));
-            self.current.ram_bytes = self.current.ram_bytes
+            self.current.ram_bytes = self
+                .current
+                .ram_bytes
                 .saturating_add(step)
                 .min(self.config.max_alloc_bytes);
             if avg > low_threshold {
@@ -192,7 +208,9 @@ impl Allocator {
         }
 
         // 7. enforce bounds
-        self.current.ram_bytes = self.current.ram_bytes
+        self.current.ram_bytes = self
+            .current
+            .ram_bytes
             .min(self.config.max_alloc_bytes)
             .max(self.config.min_alloc_bytes);
 
@@ -218,7 +236,9 @@ fn bandwidth_from_bytes(ram_bytes: u64) -> u32 {
 }
 
 impl Default for Allocator {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -339,7 +359,7 @@ mod tests {
 
     #[test]
     fn test_bandwidth_clamped_to_1_to_100() {
-        assert_eq!(bandwidth_from_bytes(0), 1);                        // floor
+        assert_eq!(bandwidth_from_bytes(0), 1); // floor
         assert!(bandwidth_from_bytes(50 * 1024 * 1024 * 1024) <= 100); // ceiling
     }
 }

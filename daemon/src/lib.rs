@@ -8,30 +8,38 @@ pub mod allocator;
 pub mod bandwidth;
 pub mod cpu;
 pub mod gpu;
+pub mod policy;
+pub mod resources;
 pub mod socket;
 pub mod system;
-pub mod resources;
-pub mod policy;
 
 // Re-exports for embeddable use
 //
 // Each type lives in its own module — re-export with the canonical path so
 // downstream consumers (binary, embedders, integration tests) can import
 // everything from the crate root.
-pub use system::{
-    SystemSnapshot, CpuSnapshot, MemorySnapshot, BandwidthSnapshot, GpuSnapshot,
-};
 pub use allocator::Allocation;
+pub use bandwidth::BandwidthAllocation;
 pub use cpu::CpuAllocation;
 pub use gpu::GpuAllocation;
-pub use bandwidth::BandwidthAllocation;
 pub use resources::{
-    Platform, create_platform, PlatformCaps, CpuAffinityMode,
+    create_platform,
+    BandwidthInfo,
+    CpuAffinityMode,
+    CpuInfo,
     // Also expose resources types that glow_up.rs depends on
-    CpuTopology, CpuInfo, MemoryInfo, BandwidthInfo, NetInterface, GpuInfo,
-    IpcEndpoint, IpcConnection, ServiceConfig,
+    CpuTopology,
+    GpuInfo,
+    IpcConnection,
+    IpcEndpoint,
+    MemoryInfo,
+    NetInterface,
+    Platform,
+    PlatformCaps,
+    ServiceConfig,
 };
+pub use system::{BandwidthSnapshot, CpuSnapshot, GpuSnapshot, MemorySnapshot, SystemSnapshot};
 
 pub use policy::glow_up::{
-    GlowUpEngine, DaemonConfig, AllocationTier, ResourceLimits, SafetyMargins, BehaviorConfig,
+    AllocationTier, BehaviorConfig, DaemonConfig, GlowUpEngine, ResourceLimits, SafetyMargins,
 };
