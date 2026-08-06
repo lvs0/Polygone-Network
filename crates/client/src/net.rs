@@ -126,6 +126,67 @@ pub async fn send_network(
     Ok(session)
 }
 
+/// Borrow compute from a ghost node (RES lending, MVP).
+///
+/// Protocol: connect to the relay, register, send a `req` envelope to the
+/// ghost node, then listen on the same connection for its `grant` reply
+/// (the ghost must be listening with `ecouter --compute`).
+pub async fn borrow_compute(
+    relay: &str,
+    ghost_node: &str,
+    task: &str,
+    identity: &LocalIdentity,
+    timeout: std::time::Duration,
+) -> Result<Option<String>> {
+    let mut stream = connect(relay, identity).await?;
+    let from = node_id(identity);
+
+    let req = NetEnvelope {
+        kind: "fragment".into(),
+        from: from.clone(),
+        to: ghost_node.to_string(),
+        session: session_id(),
+        seq: 0,
+        typ: "req".into(),
+        idx: 0,
+        threshold: 0,
+        total: 0,
+        payload: serde_json::json!({
+            "action": "compute",
+            "task": task,
+        })
+        .to_string()
+        .into_bytes(),
+        name: None,
+    };
+    stream
+        .write_all(format!("{}\n", serde_json::to_string(&req)?).as_bytes())
+        .await?;
+    stream.flush().await?;
+
+    // Listen for the grant reply on the same connection.
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        line.clear();
+        let n = tokio::time::timeout(timeout, reader.read_line(&mut line))
+            .await
+            .unwrap_or(Ok(0))?;
+        if n == 0 {
+            break;
+        }
+        let env: NetEnvelope = match serde_json::from_str(line.trim()) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        if env.typ == "grant" {
+            return Ok(Some(String::from_utf8_lossy(&env.payload).to_string()));
+        }
+    }
+    Ok(None)
+}
+
 /// A receiver-side session buffer.
 #[derive(Default)]
 struct SessionBuffer {
@@ -198,10 +259,12 @@ fn process_line(
 
 /// Listen for incoming messages through the relay. Blocks until interrupted.
 /// Reconstructs and decrypts each session as soon as 4/7 fragments arrive.
-/// File transfers are saved to `~/.polygone/received/`.
-pub async fn receive_network(relay: &str, identity: &LocalIdentity) -> Result<()> {
+/// File transfers are saved to `~/.polygone/received/`. When `compute` is
+/// set, RES requests (`req` envelopes) get a `grant` reply (ghost node).
+pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: bool) -> Result<()> {
     let stream = connect(relay, identity).await?;
-    let mut reader = BufReader::new(stream);
+    let (reader, mut writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
     let mut line = String::new();
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
 
@@ -210,6 +273,9 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity) -> Result<()
         relay,
         node_id(identity)
     );
+    if compute {
+        println!("  ⬡ RES : prêt de compute actif (les requêtes seront accordées)");
+    }
     println!("  (Ctrl-C pour arrêter)\n");
 
     loop {
@@ -219,6 +285,38 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity) -> Result<()
             println!("relay déconnecté.");
             return Ok(());
         }
+
+        // RES compute requests: answer with a grant (ghost node).
+        if let Ok(env) = serde_json::from_str::<NetEnvelope>(line.trim()) {
+            if env.typ == "req" && compute {
+                let from = env.from.clone();
+                let grant = NetEnvelope {
+                    kind: "fragment".into(),
+                    from: node_id(identity),
+                    to: from,
+                    session: env.session.clone(),
+                    seq: 0,
+                    typ: "grant".into(),
+                    idx: 0,
+                    threshold: 0,
+                    total: 0,
+                    payload: serde_json::json!({
+                        "node": node_id(identity),
+                        "ram_mb": crate::mesh::free_ram_mb().unwrap_or(0),
+                        "ok": true,
+                    })
+                    .to_string()
+                    .into_bytes(),
+                    name: None,
+                };
+                let _ = writer
+                    .write_all(format!("{}\n", serde_json::to_string(&grant)?).as_bytes())
+                    .await;
+                println!("⬡ RES : compute accordé à {}", env.from);
+                continue;
+            }
+        }
+
         match process_line(&line, identity, &mut sessions)? {
             Some((session, Received::Message(text))) => {
                 println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

@@ -86,6 +86,9 @@ enum Commands {
         /// Also announce this node + relay on the LAN mesh (Phase 4)
         #[arg(long)]
         annoncer: bool,
+        /// Act as a RES ghost node — grant compute requests
+        #[arg(long)]
+        compute: bool,
     },
     /// Scan the LAN for announcing Polygone nodes (mesh, Phase 4)
     Voisins {
@@ -104,6 +107,12 @@ enum Commands {
         /// Scan duration in seconds for LAN peers
         #[arg(long, default_value_t = 3)]
         duree: u64,
+        /// Borrow compute from a ghost node
+        #[arg(long)]
+        emprunter: Option<String>,
+        /// Relay to route the borrow request through
+        #[arg(long, default_value = "127.0.0.1:7000")]
+        via: String,
     },
     /// Show your ML-KEM-1024 public key (what you share to receive)
     Clef,
@@ -295,7 +304,11 @@ async fn main() -> Result<()> {
             let plain = msg::receive(&output, &identity.kem_secret_key()?)?;
             println!("{plain}");
         }
-        Some(Commands::Ecouter { relay, annoncer }) => {
+        Some(Commands::Ecouter {
+            relay,
+            annoncer,
+            compute,
+        }) => {
             // Optionally announce on the LAN so peers can find us without a
             // hardcoded address (Phase 4 mesh).
             if annoncer {
@@ -305,7 +318,7 @@ async fn main() -> Result<()> {
                     let _ = mesh::announce(&node, &relay).await;
                 });
             }
-            net::receive_network(&relay, &identity).await?;
+            net::receive_network(&relay, &identity, compute).await?;
         }
         Some(Commands::Voisins { duree }) => {
             let peers = mesh::discover(std::time::Duration::from_secs(duree))?;
@@ -314,7 +327,34 @@ async fn main() -> Result<()> {
         Some(Commands::Annoncer { relay }) => {
             mesh::announce(&net::node_id(&identity), &relay).await?;
         }
-        Some(Commands::Compute { duree }) => {
+        Some(Commands::Compute {
+            duree,
+            emprunter,
+            via,
+        }) => {
+            // Borrow mode: send a compute request to a ghost node.
+            if let Some(ghost) = emprunter {
+                println!("⬡ RES — demande de compute → {ghost} (via {via})");
+                let task = "bench calcul Polygone (réservé au RES)".to_string();
+                match net::borrow_compute(
+                    &via,
+                    &ghost,
+                    &task,
+                    &identity,
+                    std::time::Duration::from_secs(6),
+                )
+                .await?
+                {
+                    Some(grant) => {
+                        println!("  ⬡ COMPUTE ACCORDÉ :");
+                        println!("  {grant}");
+                    }
+                    None => {
+                        println!("  ✖ aucun grant reçu — le nœud est-il en `ecouter --compute` ?");
+                    }
+                }
+                return Ok(());
+            }
             println!("⬡ RES — ressources et nœuds fantômes");
             println!();
             match mesh::free_ram_mb() {

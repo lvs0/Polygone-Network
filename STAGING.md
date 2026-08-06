@@ -26,8 +26,15 @@
 ## Service : `compute` (Polygone Compute)
 
 **Concept.** Lend/borrow compute pour distributed work. Idle detection → allocation → exécution sandboxée.
-**Pourquoi parked.** Pool de compute adversaries ⊇ mesh-only adversary. Pas de sandbox robuste en v1. Reputation system inexistant.
-**Ré-introduction Phase 8+.** Sandbox secure (WASMtime, gVisor-level isolation) + reputation + adversary budget.
+**Statut v2.0.0-rc2 : 🟡 PROTOCOLE LIVE, exécution staging.**
+- Visibilité : `polygone compute` — RAM libre locale + nœuds fantômes du LAN.
+- Prêt : `polygone compute --emprunter <node> --via <relay>` → le fantôme
+  (`ecouter --compute`) répond par un grant via le relay aveugle.
+- **Honnête** : les req/grant sont des métadonnées (qui, combien) — les
+  données de la tâche réelle seront chiffrées E2E avec la couche d'exécution.
+**Ré-introduction de l'exécution Phase 8+.** Sandbox secure (WASMtime,
+gVisor-level isolation) + reputation + adversary budget. La couche
+d'allocation existe déjà dans `polygoned` (policy GlowUp).
 
 ---
 
