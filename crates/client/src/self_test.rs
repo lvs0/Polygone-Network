@@ -11,7 +11,7 @@ pub fn run() -> Result<()> {
     println!("⬡ POLYGONE — self-test\n");
 
     let mut passed = 0;
-    let total = 6;
+    let total = 7;
 
     // 1. ML-KEM-1024 round-trip
     let (pk, sk) = kem::generate_keypair()?;
@@ -45,7 +45,7 @@ pub fn run() -> Result<()> {
         println!("  [3/{total}] BLAKE3 KDF domain-séparé ............ ✖");
     }
 
-    // 4. Shamir 4-of-7
+    // 4. Shamir 4-of-7 reconstruction
     let shares = shamir::split(b"post-quantum threshold secret", 4, 7)?;
     match shamir::reconstruct(&shares[..4], 4) {
         Ok(recovered) if recovered == b"post-quantum threshold secret" => {
@@ -54,30 +54,32 @@ pub fn run() -> Result<()> {
         }
         _ => println!("  [4/{total}] Shamir 4-of-7 ........................ ✖"),
     }
+
+    // 5. Shamir 3/7 -> nothing (the threshold is real)
     if shamir::reconstruct(&shares[..3], 4).is_err() {
-        println!("  [4/{total}] Shamir 3/7 → rien ..................... ✓");
+        println!("  [5/{total}] Shamir 3/7 → rien ..................... ✓");
         passed += 1;
     } else {
-        println!("  [4/{total}] Shamir 3/7 → rien ..................... ✖");
+        println!("  [5/{total}] Shamir 3/7 → rien ..................... ✖");
     }
 
-    // 5. ML-DSA-65 sign + verify
+    // 6. ML-DSA-65 sign + verify
     let kp = sign::generate_keypair()?;
     let msg = b"polygone handshake";
     let sig = kp.signer.sign(msg);
     if kp.verifier.verify(msg, &sig) && sig.as_bytes().len() == 3309 {
-        println!("  [5/{total}] ML-DSA-65 sign + verify .............. ✓");
+        println!("  [6/{total}] ML-DSA-65 sign + verify .............. ✓");
         passed += 1;
     } else {
         println!("  [5/{total}] ML-DSA-65 sign + verify .............. ✖");
     }
 
-    // 6. ML-DSA tamper detection
+    // 7. ML-DSA tamper detection
     if !kp.verifier.verify(b"tampered", &sig) {
-        println!("  [6/{total}] ML-DSA-65 tamper détecté ............. ✓");
+        println!("  [7/{total}] ML-DSA-65 tamper détecté ............. ✓");
         passed += 1;
     } else {
-        println!("  [6/{total}] ML-DSA-65 tamper détecté ............. ✖");
+        println!("  [7/{total}] ML-DSA-65 tamper détecté ............. ✖");
     }
 
     println!();

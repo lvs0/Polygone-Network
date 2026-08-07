@@ -106,6 +106,7 @@ Pas de YAML. Pas de `config.toml`. Pas de provider à choisir.
 | [`docs/config.md`](./docs/config.md) | Fichiers de configuration |
 | [`docs/threat-commodity.md`](./docs/threat-commodity.md) | Menace — utilisateur quotidien |
 | [`docs/threat-high-value.md`](./docs/threat-high-value.md) | Menace — dissident |
+| [`docs/PREMIER-SOIR.md`](./docs/PREMIER-SOIR.md) | 🌙 Le protocole de sortie — premier test avec de vraies personnes |
 | [`docs/kill-switch.md`](./docs/kill-switch.md) | Mode duress + runbook opérateur |
 | [`LEGAL.md`](./LEGAL.md) | Subpoena, kill-switch, licence AGPL-3.0 |
 

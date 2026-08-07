@@ -1,8 +1,8 @@
 name: Release
 
-# Publie les binaires précompilés sur GitHub Releases à chaque tag `v*`.
-# L'installateur les consomme :
-#   curl -fsSL polygone.network/install | bash
+# Publie les binaires précompilés sur GitHub Releases à chaque tag `v*`,
+# avec un SHA256SUMS que l'installateur vérifie avant extraction :
+#   curl -fsSL https://github.com/lvs0/Polygone-Network/releases/latest/download/install.sh | bash
 #   → https://github.com/lvs0/Polygone-Network/releases/download/<tag>/polygone-<os>-<arch>.tar.gz
 
 on:
@@ -23,8 +23,12 @@ jobs:
         include:
           - os: ubuntu-latest
             target: linux-x86_64
+          - os: ubuntu-24.04-arm
+            target: linux-aarch64
           - os: macos-latest
             target: macos-x86_64
+          - os: macos-14
+            target: macos-aarch64
     steps:
       - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
 
@@ -45,8 +49,30 @@ jobs:
             -C target/release \
             polygone polygone-client polygone-relay polygoned
 
-      - name: Upload to GitHub Release
+      - name: Upload binaries
         uses: softprops/action-gh-release@v2
         with:
           files: dist/polygone-${{ matrix.target }}.tar.gz
+
+  checksums:
+    name: SHA256SUMS
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          download_assets: true
+
+      - name: Generate and upload SHA256SUMS
+        shell: bash
+        run: |
+          sha256sum polygone-*.tar.gz > SHA256SUMS
+          echo "SHA256SUMS generated:"
+          cat SHA256SUMS
+        # Re-upload via the release action (second invocation appends).
+      - name: Upload SHA256SUMS
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SHA256SUMS
           generate_release_notes: true

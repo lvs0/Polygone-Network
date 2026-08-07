@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════════════════
 #  POLYGONE — installateur autonome (SPEC §5 "Genius")
 #
-#  Usage:  curl -fsSL https://polygone.network/install | bash
+#  Usage:  curl -fsSL https://github.com/lvs0/Polygone-Network/releases/latest/download/install.sh | bash
 #  (ou:    bash scripts/install.sh   depuis le repo)
 #
 #  Ce que ça fait :
@@ -28,8 +28,14 @@ info() { printf '%s\n' "${CYAN}›${RESET} $*"; }
 warn() { printf '%s\n' "${AMBER}⚠${RESET} $*"; }
 die()  { printf '%s\n' "${RED}✖${RESET} $*" >&2; exit 1; }
 
-VERSION="v2.0.0-rc2"
+VERSION="${POLYGONE_VERSION:-}"
 REPO="lvs0/Polygone-Network"
+
+# Détermine la version : variable d'env > tag git local > constante de fallback.
+if [ -z "$VERSION" ]; then
+  VERSION="$(git -C "$(dirname "$0")/.." describe --tags --abbrev=0 2>/dev/null || true)"
+fi
+[ -z "$VERSION" ] && VERSION="v2.0.0-rc2"
 INSTALL_DIR="${POLYGONE_INSTALL_DIR:-}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -70,8 +76,24 @@ info "Installation dans : $INSTALL_DIR"
 # ── 3. Binaire ────────────────────────────────────────────────────────────────
 install_prebuilt() {
   local url="https://github.com/$REPO/releases/download/$VERSION/polygone-$TARGET_OS-$TARGET_ARCH.tar.gz"
+  local sum_url="https://github.com/$REPO/releases/download/$VERSION/SHA256SUMS"
   info "Téléchargement du binaire précompilé…"
   if curl -fsSL --max-time 60 "$url" -o "$TMP_DIR/polygone.tar.gz" 2>/dev/null; then
+    # Vérification d'intégrité : checksum SHA256 publié avec la release.
+    local expected=""
+    if curl -fsSL --max-time 30 "$sum_url" -o "$TMP_DIR/SHA256SUMS" 2>/dev/null; then
+      expected="$(awk -v f="polygone-$TARGET_OS-$TARGET_ARCH.tar.gz" '$2==f || $2=="*"f {print $1; exit}' "$TMP_DIR/SHA256SUMS")"
+    fi
+    if [ -n "$expected" ]; then
+      local actual
+      actual="$(sha256sum "$TMP_DIR/polygone.tar.gz" | awk '{print $1}')"
+      if [ "$actual" != "$expected" ]; then
+        die "Checksum invalide — binaire corrompu ou release compromise. Ne pas installer."
+      fi
+      info "Checksum SHA256 vérifié ✓"
+    else
+      warn "Pas de SHA256SUMS pour $VERSION — installation sans vérification (à la responsabilité de l'utilisateur)."
+    fi
     tar -xzf "$TMP_DIR/polygone.tar.gz" -C "$TMP_DIR"
     return 0
   fi
