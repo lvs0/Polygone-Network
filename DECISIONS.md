@@ -121,3 +121,33 @@ Envoyer 3 lettres ouvertes aux régulateurs sur la posture privacy de Polygone.
 - Hitchock T2 → « le suspense est meilleur que la promesse ; un sibling sans suspense = app à pre-ship, sans attente ». OK en pratique un sibling *peut* avoir du suspense si on documente clairement ce qui arrive après.
 
 **Statut** : ⏳ PENDING. Lévy à trancher avant de lancer Polygone-Protocols.
+
+---
+
+## D5 — Topologie v2.0.0-final : relay public assumé (tranchée 2026-08-07)
+
+**Déclencheur** : le produit++ a vérifié dans le code que la promesse
+« le relay ne voit rien » était fausse au niveau métadonnées (il route
+sur `to`, voit from/to/session/tailles, et recevait même les noms de
+fichiers). Le slogan ne pouvait pas rester l'étendard d'une promesse
+que le code ne tient pas.
+
+**Décision proposée** :
+| Champ | Valeur |
+|-------|--------|
+| **Action** | Garder le relay public, documenter noir sur blanc ce qu'il voit (`docs/threat-*.md`), nom de fichier hors-bande (`name_ct` chiffré — fait), HELLO + limites + from==hello (fait), ML-DSA branché pour prouver l'expéditeur (fait). |
+| **Non-choix** | Mesh LAN-only pour la finale (refusé : casse la messagerie longue distance) ; relay auto-hébergé seulement (refusé : barrière d'adoption). |
+| **Promesse réelle** | « Le relay ne lit jamais le contenu. Il voit les métadonnées de routage, réduites et documentées. » |
+| **Owner** | Lévy |
+| **Acceptance** | (1) `name_ct` chiffré testé (le relay ne voit pas le nom) ; (2) `from` != HELLO → drop testé ; (3) le README et ECOSYSTEM ne mentent plus sur le relay. |
+| **Risque** | Un opérateur de relay corrèle qui parle à qui. Mitigation : pseudonymes de session, hors-bande, et `known_peers` (Phase 4 contacts) pour l'authenticité. |
+
+**Justification** :
+- Le contenu est illisible sans la clé ML-KEM (IND-CCA2) — la promesse
+  centrale tient.
+- Les métadonnées sont le prix du routage ; les réduire (noms hors-bande)
+  et les documenter est plus honnête que de les nier.
+- C'est la première décision binaire du document qui est **réellement
+  exécutée dans le code** le jour même.
+
+**Statut** : ✅ **TRANCHÉE le 2026-08-07** — exécutée en Phase 1 du plan produit++.

@@ -87,3 +87,46 @@ jobs:
         run: cargo build --release -p polygone-client
       - name: Run self-test
         run: ./target/release/polygone test
+
+  # ── Axiomes exécutables (PHILOSOPHY.md) ─────────────────────────────────────────
+  # Chaque axiome est un invariant qui TOURNE dans la CI, pas un texte.
+  axioms:
+    name: Axiomes exécutables
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+
+      - name: Axiome 3 — les non-dits sont écrits en toutes lettres
+        run: |
+          for f in docs/threat-commodity.md docs/threat-high-value.md; do
+            n="$(grep -ci 'tracking\|keylogger\|rubber-hose' "$f")"
+            echo "$f : $n non-dit(s) explicite(s)"
+            [ "$n" -ge 1 ] || { echo "✖ $f n'écrit pas ses non-dits"; exit 1; }
+          done
+
+      - name: Axiome 4 — la coupe tient (le produit reste petit)
+        run: |
+          lines="$(wc -l crates/client/src/*.rs | tail -1 | awk '{print $1}')"
+          echo "crates/client : $lines lignes (garde : ≤ 5000)"
+          [ "$lines" -le 5000 ] || { echo "✖ le produit a grossi au-delà de la garde"; exit 1; }
+          [ -d archive/2026-07-src ] || { echo "✖ l'archive de coupe a disparu"; exit 1; }
+
+      - name: Licence unique (AGPL-3.0)
+        run: |
+          grep -q 'license = "AGPL-3.0-or-later"' Cargo.toml || { echo "✖ Cargo.toml a changé de licence"; exit 1; }
+          grep -ri 'MIT License' README.md PHILOSOPHY.md LEGAL.md STAGING.md 2>/dev/null && { echo "✖ MIT traîne dans les docs"; exit 1; } || true
+
+  # ── Zero-log prouvable ──────────────────────────────────────────────────────────
+  # « L'information n'existe pas » devient un artefact rejouable : une session
+  # complète contre un vrai relay, puis la preuve que rien ne subsiste.
+  zero-log:
+    name: Zero-log prouvable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build relay
+        run: cargo build --release -p polygone-relay
+      - name: Run forensics
+        run: bash scripts/forensic-zero-log.sh 7000

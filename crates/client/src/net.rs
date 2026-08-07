@@ -1109,3 +1109,63 @@ mod tests {
         assert_eq!(body["node"], node_id(&ghost));
     }
 }
+
+// ── PoC attaquant : imposture acceptée en config production ────────────────
+// `receive_network` passe TOUJOURS `HashMap::new()` comme known_peers (net.rs:624).
+// Donc le scénario "forged_signature_is_rejected" (qui peuple known_peers) ne
+// correspond PAS à la production : en prod, Eve signe avec SA clé, se déclare
+// from=alice, et le message est ACCEPTÉ. Ce test le prouve.
+#[test]
+fn poc_impersonation_accepted_with_empty_known_peers() {
+    let alice = LocalIdentity::generate(); // la vraie Alice
+    let eve = LocalIdentity::generate();   // l'attaquante
+    let bob = LocalIdentity::generate();   // la victime
+    let pk = bob.kem_public_key().unwrap();
+    let output = crate::msg::send("faux message d'alice", &pk).unwrap();
+    let session = "poc-forged";
+    let bob_node = node_id(&bob);
+    let alice_node = node_id(&alice);
+
+    // CONFIG PRODUCTION : map vide (net.rs:624 `let known_peers = HashMap::new();`)
+    let known_peers: HashMap<String, String> = HashMap::new();
+
+    let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
+    // Eve signe avec SA clé, prétend être alice.
+    let ciphertext = output.ciphertext.clone().expect("sender ciphertext");
+    let sig = eve.sign_signer().unwrap().sign(&canonical_bytes(
+        session,
+        &alice_node,
+        &bob_node,
+        output.kem_ct.as_bytes(),
+        &ciphertext,
+    ));
+    let env = NetEnvelope {
+        kind: "fragment".into(),
+        from: alice_node, // prétend être Alice
+        to: bob_node.clone(),
+        session: session.into(),
+        seq: 0,
+        typ: "kem".into(),
+        idx: 0,
+        threshold: 4,
+        total: 7,
+        payload: output.kem_ct.as_bytes().to_vec(),
+        sig: Some(sig.as_bytes().to_vec()),
+        signer: Some(eve.sign_pk_hex.clone()), // la clé d'Eve
+        name_ct: None,
+    };
+    process_line(&serde_json::to_string(&env).unwrap(), &bob, &known_peers, &mut sessions).unwrap();
+    for frag in output.fragments.iter() {
+        let line = frag_json(session, &bob_node, frag.index, &frag.share);
+        if let Ok(Some((_, recv))) = process_line(&line, &bob, &known_peers, &mut sessions) {
+            match recv {
+                Received::Message(t) => {
+                    // VULN PROUVÉE : Bob accepte un message "d'Alice" signé par Eve.
+                    panic!("VULN-IMPOSTURE: Bob accepte le message d'Eve comme venant d'Alice: {t}");
+                }
+                _ => panic!("VULN-IMPOSTURE: fichier accepté"),
+            }
+        }
+    }
+    // Si on arrive ici : aucune completion → l'imposture a (par chance) échoué.
+}
