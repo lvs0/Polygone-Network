@@ -4,6 +4,8 @@
 //!
 //! ```text
 //!   client → relay : HELLO <node_id>
+//!   relay   → peer  : HELLO_OK\n        (registration accepted — the slot is yours)
+//!   relay   → peer  : HELLO_DENIED\n    (another connection already owns this node_id)
 //!   client → relay : {"kind":"fragment","from":...,"to":...,"session":...,
 //!                     "seq":...,"payload":[...]}\n
 //!   relay   → peer  : (the same fragment line, forwarded verbatim)
@@ -16,6 +18,9 @@
 //! Hardening (Phase 1, 2026-08-07):
 //! - **`from` must equal the HELLO identity** — a connection cannot emit
 //!   envelopes under another node's name (anti-spoofing at routing level).
+//! - **Registration is acknowledged** (`HELLO_OK` / `HELLO_DENIED`) — a
+//!   duplicate `HELLO` for a live node_id is refused and the claimant is
+//!   told, so routing can never be silently stolen (no last-writer-wins).
 //! - **Line size cap** (64 KiB) and a **per-connection rate limit** —
 //!   a misbehaving client cannot exhaust relay memory or CPU.
 //! - **Sharded routing table** (16 shards) — forwarding is no longer
@@ -34,6 +39,8 @@ use tokio::sync::RwLock;
 const MAX_LINE: usize = 64 * 1024;
 /// Max envelopes forwarded per second per connection.
 const RATE_LIMIT_PER_SEC: usize = 200;
+/// Max simultaneous connections (anti-DoS): each holds a routing entry.
+const MAX_CONNECTIONS: usize = 1024;
 /// Number of routing-table shards (parallelism for forwarding).
 const SHARDS: usize = 16;
 
@@ -85,7 +92,7 @@ async fn read_line_capped(
 
 /// Handle one client connection.
 async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: Peers) -> Result<()> {
-    let (reader, writer) = stream.into_split();
+    let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
 
     // ── Handshake: first line must be "HELLO <node_id>" ───────────────────
@@ -105,11 +112,26 @@ async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: Peers) -
         log::debug!("relay: ignoring non-HELLO from {}", peer_addr);
     };
 
-    // Register the write half so fragments can be routed here.
-    shard_for(&peers, &hello)
-        .write()
-        .await
-        .insert(hello.clone(), writer);
+    // ── Registration: the slot, decided and acknowledged ───────────────────
+    // A node_id already connected is NOT overwritten: an attacker cannot
+    // steal the incoming slot of a live peer. The ack makes the outcome
+    // deterministic — a client knows, before sending a single byte, whether
+    // it owns the slot. A denied registration never silently sends its
+    // traffic into a slot it does not own.
+    {
+        let mut table = shard_for(&peers, &hello).write().await;
+        if table.contains_key(&hello) {
+            log::warn!(
+                "relay: '{}' already connected — rejecting duplicate from {}",
+                hello,
+                peer_addr
+            );
+            let _ = writer.write_all(b"HELLO_DENIED\n").await;
+            return Ok(());
+        }
+        let _ = writer.write_all(b"HELLO_OK\n").await;
+        table.insert(hello.clone(), writer);
+    }
     log::debug!("relay: {} registered as '{}'", peer_addr, hello);
     let mut dead_streams = Vec::new();
 
@@ -226,12 +248,27 @@ async fn run_listener(listener: TcpListener) -> Result<()> {
         shards.push(RwLock::new(HashMap::new()));
     }
     let peers: Peers = Arc::new(shards);
+    // Global connection cap: an attacker cannot open unbounded connections
+    // (each holds a routing entry + buffers). Beyond the cap, connections
+    // are accepted and dropped immediately.
+    let conns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     loop {
         match listener.accept().await {
             Ok((stream, peer_addr)) => {
+                if conns.load(std::sync::atomic::Ordering::SeqCst) >= MAX_CONNECTIONS {
+                    log::warn!(
+                        "relay: connection cap ({MAX_CONNECTIONS}) reached — dropping {}",
+                        peer_addr
+                    );
+                    drop(stream);
+                    continue;
+                }
+                conns.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let peers = peers.clone();
+                let conns = conns.clone();
                 tokio::spawn(async move {
+                    let _guard = ConnGuard(conns);
                     if let Err(e) = handle_client(stream, peer_addr, peers).await {
                         log::error!("relay: client error {}: {}", peer_addr, e);
                     }
@@ -241,6 +278,14 @@ async fn run_listener(listener: TcpListener) -> Result<()> {
                 log::error!("relay: accept error: {}", e);
             }
         }
+    }
+}
+
+/// Releases the connection slot on drop.
+struct ConnGuard(Arc<std::sync::atomic::AtomicUsize>);
+impl Drop for ConnGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -261,6 +306,23 @@ mod tests {
         addr
     }
 
+    /// Register at the relay and consume the `HELLO_OK` acknowledgment —
+    /// after this returns, the connection provably owns its node_id slot.
+    async fn hello(stream: &mut TcpStream, id: &str) {
+        stream
+            .write_all(format!("HELLO {id}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut ack = String::new();
+        let mut reader = BufReader::new(&mut *stream);
+        reader.read_line(&mut ack).await.unwrap();
+        assert_eq!(
+            ack.trim(),
+            "HELLO_OK",
+            "relay must accept HELLO {id}: {ack}"
+        );
+    }
+
     #[tokio::test]
     async fn test_relay_starts() {
         // Smoke test: does the relay bind a port? We use port 0 so the OS picks
@@ -274,13 +336,13 @@ mod tests {
     async fn routes_fragments_to_registered_peer() {
         let addr = spawn_relay().await;
 
-        // Bob registers.
+        // Bob registers (and provably owns his slot: HELLO_OK).
         let mut bob = TcpStream::connect(addr).await.unwrap();
-        bob.write_all(b"HELLO bob\n").await.unwrap();
+        hello(&mut bob, "bob").await;
 
         // Alice registers.
         let mut alice = TcpStream::connect(addr).await.unwrap();
-        alice.write_all(b"HELLO alice\n").await.unwrap();
+        hello(&mut alice, "alice").await;
 
         // Let registration settle.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -311,8 +373,7 @@ mod tests {
         let addr = spawn_relay().await;
 
         let mut alice = TcpStream::connect(addr).await.unwrap();
-        alice.write_all(b"HELLO alice\n").await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        hello(&mut alice, "alice").await;
 
         // Nobody registered as "ghost" — the relay must drop, not crash.
         let env = r#"{"kind":"fragment","from":"alice","to":"ghost","session":"s9","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[9,9]}"#;
@@ -335,10 +396,9 @@ mod tests {
         let addr = spawn_relay().await;
 
         let mut bob = TcpStream::connect(addr).await.unwrap();
-        bob.write_all(b"HELLO bob\n").await.unwrap();
+        hello(&mut bob, "bob").await;
         let mut alice = TcpStream::connect(addr).await.unwrap();
-        alice.write_all(b"HELLO alice\n").await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        hello(&mut alice, "alice").await;
 
         // Handshake/dissolve envelopes are NOT forwarded by the relay.
         let handshake = r#"{"kind":"handshake_init","from":"alice","to":"bob","session":null,"seq":0,"payload":[]}"#;
@@ -362,10 +422,9 @@ mod tests {
         let addr = spawn_relay().await;
 
         let mut bob = TcpStream::connect(addr).await.unwrap();
-        bob.write_all(b"HELLO bob\n").await.unwrap();
+        hello(&mut bob, "bob").await;
         let mut alice = TcpStream::connect(addr).await.unwrap();
-        alice.write_all(b"HELLO alice\n").await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        hello(&mut alice, "alice").await;
 
         // Alice tries to forward under Mallory's name — anti-spoofing.
         let forged = r#"{"kind":"fragment","from":"mallory","to":"bob","session":"sX","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[9,9]}"#;
@@ -388,10 +447,9 @@ mod tests {
         let addr = spawn_relay().await;
 
         let mut bob = TcpStream::connect(addr).await.unwrap();
-        bob.write_all(b"HELLO bob\n").await.unwrap();
+        hello(&mut bob, "bob").await;
         let mut alice = TcpStream::connect(addr).await.unwrap();
-        alice.write_all(b"HELLO alice\n").await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        hello(&mut alice, "alice").await;
 
         // One line bigger than MAX_LINE, then a valid fragment.
         let huge = "x".repeat(MAX_LINE + 100);
@@ -414,49 +472,74 @@ mod tests {
             "oversized lines must never be forwarded: {line}"
         );
     }
-}
 
-// ── PoC attaquant : détournement de la table de routage (HELLO squatté) ────
-// Deux connexions peuvent s'enregistrer sous LE MÊME node_id : le second
-// insert() écrase le premier. Tous les fragments adressés au node_id sont
-// alors routés vers le squatteur (vol de courrier + DoS), et quand le
-// squatteur se déconnecte, l'entrée est retirée → la vraie victime n'est
-// plus joignable tant qu'elle ne se reconnecte pas.
-#[tokio::test]
-async fn poc_hello_squatting_steals_routing() {
-    let addr = spawn_relay().await;
+    // ── Anti-squatting : un node_id déjà connecté n'est PAS écrasé ──────────
+    // La victime s'enregistre et reçoit HELLO_OK : elle POSSÈDE le slot.
+    // L'attaquante tente le même node_id : le relay refuse et le DIT
+    // (HELLO_DENIED) — pas de last-writer-wins, pas de vol silencieux.
+    #[tokio::test]
+    async fn duplicate_hello_does_not_steal_routing() {
+        let addr = spawn_relay().await;
 
-    // La vraie victime s'enregistre.
-    let mut victim = TcpStream::connect(addr).await.unwrap();
-    victim.write_all(b"HELLO bob\n").await.unwrap();
+        // La vraie victime s'enregistre — l'ack prouve que son slot est pris.
+        let mut victim = TcpStream::connect(addr).await.unwrap();
+        victim.write_all(b"HELLO bob\n").await.unwrap();
+        let mut vack = String::new();
+        {
+            let mut reader = BufReader::new(&mut victim);
+            reader.read_line(&mut vack).await.unwrap();
+        }
+        assert_eq!(vack.trim(), "HELLO_OK", "la victime doit être acceptée");
 
-    // L'attaquante s'enregistre sous le MÊME node_id.
-    let mut attacker = TcpStream::connect(addr).await.unwrap();
-    attacker.write_all(b"HELLO bob\n").await.unwrap();
+        // L'attaquante tente de s'enregistrer sous le MÊME node_id —
+        // le relay refuse et l'informe explicitement.
+        let mut attacker = TcpStream::connect(addr).await.unwrap();
+        attacker.write_all(b"HELLO bob\n").await.unwrap();
+        let mut aack = String::new();
+        {
+            let mut reader = BufReader::new(&mut attacker);
+            reader.read_line(&mut aack).await.unwrap();
+        }
+        assert_eq!(
+            aack.trim(),
+            "HELLO_DENIED",
+            "l'attaquante doit être refusée"
+        );
 
-    let mut alice = TcpStream::connect(addr).await.unwrap();
-    alice.write_all(b"HELLO alice\n").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut alice = TcpStream::connect(addr).await.unwrap();
+        hello(&mut alice, "alice").await;
 
-    let env = r#"{"kind":"fragment","from":"alice","to":"bob","session":"sH","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[4,2]}"#;
-    alice.write_all(format!("{env}\n").as_bytes()).await.unwrap();
+        let env = r#"{"kind":"fragment","from":"alice","to":"bob","session":"sH","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[4,2]}"#;
+        alice
+            .write_all(format!("{env}\n").as_bytes())
+            .await
+            .unwrap();
 
-    // L'ATTAQUANTE reçoit le fragment adressé à bob — pas la victime.
-    let mut line = String::new();
-    tokio::time::timeout(Duration::from_secs(1), async {
-        let mut reader = BufReader::new(&mut attacker);
-        reader.read_line(&mut line).await.unwrap();
-    })
-    .await
-    .unwrap();
-    assert!(line.contains("\"session\":\"sH\""), "l'attaquante n'a rien reçu: {line}");
+        // La VICTIME reçoit le fragment — son slot n'a pas été volé.
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            let mut reader = BufReader::new(&mut victim);
+            reader.read_line(&mut line).await.unwrap();
+        })
+        .await
+        .unwrap();
+        assert!(
+            line.contains("\"session\":\"sH\""),
+            "la victime n'a rien reçu: {line}"
+        );
 
-    // La victime, elle, ne reçoit RIEN (détournée).
-    let mut vline = String::new();
-    let got = tokio::time::timeout(Duration::from_millis(200), async {
-        let mut reader = BufReader::new(&mut victim);
-        reader.read_line(&mut vline).await.unwrap();
-    })
-    .await;
-    assert!(got.is_err(), "VULN-ROUTING: la victime a reçu le fragment: {vline}");
+        // L'attaquante, elle, ne reçoit RIEN (registration refusée, sa
+        // connexion est fermée par le relay). EOF (Ok(0)) ou timeout =
+        // « rien reçu » — seules des données réelles sont un échec.
+        let mut aline = String::new();
+        let got = tokio::time::timeout(Duration::from_millis(200), async {
+            let mut reader = BufReader::new(&mut attacker);
+            reader.read_line(&mut aline).await
+        })
+        .await;
+        match got {
+            Ok(Ok(0)) | Err(_) => {} // EOF ou timeout : l'attaquante n'a rien reçu ✓
+            _ => panic!("l'attaquante a reçu le fragment: {aline}"),
+        }
+    }
 }

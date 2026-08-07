@@ -535,11 +535,13 @@ async fn execute_command(
                 .map(|p| p.relay.clone())
                 .unwrap_or_else(|| "127.0.0.1:7000".to_string());
 
+            let mut known_peers = crate::net::load_peers();
             match crate::net::borrow_compute(
                 &relay,
                 &ghost,
                 &task,
                 identity,
+                &mut known_peers,
                 std::time::Duration::from_secs(40),
             )
             .await
@@ -558,6 +560,7 @@ async fn execute_command(
                     session.input_prompt = format!("⬡ RES — erreur : {e}");
                 }
             }
+            crate::net::save_peers(&known_peers);
             draw(identity, session)?;
         }
         Command::Wasm(path) => {
@@ -605,11 +608,13 @@ async fn execute_command(
                     return Ok(());
                 }
             };
+            let mut known_peers = crate::net::load_peers();
             match crate::net::borrow_wasm(
                 &ghost.relay,
                 &ghost.node_id,
                 &wasm,
                 identity,
+                &mut known_peers,
                 std::time::Duration::from_secs(40),
             )
             .await
@@ -634,6 +639,7 @@ async fn execute_command(
                     session.input_prompt = format!("⬡ RES — erreur : {e}");
                 }
             }
+            crate::net::save_peers(&known_peers);
             draw(identity, session)?;
         }
         Command::Unknown(what) => {

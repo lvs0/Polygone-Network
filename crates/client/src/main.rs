@@ -353,11 +353,13 @@ async fn main() -> Result<()> {
                     "  module : {path} ({} octets, wasmi sandbox)",
                     wasm_bytes.len()
                 );
+                let mut peers = net::load_peers();
                 match net::borrow_wasm(
                     &via,
                     &ghost,
                     &wasm_bytes,
                     &identity,
+                    &mut peers,
                     std::time::Duration::from_secs(40),
                 )
                 .await?
@@ -376,6 +378,7 @@ async fn main() -> Result<()> {
                         reputation::ReputationTable::load().record(&ghost, false);
                     }
                 }
+                net::save_peers(&peers);
                 return Ok(());
             }
 
@@ -386,11 +389,13 @@ async fn main() -> Result<()> {
                 })?;
                 println!("⬡ RES — exécution sandboxée → {ghost} (via {via})");
                 println!("  tâche : {command}");
+                let mut peers = net::load_peers();
                 match net::borrow_compute(
                     &via,
                     &ghost,
                     &command,
                     &identity,
+                    &mut peers,
                     std::time::Duration::from_secs(40),
                 )
                 .await?
@@ -409,6 +414,7 @@ async fn main() -> Result<()> {
                         reputation::ReputationTable::load().record(&ghost, false);
                     }
                 }
+                net::save_peers(&peers);
                 return Ok(());
             }
 
@@ -416,11 +422,13 @@ async fn main() -> Result<()> {
             if let Some(ghost) = emprunter {
                 println!("⬡ RES — demande de compute → {ghost} (via {via})");
                 let task = "bench calcul Polygone (réservé au RES)".to_string();
+                let mut peers = net::load_peers();
                 match net::borrow_compute(
                     &via,
                     &ghost,
                     &task,
                     &identity,
+                    &mut peers,
                     std::time::Duration::from_secs(6),
                 )
                 .await?
@@ -435,6 +443,7 @@ async fn main() -> Result<()> {
                         reputation::ReputationTable::load().record(&ghost, false);
                     }
                 }
+                net::save_peers(&peers);
                 return Ok(());
             }
             println!("⬡ RES — ressources et nœuds fantômes");

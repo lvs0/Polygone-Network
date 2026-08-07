@@ -152,10 +152,24 @@ fantôme (`ecouter --compute`) → `--executer <tâche>` (shell sandboxé
 sandbox — plus de vol de clés en une requête), `PrivateDevices`,
 `PrivateNetwork`, `RestrictAddressFamilies`, `SystemCallFilter`, CPU/RAM
 bornés, **2 exécutions max en parallèle**, unité transitoire arrêtée au
-timeout (pas d'orphelins), et WASM sous **fuel metering** (une boucle
-infinie trappe, le nœud ne gèle plus). Le ghost refuse les demandeurs à
-mauvaise réputation locale. Honnête : isolation contre les accidents et
-l'abus opportuniste — pas une sandbox cryptographique (même UID).
+timeout (`RuntimeMaxSec` + `stop --wait` — pas d'orphelins), et WASM sous
+**fuel metering** (une boucle infinie trappe, le nœud ne gèle plus),
+limites strictes de compilation, sortie bornée à 8 Ko **pendant**
+l'écriture, exécution hors de l'event loop (`spawn_blocking`).
+
+**Authentification (Phase 4, contre-attaque) :** les requêtes RES sont
+**signées ML-DSA** (comme les messages) et vérifiées par le fantôme
+(fraîcheur ±300 s, ancre `peers.json` TOFU) ; les **grants sont signés**
+et vérifiés par l'emprunteur (un relay malveillant ne peut plus forger
+un grant) ; la **réputation est réellement enregistrée** côté fantôme
+(échec sur requête non authentifiée) — le portillon n'est plus mort.
+
+**Honnêteté :** isolation contre les accidents et l'abus opportuniste —
+pas une sandbox cryptographique (même UID). **Confidentialité du canal
+RES : les req/grants (tâches, sorties) transitent en clair sur le relay
+— contrairement aux messages ML-KEM/AES-GCM.** Un fantôme exécutant des
+calculs sensibles expose leur contenu au relay : ne pas utiliser le RES
+pour des données confidentielles (décision documentée).
 
 ---
 

@@ -53,6 +53,38 @@
   réputation locale.
 - Zeroize : limitation pqcrypto documentée honnêtement (bytes non
   mutables), l'effacement réel passe par `duress`.
+
+### Security (Phase 4 — contre-attaque : 6 failles trouvées par le loop)
+- **Ancre de confiance réelle** : `~/.polygone/peers.json` chargé une
+  fois, TOFU appris après le premier message vérifié, empreinte affichée
+  pour vérification hors-ligne, clé différente pour un `from` connu =
+  rejet. (known_peers n'était plus du code mort.)
+- **combinations4 borné** : idx de fragment validé 1..=7, ≤7 fragments
+  bufferisés → C(7,4)=35 max (fini les 8,8 Md de vérifs ML-DSA).
+- **Sessions bornées** : MAX_SESSIONS=1024 fail-closed + purge TTL 300 s.
+- **Grant vérifié** : to/session/from contrôlés avant d'accepter un grant
+  (fini l'empoisonnement des résultats RES).
+- **Anti-replay** : horodatage signé (canonical v2), fenêtre ±300 s,
+  cache des sessions complétées.
+- **Anti-confusion** : clé de session `from|session`, second KEM
+  d'identité différente rejeté, fragments liés au `from` du KEM.
+- **Relay anti-squatting** : un node_id déjà connecté n'est pas écrasé,
+  ack `HELLO_OK`/`HELLO_DENIED`, plafond MAX_CONNECTIONS=1024.
+
+### Security (Phase 4 — contre-attaque, 2e vague : findings exec perdus)
+- **WASM ne gèle plus** : fuel réduit (1e8), `EnforcedLimits::strict`,
+  sortie bornée à 8 Ko pendant l'écriture (CappedWriter), exécution hors
+  de l'event loop (`spawn_blocking`), garde de concurrence partagée.
+- **Canal RES authentifié** : requêtes signées ML-DSA + vérifiées par le
+  fantôme (fraîcheur, ancre, TOFU) ; **grants signés** + vérifiés par
+  l'emprunteur (un relay malveillant ne forge plus de grant) ;
+  **réputation réellement enregistrée** côté fantôme (échec sur requête
+  non authentifiée) — le portillon n'est plus du code mort.
+- **Pas d'orphelins** : `RuntimeMaxSec` posé sur l'unité transitoire +
+  `systemctl stop --wait` — même si le client meurt (SIGKILL, duress),
+  la tâche non fiable est tuée par le manager.
+- **Canal RES documenté non confidentiel** : les tâches/sorties RES
+  transitent en clair sur le relay (contrairement aux messages).
 - **README rc2** — version, statuts services, test count (89), commandes
   réelles.
 

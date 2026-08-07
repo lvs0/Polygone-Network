@@ -133,10 +133,15 @@ TCP, newline-delimited JSON (NDJSON), through the blind relay.
 
 ```
 client → relay : HELLO <node_id>\n
+relay   → peer  : HELLO_OK\n      (registration accepted — the slot is yours)
+relay   → peer  : HELLO_DENIED\n  (another connection already owns this node_id)
 ```
 
 `node_id` = first 16 hex chars of the **KEM public key** (stable,
 derived, persistent). The relay routes fragments to connected node_ids.
+Registration is **acknowledged**: a duplicate `HELLO` for a live node_id
+is refused *and the claimant is told* — no last-writer-wins, no silent
+slot theft. The client waits for the ack before sending a single byte.
 
 ### Signatures — "c'est bien Alice"
 
@@ -289,8 +294,14 @@ Release profile: `opt-level=3`, `lto="thin"`, `codegen-units=1`,
 | --- | ----- | ------ |
 | ~~ML-DSA-65 not signed/verified on the network path~~ | net.rs / sign.rs | ✅ **FIXED (Phase 1)** — every message is signed, verified, fail-closed |
 | ~~Relay metadata in clear (from/to/tailles/name)~~ | relay.rs + net.rs | 🟡 Assumed + documented; **file name now out-of-band** (encrypted) |
-| ~~Relay: no line limit, no rate limit, from spoofing~~ | relay.rs | ✅ **FIXED (Phase 1)** — 64 KiB cap, 200 env/s, `from` must equal HELLO, sharded table |
-| Relay: HELLO not cryptographically authenticated | relay.rs | 🟡 Assumed — authenticity lives at the receiver (ML-DSA + known_peers); a signed HELLO is a design option |
+| ~~Relay: no line limit, no rate limit, from spoofing~~ | relay.rs | ✅ **FIXED (Phase 1)** — 64 KiB cap, 200 env/s, `from` must equal HELLO, sharded table, **duplicate HELLO refusé + ack HELLO_OK/HELLO_DENIED** (anti-squatting déterministe, pas de vol silencieux de slot) |
+| Relay: HELLO not cryptographically authenticated | relay.rs | 🟡 Assumed — authenticity lives at the receiver (ML-DSA + peers.json); a signed HELLO is a design option |
+| ~~`known_peers` map never populated~~ | net.rs | ✅ **FIXED (Phase 4, contre-attaque)** — `~/.polygone/peers.json` chargé une fois, **TOFU appris puis ancré** (premier contact vérifié appris ; clé différente pour un `from` connu = rejet) |
+| ~~combinations4 non borné (idx u8 non validé)~~ | net.rs | ✅ **FIXED (Phase 4, contre-attaque)** — idx borné 1..=7, ≤7 fragments, C(7,4)=35 max |
+| ~~sessions sans plafond ni TTL~~ | net.rs | ✅ **FIXED (Phase 4, contre-attaque)** — MAX_SESSIONS=1024 fail-closed, purge TTL 300 s |
+| ~~grant forgé accepté~~ | net.rs | ✅ **FIXED (Phase 4, contre-attaque)** — to/session/from vérifiés avant d'accepter un grant |
+| ~~replay possible~~ | net.rs | ✅ **FIXED (Phase 4, contre-attaque)** — `ts` signé (canonical v2), fenêtre ±300 s, cache anti-rejeu |
+| ~~confusion de session~~ | net.rs | ✅ **FIXED (Phase 4, contre-attaque)** — clé `from|session`, second KEM d'identité différente rejeté, fragments liés au `from` du KEM |
 | ~~RES shell sandbox reads `$HOME` (same UID)~~ | exec.rs | ✅ **FIXED (Phase 2)** — `ProtectHome=yes`, `InaccessiblePaths=~/.polygone` (identité illisible), `PrivateDevices`, `RestrictAddressFamilies`, `SystemCallFilter=@system-service`, max 2 exécutions concurrentes |
 | ~~WASM timeout after `start()` (sync wasmi)~~ | exec.rs | ✅ **FIXED (Phase 2)** — fuel metering wasmi (`Config::consume_fuel` + `set_fuel(1e10)`) : une boucle infinie trappe, le nœud ne gèle plus |
 | ~~run_with_timeout laisse des unités transitoires orphelines~~ | exec.rs | ✅ **FIXED (Phase 2)** — unité nommée `polygone-res-<pid>-<nanos>`, `systemctl --user stop` au timeout |
@@ -299,7 +310,7 @@ Release profile: `opt-level=3`, `lto="thin"`, `codegen-units=1`,
 | Daemon socket has no consumer | daemon/socket.rs | Decision pending (D5) |
 | `time_sync` engine with no consumers | core/time_sync | Decision: wire or archive |
 | At-rest: identity.json + received/ in clear | identity.rs / net.rs | Decision: encrypt-at-rest or document (Phase 2 — documenté, duress = effacement) |
-| `known_peers` map never populated by the CLI | net.rs | Phase 4 — contacts feature |
+| TOFU window : le premier contact d'un `from` inconnu est accepté puis appris | net.rs | 🟡 Assumé + documenté — l'empreinte du pair est affichée à l'écoute pour vérification hors-bande |
 
 ---
 

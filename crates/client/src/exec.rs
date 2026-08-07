@@ -25,23 +25,40 @@ pub const MAX_CONCURRENT_EXEC: usize = 2;
 static ACTIVE_EXEC: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Fuel budget for WASM execution: an infinite loop exhausts it and traps
-/// instead of freezing the node. ~1e10 instructions ≈ seconds of real work.
-const WASM_FUEL: u64 = 10_000_000_000;
+/// instead of freezing the node. 1e8 ≈ 0,1-1 s de travail réel — généreux
+/// pour du calcul utile, court pour une boucle malveillante. Le fuel borne
+/// aussi la croissance mémoire (memory.grow coûte du fuel).
+const WASM_FUEL: u64 = 100_000_000;
+/// Max bytes captured from WASM stdout/stderr (anti-OOM: une sortie
+/// débridée est tronquée PENDANT l'écriture, pas après).
+const WASM_OUTPUT_CAP: usize = 8 * 1024;
 
 /// Run a WASM module (WASI) in the wasmi sandbox, capturing stdout.
-/// Fuel metering guarantees a non-terminating module traps instead of
-/// blocking the event loop (wasmi is synchronous).
+/// Fuel metering + strict compile limits + output cap: a malicious module
+/// traps, cannot exhaust memory, and cannot flood the caller.
+/// `run_wasm` is CPU-bound and blocking — call it via `spawn_blocking`.
 pub fn run_wasm(wasm: &[u8], timeout: Duration) -> Result<String> {
-    use wasmi::{Config, Engine, Linker, Module, Store};
+    use wasmi::{Config, EnforcedLimits, Engine, Linker, Module, Store};
+
+    if ACTIVE_EXEC.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= MAX_CONCURRENT_EXEC {
+        ACTIVE_EXEC.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        anyhow::bail!(
+            "trop d'exécutions en parallèle (max {MAX_CONCURRENT_EXEC}) — réessayez dans un instant"
+        );
+    }
+    let _guard = ExecGuard;
 
     let mut config = Config::default();
     config.consume_fuel(true); // fuel metering on: loops die, nodes live
+    config.enforced_limits(EnforcedLimits::strict()); // compiler guard
     let engine = Engine::new(&config);
     let module = Module::new(&engine, wasm)?;
 
-    // WASI context with stdout captured to shared Arcs (readable after run).
-    let stdout_shared = std::sync::Arc::new(std::sync::RwLock::new(Vec::<u8>::new()));
-    let stderr_shared = std::sync::Arc::new(std::sync::RwLock::new(Vec::<u8>::new()));
+    // WASI context with bounded stdout/stderr (truncated DURING writes).
+    let stdout_shared =
+        std::sync::Arc::new(std::sync::RwLock::new(CappedWriter::new(WASM_OUTPUT_CAP)));
+    let stderr_shared =
+        std::sync::Arc::new(std::sync::RwLock::new(CappedWriter::new(WASM_OUTPUT_CAP)));
     let mut wasi_builder = wasmi_wasi::WasiCtxBuilder::new();
     wasi_builder.stdout(Box::new(
         wasmi_wasi::wasi_common::pipe::WritePipe::from_shared(stdout_shared.clone()),
@@ -62,7 +79,7 @@ pub fn run_wasm(wasm: &[u8], timeout: Duration) -> Result<String> {
         .get_typed_func::<(), ()>(&mut store, "_start")
         .map_err(|_| anyhow::anyhow!("module sans _start (compilé avec --target wasm32-wasi ?)"))?;
 
-    // Run with a wall-clock timeout (backstop) + fuel (primary bound).
+    // Wall-clock backstop (primary bound = fuel).
     let start_time = std::time::Instant::now();
     let result = start.call(&mut store, ());
     if start_time.elapsed() > timeout {
@@ -70,8 +87,8 @@ pub fn run_wasm(wasm: &[u8], timeout: Duration) -> Result<String> {
     }
     result.map_err(|e| anyhow::anyhow!("erreur WASM : {e}"))?;
 
-    let out: Vec<u8> = stdout_shared.read().map(|g| g.clone()).unwrap_or_default();
-    let err: Vec<u8> = stderr_shared.read().map(|g| g.clone()).unwrap_or_default();
+    let out: Vec<u8> = stdout_shared.read().map(|g| g.bytes()).unwrap_or_default();
+    let err: Vec<u8> = stderr_shared.read().map(|g| g.bytes()).unwrap_or_default();
 
     let mut out_s = String::from_utf8_lossy(&out).to_string();
     let err_s = String::from_utf8_lossy(&err).to_string();
@@ -129,6 +146,12 @@ pub fn run_sandboxed(
         .arg(format!("--unit={unit}"))
         .arg(&mem)
         .arg(&cpu)
+        // RuntimeMaxSec: the manager itself kills the unit at the deadline —
+        // even if our client dies mid-run (SIGKILL, duress), no orphan runs on.
+        .arg(format!(
+            "--property=RuntimeMaxSec={}",
+            timeout.as_secs().max(1)
+        ))
         .args([
             "--property=NoNewPrivileges=yes",
             "--property=ProtectSystem=strict",
@@ -174,6 +197,38 @@ impl Drop for ExecGuard {
     }
 }
 
+/// A `Write` sink that keeps only the first `cap` bytes. A WASM module
+/// flooding stdout cannot exhaust the host's memory: writes beyond the cap
+/// are discarded as they arrive, not after execution.
+struct CappedWriter {
+    buf: Vec<u8>,
+    cap: usize,
+}
+
+impl CappedWriter {
+    fn new(cap: usize) -> Self {
+        Self {
+            buf: Vec::with_capacity(cap.min(4096)),
+            cap,
+        }
+    }
+    fn bytes(&self) -> Vec<u8> {
+        self.buf.clone()
+    }
+}
+
+impl std::io::Write for CappedWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        let room = self.cap.saturating_sub(self.buf.len());
+        let n = room.min(data.len());
+        self.buf.extend_from_slice(&data[..n]);
+        Ok(data.len()) // acknowledge everything: the writer never errors
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Run a command with a wall-clock timeout. If `unit` is given (a transient
 /// systemd unit), it is stopped on timeout — killing only systemd-run would
 /// leave the sandboxed process orphaned and running.
@@ -209,9 +264,11 @@ fn run_with_timeout(
             let _ = child.kill();
             let _ = child.wait();
             // Stop the transient unit so its cgroup and children die too.
+            // `--wait` blocks until the stop completes (a `--no-block` stop
+            // can be lost if the unit is still activating).
             if let Some(unit) = unit {
                 let _ = std::process::Command::new("systemctl")
-                    .args(["--user", "stop", "--no-block"])
+                    .args(["--user", "stop", "--wait"])
                     .arg(unit)
                     .status();
                 let _ = std::process::Command::new("systemctl")
