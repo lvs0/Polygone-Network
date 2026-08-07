@@ -2,7 +2,40 @@
 
 > *Style : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).*
 > *Semver : voir `Cargo.toml`.*
-> *Dernier format : 2026-06-29.*
+> *Dernier format : 2026-08-07.*
+
+---
+
+## [Unreleased] — 2026-08-07 — produit++ (Phase 0 : la vérité des docs)
+
+### Added
+- **RES — exécution WASM** (`:wasm <fichier>`) — module wasm32-wasi exécuté
+  dans le sandbox `wasmi` natif, sortie capturée (Phase 8 de la SPEC livrée).
+- **RES — couche de réputation** — le ledger de confiance des nœuds
+  fantômes : `grant_for()` verrouillé par test, routage des grants.
+- **`:executer` / `compute --executer`** — exécution shell sandboxée du
+  nœud fantôme (`systemd-run --user`, MemoryMax/CPUQuota/PrivateNetwork).
+
+### Changed
+- **`src/` monolithe archivé** → `archive/2026-07-src/` (11 356 LOC mortes :
+  libp2p, relay HTTP, ledger POLY, vieille TUI). Le workspace ne le compile
+  plus. Rien n'est perdu — README d'archive inclus.
+- **`ARCHITECTURE.md` réécrit** sur l'architecture réelle (4 crates) avec
+  ses lacunes honnêtes (ML-DSA non branché, relay métadonnées, daemon.sock
+  sans lecteur, time_sync sans consommateur).
+- **Axiomes exécutables** — PHILOSOPHY.md : Axiome 2 → `cargo test
+  parse_known_commands` ; Axiome 3 → `grep -ci` insensible à la casse ;
+  Axiome 4 → coupe documentée + garde `wc -l crates/client ≤ 5000`.
+- **Licence unifiée : AGPL-3.0** (README, PHILOSOPHY, docs alignés sur
+  `Cargo.toml`). MIT supprimé des docs.
+- **README rc2** — version, statuts services, test count (89), commandes
+  réelles.
+
+### Known (assumé, documenté)
+- ML-DSA-65 généré mais **pas encore signé/vérifié** au chemin réseau.
+- Relay : voit les métadonnées de routage (from/to/tailles/name), HELLO
+  non authentifié, pas de limites — Phase 1.
+- CI GitHub : à valider (51 commits post-rc2 jamais vus par la CI).
 
 ---
 

@@ -1,14 +1,16 @@
 # ECOSYSTEM.md — the mother file
 
 > *Si tu ne sais pas où regarder, c'est ici.*
-
-This document is the single source of truth for **what Polygone is, what
-services it ships with, and what each one does**. Every other document
-references back to this one.
+>
+> **Mis à jour 2026-08-07 (produit++, Phase 0).** This document is the
+> single source of truth for **what Polygone is, what services it ships
+> with, and what each one does**. Every other document references back to
+> this one. If a doc contradicts this file, this file wins — and the other
+> doc is wrong.
 
 ---
 
-## 1. The three planes
+## 1. The three planes (reality, v2)
 
 Polygone is a **3-plane system**. Anything you do with Polygone lives in
 exactly one of these:
@@ -19,312 +21,191 @@ exactly one of these:
 │   PLANE 1            PLANE 2             PLANE 3                │
 │   ────────           ────────            ────────               │
 │                                                                 │
-│   YOUR               THE                 THE                    │
-│   COMPUTER           MESH                RELAY                  │
+│   YOUR               THE LAN             THE RELAY              │
+│   COMPUTER           (MESH)              (polygone-relay)       │
 │                                                                 │
-│   polygone-          polygone-           polygone-              │
-│   computer           computer            server                 │
-│   (daemon)           (peers)             (stateless)            │
-│                                                                 │
-│   • owns your        • discovers         • bridges NATs         │
-│     services           peers             • zero-knowledge        │
-│   • IPC socket       • encrypted         • TTL 30s, 32KB        │
-│   • restart loop       gossip             fragments             │
-│   • status file      • mDNS/BLE          • no plaintext ever    │
+│   • crypto pipeline  • UDP broadcast     • TCP, NDJSON          │
+│     offline            port 7642           stateless            │
+│   • identity.json    • announces         • routes on `to`       │
+│   • received/          node+relay        • in-memory only       │
+│   • TUI + CLI        • zero-config       • never persists       │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-- **Plane 1 — Your Computer.** The local daemon. Owns every service on
-  your machine. Exposes IPC (Unix socket) and HTTP (web UI). State is
-  local: keys, fragments, config, logs.
-- **Plane 2 — The Mesh.** Peers you can reach directly. They run
-  `polygone-computer` too. Discovery is mDNS / BLE. Communication is
-  end-to-end encrypted. The mesh is symmetric — there is no master.
-- **Plane 3 — The Relay.** A `polygone-server` you can fall back to
-  when you cannot reach a peer directly. The relay **never** sees
-  plaintext, **never** sees keys, **never** persists anything beyond a
-  30-second in-memory cache.
+- **Plane 1 — Your Computer.** The `polygone` command: offline crypto
+  (envoyer/recevoir), identity, received files, TUI, mesh announce,
+  RES execution, duress.
+- **Plane 2 — The LAN Mesh.** Peers you can reach directly. UDP
+  broadcast discovery (port 7642) announces node_id + relay. Enables
+  zero-config sends (`ecouter --annoncer` + `envoyer --a <node>`
+  without `--via`).
+- **Plane 3 — The Relay.** A `polygone-relay` you use when the peer is
+  not on your LAN. It routes fragments to connected node_ids. It sees
+  **routing metadata** (`from`, `to`, `session`, sizes, file name) but
+  **never the content** — every payload is ML-KEM-1024 + AES-256-GCM.
+  It holds no state to disk: restart = full amnesia.
 
 ---
 
-## 2. The service registry
+## 2. The service registry (v2.0.0-rc2)
 
-Every service implements the `Service` trait (see `src/services/mod.rs`).
-The Computer daemon is the only thing allowed to start or stop a
-service. Clients (CLI, TUI, web, IPC) only ask.
+The real product is 5 live services + 3 parked. "Live" means the code
+exists, compiles, and is tested in the workspace.
 
-| ID         | Name        | Role                                                    | Default |
-| ---------- | ----------- | ------------------------------------------------------- | ------- |
-| `compute`  | Polygone Compute | Lend / borrow compute for distributed work         | off     |
-| `drive`    | Polygone Drive   | Encrypted sharded file storage across 7 peers      | on      |
-| `hide`     | Polygone Hide    | SOCKS5 + HTTPS proxy through the mesh              | on      |
-| `mesh`     | Polygone Mesh    | mDNS + BLE discovery, peer orchestration          | on      |
-| `brain`    | Polygone Brain   | Local LLM (Notch SLM / Ollama / llama.cpp)         | on      |
-| `msg`      | Polygone Msg     | Ephemeral E2E messaging — no server, no logs       | on      |
-| `petals`   | Polygone Petals  | Distributed LLM — peers hold shards, run in parallel | off  |
-| `shell`    | Polygone Shell   | Secure shell over the mesh, peer-to-peer           | off     |
+| ID | Name | Role | Statut |
+|----|------|------|--------|
+| `msg` | Polygone Msg | Messages E2E éphémères via relay (4/7) | 🟢 **Live** |
+| `drive` | Polygone Drive | Fichiers E2E via relay (4/7) → `~/.polygone/received/` | 🟢 **Live** |
+| `brain` | Polygone Brain | IA locale (`polygone petals` → Ollama, zéro cloud) | 🟢 **Live** |
+| `mesh` | Polygone Mesh | Découverte LAN + envoi zéro-config (UDP 7642) | 🟢 **Live** |
+| `compute` | Polygone Compute | Lend/borrow compute : visibilité + grant + exécution sandboxée (shell + WASM) | 🟢 **Live (MVP)** |
+| `hide` | Polygone Hide | Proxy SOCKS5/HTTPS anonymisant à travers le mesh | ⚪ Staging |
+| `petals-distribué` | Distributed LLM | Shards d'inférence sur les pairs | ⚪ Staging |
+| `shell` | Polygone Shell | Shell sécurisé peer-to-peer | ⚪ Staging |
 
-`on` means the service is started by `Computer::boot()`. `off` means
-it is registered but must be started explicitly by the user.
-
----
-
-## 3. The contract — what every service must do
-
-```rust
-#[async_trait]
-pub trait Service: Send + Sync {
-    fn info(&self) -> ServiceInfo;     // static metadata
-    async fn start(&self) -> PolyResult<()>;
-    async fn stop(&self)  -> PolyResult<()>;
-    async fn phase(&self) -> Phase;     // Stopped | Starting | Running | Stopping | Crashed
-    async fn health(&self) -> Health;   // Ok | Degraded | Failing | Down
-    async fn metrics(&self) -> Vec<Metric>;
-}
-```
-
-Default implementations are provided for `is_active()`, `is_healthy()`,
-`uptime()`. A service is expected to:
-
-- be **idempotent** on `start()` and `stop()` (calling twice is a no-op)
-- never panic
-- expose at least one `Metric` once it is `Running`
-- never block longer than 100 ms in a `start()` / `stop()` (spawn
-  long-lived work as a background task instead)
-- be observable through `metrics()` (counters and gauges only, no
-  labels, no histograms yet)
+Conditions de ré-introduction des services ⚪ : voir
+[`STAGING.md`](./STAGING.md). **Un service ⚪ n'est pas annoncé comme
+existant** — la TUI ne l'affiche pas, le README ne le vend pas.
 
 ---
 
-## 4. The Computer daemon — lifecycle of a tick
+## 3. The offline pipeline (msg.rs)
 
 ```
-boot()
-  │
-  ├── register_default_services()       # on: drive, hide, mesh, brain, msg
-  │                                       off: compute, petals, shell
-  │
-  ├── start_all()
-  │     for each service:
-  │       if phase in {Stopped, Crashed}: spawn start task
-  │
-  └── run()  ← 1 Hz loop
-        │
-        ├── for each service:
-        │     if phase == Crashed: eprintln!(); svc.start()
-        │
-        ├── write /tmp/polygone-status.json  (atomic rename)
-        │
-        └── accept IPC client on $POLYGONE_SOCKET
-              dispatch one of: status | list | start | stop
+plaintext
+  │  ML-KEM-1024 encapsulate (clé publique du destinataire)
+  ▼
+kem_ct + shared secret
+  │  KDF BLAKE3 (domain-separated "polygone session key v1")
+  ▼
+32-byte key
+  │  AES-256-GCM (nonce 96 bits aléatoire)
+  ▼
+ciphertext
+  │  Shamir 4-of-7
+  ▼
+7 fragments → wire text "KEM_CT:/SENDER_PK:/FRAG:"
 ```
 
-The Computer **never** holds a service's data. It is a lifecycle
-manager. State lives in the service itself.
+`polygone envoyer -d <clef> "message"` produit le wire text ;
+`polygone recevoir wire.txt` reconstruit (≥4/7) et déchiffre.
+La clé de session est `ZeroizeOnDrop`.
 
 ---
 
-## 5. The IPC — line-delimited JSON over a Unix socket
+## 4. The network pipeline (net.rs — plane 2/3)
 
-Path: `$POLYGONE_SOCKET` (default `/tmp/polygone-computer.sock`)
-
-### Request
+Wire contract — NDJSON over TCP :
 
 ```json
-{"id": "abc", "op": "status"}
-{"id": "abc", "op": "list"}
-{"id": "abc", "op": "start", "service": "drive"}
-{"id": "abc", "op": "stop",  "service": "drive"}
+{"kind":"fragment","from":"<node_id>","to":"<node_id>","session":"<hex>",
+ "seq":0,"type":"kem"|"frag","idx":0,"threshold":4,"total":7,
+ "payload":[...], "name":"<nom de fichier — enveloppe KEM d'un fichier>"}
 ```
 
-### Response
+Handshake : `HELLO <node_id>\n`. `node_id` = 16 premiers hex de la clé
+KEM publique (stable — c'est ce qui permet d'être retrouvé).
 
-```json
-{"id": "abc", "ok": true,  "data": {...}}
-{"id": "abc", "ok": false, "error": "unknown service: x"}
-```
+- `envoyer --via <relay> --a <node> [--fichier]` : 1 enveloppe KEM +
+  7 fragments → le relay route chaque enveloppe sur `to`.
+- `ecouter <relay>` : buffer par session, ≥4/7 → reconstruction →
+  message affiché / fichier écrit dans `~/.polygone/received/`.
 
-One line in, one line out. No streaming, no binary frames, no
-subscriptions. If you need pub/sub, hit the web UI on `/api/status`
-instead — it polls.
-
-### Clients
-
-- `polygone` TUI — connects on launch, redraws every 250 ms
-- `polygone-ctl` — one-shot scriptable client
-- any shell — `socat - UNIX-CONNECT:/tmp/polygone-computer.sock`
+**Honnêteté du relay (assumée et documentée, pas cachée) :** le relay
+voit les métadonnées de routage (from/to/session/tailles, et le nom de
+fichier sur l'enveloppe KEM). Il ne voit jamais le contenu. Le modèle de
+menace est dans `docs/threat-commodity.md` et
+`docs/threat-high-value.md`. La promesse « zero-knowledge » porte sur le
+**contenu** ; la visibilité des métadonnées est le prix du routage — à
+réduire (nom de fichier hors-bande, pseudonymes) et à documenter.
 
 ---
 
-## 6. The Server — what it is, what it is not
+## 5. The local product (plane 1)
 
-`polygone-server` is **a dumb pipe**. It does not know:
+### Identity
 
-- your identity
-- your public keys
-- your message contents
-- who you are talking to
+`~/.polygone/identity.json` (chmod 600) : pseudo + clés ML-KEM-1024 et
+ML-DSA-65. `polygone clef` = clé publique à partager. `polygone duress
+--confirmer` = destruction identité + fichiers reçus (Axiome 5).
 
-It knows only:
+### TUI
 
-- a 16-hex-char token (opaque, random)
-- a TTL (default 30 s, max 60 s)
-- a size cap (32 KB per fragment)
+Style vim, deux commandes de premier niveau : `:envoyer` / `:quitter`.
+Le reste derrière `:` — `:recevoir :clef :voisins :compute :ia :demo
+:executer :wasm :statut :aide` (Axiome 2 : deux tons, pas trois).
 
-If a fragment is not consumed within its TTL, it is purged by
-`RelayStore::sweep()`. The server's RAM is bounded by `ttl * put_rate`.
+### RES — exécution
 
-The server is **not** required for Polygone to work. Two nodes on the
-same LAN can communicate without it. The relay exists to bridge NATs.
-
----
-
-## 7. The use cases
-
-### 7.1 — Encrypted file share
-
-```
-alice@macbook>  polygone drive put report.pdf
-                → /drive/abc123.../report.pdf
-                → 4-of-7 Shamir split across 7 peers
-                → each fragment AES-256-GCM encrypted with a per-fragment key
-
-bob@thinkpad>   polygone drive get /drive/abc123.../report.pdf
-                → 4 of 7 peers reachable: rebuild locally
-                → 4 of 7 peers unreachable: error "need 4, have 3"
-```
-
-### 7.2 — Anonymous web
-
-```
-firefox → 127.0.0.1:9050 (SOCKS5) → polygone hide → mesh → peer → internet
-                                                                ↑
-                                              3 hops, each encrypted
-                                              independently, no peer
-                                              knows the full path
-```
-
-### 7.3 — Local LLM
-
-```
-polygone> brain ask "summarize /drive/abc/report.pdf"
-        → if local model loaded: answer in 800 ms
-        → if not: fallback to petals
-            → split prompt into 8 shards
-            → 8 peers each run 1/8 of the inference
-            → assemble at home
-        → answer in 4.2 s, 0 plaintext leaves the mesh
-```
-
-### 7.4 — One-shot message
-
-```
-alice → bob: encrypted, signed, ephemeral
-        → bob's key signed by alice's ML-DSA-87 key
-        → ciphertext is AES-256-GCM
-        → TTL: 24h
-        → stored nowhere
-        → server sees only opaque bytes
-```
-
-### 7.5 — Mesh node dashboard
-
-```
-http://127.0.0.1:8080/node.html
-        → live CPU, RAM, traffic in/out
-        → 5 module cards (Drive / Hide / Mesh / Brain / Msg)
-        → live log panel
-        → mesh force-directed graph at /mesh.html
-        → file drop zone at /drive.html
-```
+`polygone compute --emprunter <node> --via <relay>` → grant du nœud
+fantôme (`ecouter --compute`) → `--executer <tâche>` (shell sandboxé
+`systemd-run --user`) ou `:wasm <fichier>` (wasmi/WASI). Honnête : la
+sandbox shell isole contre les accidents, pas contre un attaquant
+local (même UID) — durcissement en cours (Phase 2).
 
 ---
 
-## 8. The naming
+## 6. The daemon (polygoned)
 
-| Symbol       | What it is                                          |
-| ------------ | --------------------------------------------------- |
-| `Polygone`   | The ecosystem. The name on the box.                 |
-| `Computer`   | The local daemon (`polygone-computer`).              |
-| `Server`     | The relay (`polygone-server`). Stateless.            |
-| `polygone`   | The binary you run. The dashboard.                   |
-| `msh`        | Mesh gossip protocol. 3 letters, on purpose.         |
-| `poly`       | The unit of account inside the mesh. 1 poly = 1 GB-h. |
-| `lvs0`       | Example node ID (Lévy, single node).                 |
+Boucle de 5 s : snapshot système → `GlowUpEngine::tick` → apply
+(re-nice + `memory.max` cgroup). Socket de commande
+(`~/.polygone/daemon.sock`) : `set_alloc / shrink / grow / status`.
+
+**Honnêteté :** aucun process ne lit le socket aujourd'hui ; les
+allocations bande passante/GPU sont *calculées, pas appliquées* ;
+`user_active()` Linux renvoie `false` en dur. Le daemon s'auto-limite,
+il ne pilote pas encore le réseau — décision D5 en cours.
 
 ---
 
-## 9. The non-goals
+## 7. The naming
 
-Polygone will **not**:
+| Symbol | What it is |
+| ------ | ---------- |
+| `Polygone` | The ecosystem. The name on the box. |
+| `polygone` | The product binary (TUI + CLI). |
+| `polygone-relay` | The relay. Stateless. |
+| `polygoned` | The resource daemon. |
+| `lvs0` | Example node ID (Lévy, single node). |
+
+---
+
+## 8. The non-goals
+
+Polygone will **not** :
 
 - replace your email
 - store your photos in the cloud
 - integrate with Slack / Discord / Twitter
 - ask you for an account
 - phone home
-- be a token
+- be a token (le ledger POLY archivé attend une décision explicite —
+  il n'est pas dans le produit)
 - be a DAO
 - be a "Web3" thing
+- prétendre que le relay ne voit rien (il voit les métadonnées de routage)
 
-Polygone **will**:
+Polygone **will** :
 
 - run on your machine
-- encrypt by default
+- encrypt by default (ML-KEM-1024 + AES-256-GCM, testé)
 - crash loudly
-- refuse to start if integrity is broken
+- refuse to run broken crypto (self-test au démarrage)
 - be readable in one sitting
 - have a TUI you can use over SSH on a 80x24 terminal
-- **show you the plan before executing it** (Gemini/Perplexity pattern)
-- **stream every system event live** (Operator/Devin pattern)
+- document its threats in writing, including the ones it does not stop
 
-## 10. The thought stream and the plan gate
+---
 
-Two cross-cutting patterns borrowed from 2026 agentic products, adapted
-to Polygone's local-first philosophy. See [`POLYGONE-PATTERNS.md`](./POLYGONE-PATTERNS.md)
-for the full design rationale.
+## 9. Cross-document map
 
-### 10.1 The plan gate
-
-Any multi-step side effect (start service, stop service, restart
-cluster) goes through a `Plan` that the user must approve.
-
-```
-    proposed                approved               done
-   ─────────►  user ok   ──────────►  execute  ─────────►
-       │                                                ▲
-       └────── user reject ────────►  rejected          │
-                                                        │
-                                          failed ◄──────┘
-```
-
-A `Plan` is a list of `PlanStep { service, action, rationale }`. The
-Computer refuses to execute a `Plan` in any state other than
-`Approved`. The TUI shows the plan with `y/n`. The web page at
-`/plan.html` shows the same plan with three buttons. The IPC accepts
-`Request::ApprovePlan` and `Request::RejectPlan`.
-
-### 10.2 The thought stream
-
-Every service can emit `ServiceEvent` records. The Computer collects
-them into an `mpsc` channel of capacity 1024 and exposes the stream
-to the TUI and the web. The web dashboard's `/plan.html` page opens
-an `EventSource` connection on `GET /api/events` and renders the last
-100 events with timestamps and colour-coded severity.
-
-```
-Service ──emit──▶ Computer.event_sender ──broadcast──▶ TUI live tab
-                                                    └▶ Web live feed
-                                                    └▶ IPC subscriber
-```
-
-An event is `{ source, kind, severity, message, epoch_ms }`. Kinds
-are `info` / `warn` / `error` / `done` / `metric`. Severities are
-`info` / `success` / `warning` / `error`. The Computer itself emits
-events for `boot`, `service_started`, `service_crashed`, `plan_proposed`,
-`plan_approved`, `plan_rejected`, `plan_done`, `shutdown`.
-
-**This is not** the LLM's inner monologue. It is *system state* —
-what is happening on the wire, on the disk, on the relay. The user
-sees the machine working, not a chatbot thinking.
+| Doc | Rôle | Statut |
+|-----|------|--------|
+| `README.md` | Manifeste + quickstart | ✅ aligné rc2 |
+| `ARCHITECTURE.md` | Comment c'est construit (4 crates) | ✅ réécrit 2026-08-07 |
+| `PHILOSOPHY.md` | Les 5 axiomes + invariants exécutables | ✅ réparé 2026-08-07 |
+| `STAGING.md` | Services parkés + conditions de retour | ✅ à jour |
+| `DECISIONS.md` | Décisions binaires | 🟡 D5 à trancher (Phase 1) |
+| `docs/threat-*.md` | Modèles de menace | ✅ non-dits écrits |
+| `LEGAL.md` | Subpoena, kill-switch, AGPL-3.0 | 🟡 licence à aligner |

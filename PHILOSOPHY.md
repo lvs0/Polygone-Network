@@ -26,9 +26,14 @@ Aucun fragment reconstructible sans réunion d'au moins **4 fragments Shamir sur
 Le matériel est `cyber-amber` (#f59e0b) sur `cyber-slate` (#0f172a). Le silence est ambre, pas gris. Le mouvement est une attente visible — typographique, animée, rythmée — pas un spinner ni une barre de chargement.
 
 ### Voix technique (Wozniak ✕ Gödel)
-La TUI a **deux onglets** : `Envoyer` et `Quitter`. Tout le reste est paramètre caché derrière `:` (vim-style). L'utilisateur ne voit pas les 6 services « en construction » — il voit ce qui marche.
+La surface du produit est **deux commandes** : `envoyer` et `quitter`.
+Tout le reste est paramètre caché derrière `:` (style vim). L'utilisateur
+ne voit pas les services « en construction » — il voit ce qui marche.
 
-**Invariant vérifiable :** `cargo test` sur `views::two_tab_layout` passe. Au démarrage, l'utilisateur ne peut pas confondre ce qui marche avec ce qui ne marche pas.
+**Invariant vérifiable :** `cargo test parse_known_commands` passe — le test
+réel de la TUI (crates/client/src/tui.rs) verrouille `envoyer`/`quitter` comme
+seules commandes de premier niveau. Au démarrage, l'utilisateur ne peut pas
+confondre ce qui marche avec ce qui ne marche pas.
 
 ---
 
@@ -40,7 +45,9 @@ Le projet ne prétend pas protéger le manifestant turc ET le banlieusard parisi
 ### Voix technique (Coplan ✕ Archiviste)
 `docs/threat-commodity.md` (monsieur-tout-le-monde) et `docs/threat-high-value.md` (dissident) sont des fichiers **séparés**. Pas un seul document qui couvre les deux et ment par omission.
 
-**Invariant vérifiable :** `grep "tracking\|keylogger\|rubber-hose" docs/threat-*.md` doit retourner des non-dits explicites, pas du silence.
+**Invariant vérifiable :** `grep -ci "tracking\|keylogger\|rubber-hose" docs/threat-*.md`
+doit retourner **au moins 1 non-dit explicite par fichier** (insensible à la
+casse). Le silence assumé est écrit en toutes lettres, pas passé sous silence.
 
 ---
 
@@ -50,9 +57,18 @@ Le projet ne prétend pas protéger le manifestant turc ET le banlieusard parisi
 Chaque voix principale a un contre-voix qui la complète. Encryption (silence contenu) ↔ métadonnées warning (silence observable). Hardware sensor (silence physique) ↔ kill-switch (silence actif).
 
 ### Voix technique (Musk ✕ Wozniak)
-**Couper 90% des fonctionnalités**. Deux services ship : `msg` (éphémère) et `drive` (fichiers chiffrés 4-of-7). Les 6 autres (`compute`, `hide`, `mesh`, `brain`, `petals`, `shell`) sont archivés dans `STAGING.md` avec conditions explicites de ré-introduction.
+**Couper 90% des fonctionnalités.** La coupe est *faite et documentée* : le
+monolithe `src/` (11 356 LOC : libp2p, relay HTTP, ledger POLY, vieille TUI)
+est archivé dans `archive/2026-07-src/` — il n'est ni compilé, ni testé, ni
+visible du produit. Ce qui vit, c'est le workspace 4 crates (~9 600 LOC) et
+les services décidés : `msg`, `drive`, `brain`, `mesh` — les autres sont
+dans `STAGING.md` avec conditions explicites de ré-introduction.
 
-**Invariant vérifiable :** `wc -l src/` après cette coupe ≤ 3500 lignes utiles. Pas 5500.
+**Invariant vérifiable :**
+1. `cargo build --workspace` réussit **sans** compiler `archive/` (le
+   monolithe n'est pas dans les membres du workspace).
+2. `wc -l crates/client/src/*.rs | tail -1` ≤ **5000** — le produit reste
+   petit. Pas 11 000.
 
 ---
 
@@ -84,4 +100,4 @@ Polygone expose un **mode duress** documenté sans détail d'implémentation, et
 
 *L'axiome 6 sera ajouté quand le premier audit externe aura été réalisé. Pour l'instant, il est honnête de dire : aucun audit n'existe (cf. `LEGAL.md` §5 + Comité 2 S6).*
 
-*MIT License · Posture « honest-first » · Conseil des Sages 2026-06-29.*
+*AGPL-3.0 · Posture « honesty-first » · Conseil des Sages 2026-06-29.*

@@ -201,4 +201,4 @@
 ---
 
 *Hérite de : Conseils_Sages_2026-06-29 transcript, `POLYGONE_ROADMAP_v2.md`, `DECISIONS.md`.*
-*MIT License · Pas de télémétrie.*
+*AGPL-3.0 · Pas de télémétrie.*

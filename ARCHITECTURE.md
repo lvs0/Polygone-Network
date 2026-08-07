@@ -2,407 +2,281 @@
 
 > *For contributors. Read [`ECOSYSTEM.md`](./ECOSYSTEM.md) first to
 > understand what we are building. This document is about how.*
+>
+> **Status 2026-08-07** : this document describes the **real** v2 workspace
+> (4 crates). The previous `src/` monolith (libp2p, HTTP relay, 4-tab TUI)
+> was archived to `archive/2026-07-src/` — it is not built, not tested, not
+> the product. The code is the source of truth; this document follows it.
 
 ---
 
-## 1. Crate layout
+## 1. Workspace layout — 4 crates
 
 ```
 polygone/
-├── Cargo.toml                    edition 2021, rustc 1.75
+├── Cargo.toml                    workspace, resolver 2, edition 2021
 ├── README.md                     manifesto + quickstart
-├── ECOSYSTEM.md                  the mother file
+├── ECOSYSTEM.md                  the mother file (single source of truth)
 ├── ARCHITECTURE.md               this file
+├── PHILOSOPHY.md                 the 5 axioms (invariants, not marketing)
+├── STAGING.md                    what is parked, and under which conditions
 │
-├── src/
-│   ├── lib.rs                    re-exports, 9 module declarations
-│   ├── main.rs                   CLI dispatcher (clap)
+├── crates/
+│   ├── core/                     no network deps — shared primitives
+│   │   ├── crypto/               kem.rs · shamir.rs · symmetric.rs
+│   │   ├── envelope.rs           Envelope / Fragment types + wire helpers
+│   │   ├── sign.rs               ML-DSA-65 (FIPS 204) signer/verifier
+│   │   ├── identity.rs           NodeId / SessionId
+│   │   ├── time_sync/            NTP-like clock sync engine (CBOR)
+│   │   ├── error.rs              PolygoneError / Result
+│   │   └── lib.rs                re-exports
 │   │
-│   ├── crypto/                   pure functions, no I/O
-│   │   ├── kem.rs                ML-KEM-1024 (post-quantum KEM)
-│   │   ├── shamir.rs             4-of-7 secret sharing
-│   │   ├── sign.rs               ML-DSA-87 signatures
-│   │   ├── symmetric.rs          AES-256-GCM
-│   │   ├── error.rs              PolygoneError enum
-│   │   └── karma.rs              account balance (poly)
+│   ├── client/                   the product — one binary: `polygone`
+│   │   ├── main.rs               clap CLI + command dispatcher
+│   │   ├── msg.rs                offline pipeline: KEM → KDF → AES → Shamir
+│   │   ├── net.rs                real network transport (plane 2)
+│   │   ├── identity.rs           ~/.polygone/identity.json (chmod 600)
+│   │   ├── exec.rs               RES execution (systemd-run + wasmi)
+│   │   ├── mesh.rs               LAN discovery (UDP broadcast, port 7642)
+│   │   ├── reputation.rs         ghost-node trust ledger
+│   │   ├── petals.rs             local AI (Ollama HTTP, no cloud)
+│   │   ├── duress.rs             kill-switch (Axiome 5)
+│   │   ├── demo.rs               flagship E2E demo (in-process)
+│   │   ├── self_test.rs          crypto self-test suite
+│   │   └── tui.rs                vim-style command TUI (:envoyer / :quitter)
 │   │
-│   ├── network/                  libp2p swarm + custom protocols
-│   │   ├── p2p.rs                libp2p behaviour (884 lines, 5+ tests)
-│   │   ├── drive.rs              distributed storage (Shamir + AES)
-│   │   ├── mesh.rs               local discovery
-│   │   ├── discovery.rs          mDNS / BLE
-│   │   ├── topology.rs           peer table, RTT, capability ads
-│   │   └── node.rs               local node identity (ML-DSA-87)
+│   ├── relay/                    the blind relay — one binary: `polygone-relay`
+│   │   ├── main.rs               CLI (port, bind)
+│   │   └── relay.rs              async TCP server, in-memory routing table
 │   │
-│   ├── protocol/                 application layer
-│   │   └── session.rs            KEM → sign → encrypt handshake
-│   │
-│   ├── compute/                  lend/borrow compute service
-│   │   └── daemon.rs             PoW, heartbeat, accounting
-│   │
-│   ├── services/                 the Service trait
-│   │   └── mod.rs                trait + Phase + Health + Metric
-│   │
-│   ├── computer/                 the local orchestrator
-│   │   └── mod.rs                Computer daemon, watchdog loop
-│   │
-│   ├── server/                   the stateless relay
-│   │   └── mod.rs                in-memory fragment store + HTTP
-│   │
-│   ├── ipc/                      line-JSON over Unix socket
-│   │   └── mod.rs                Request/Response, dispatch
-│   │
-│   ├── tui/                      ratatui dashboard
-│   │   ├── app.rs                4 tabs, key bindings, state
-│   │   └── views.rs              Dashboard, Favoris, Services, Settings
-│   │
-│   ├── web/                      minimalist HTTP server
-│   │   ├── mod.rs                tokio TcpListener, 4 routes + static
-│   │   └── assets.rs             compile-time embed of web/*
-│   │
-│   ├── config/                   (planned) TOML config
-│   ├── cli/                      (planned) shared CLI helpers
-│   │
-│   └── bin/
-│       ├── polygone.rs              CLI dashboard
-│       ├── polygone-computer.rs     orchestrator daemon
-│       ├── polygone-server.rs       relay
-│       └── polygone-ctl.rs          scriptable IPC client
+│   └── (daemon lives at repo root, see §7)
 │
-├── web/                          1990 lines, 4 HTML pages
-│   ├── index.html                landing
-│   ├── node.html                 node dashboard
-│   ├── drive.html                drive interface
-│   ├── mesh.html                 mesh visualization
-│   └── style.css, app.js, *.css, *.js
+├── daemon/                       the system daemon — one binary: `polygoned`
+│   ├── main.rs / lib.rs          loop + command socket
+│   ├── system.rs                 SystemSnapshot::capture (/proc, nvidia-smi)
+│   ├── resources/                linux.rs (real) · macos.rs (real) · windows.rs (stub)
+│   ├── policy/glow_up.rs         the allocation policy engine
+│   ├── allocator.rs              legacy allocator (see §7 — not used)
+│   ├── bandwidth.rs / cpu.rs / gpu.rs   per-resource computations
+│   └── socket.rs                 command socket (~/.polygone/daemon.sock)
 │
-├── docs/                         (planned) install scripts, more
-├── docker/                       (planned) Dockerfile
-└── target/                       build artifacts
+├── scripts/                      install.sh · demo.sh
+├── docs/                         cli.md · config.md · threat-*.md · STRATEGIE.md
+├── site/ · index.html            landing / design-system page
+└── .github/workflows/            ci.yml · release.yml
 ```
+
+**Reality check (2026-08-07) :**
+
+| Crate      | LOC (rust) | Binaries              | Tests |
+| ---------- | ---------- | --------------------- | ----- |
+| core       | ~2 200     | — (lib)               | 34    |
+| client     | ~3 600     | `polygone`            | 30    |
+| relay      | ~340       | `polygone-relay`      | 4     |
+| daemon     | ~3 500     | `polygoned`           | 21    |
+| **Total**  | **~9 600** | 4 binaries            | **89** |
+
+No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is
+real: `pqcrypto-mlkem` (FIPS 203) and `pqcrypto-mldsa` (FIPS 204) with
+their exact sizes checked by tests.
 
 ---
 
-## 2. The 9 modules and their public API
+## 2. The offline pipeline (msg.rs) — no network required
 
-| Module        | Public exports                                            | LOC    |
-| ------------- | --------------------------------------------------------- | ------ |
-| `crypto`      | `kem`, `shamir`, `sign`, `symmetric`, `error`, `karma`   | ~1200  |
-| `network`     | `p2p`, `drive`, `mesh`, `discovery`, `topology`, `node`   | ~1400  |
-| `protocol`    | `session`                                                 | ~200   |
-| `compute`     | `daemon`                                                  | ~340   |
-| `services`    | `Service`, `Phase`, `Health`, `Metric`, `ServiceInfo`     | ~250   |
-| `computer`    | `Computer`                                                | ~220   |
-| `server`      | `serve`, `RelayStore`, `RelayStats`                       | ~280   |
-| `ipc`         | `Request`, `Response`, `Op`, `bind`, `handle`, `call`     | ~250   |
-| `tui`         | `App`, `View`, `run_dashboard`                            | ~700   |
-| `web`         | `serve`, `WebConfig`, `NodeState`                         | ~280   |
-| `bin`         | 4 binaries                                                | ~300   |
+What `polygone envoyer <texte>` does, end to end:
 
-Total Rust: **~5500 lines** in `src/`.
+```
+plaintext
+   │
+   ▼
+KEM encapsulate  (recipient's ML-KEM-1024 public key)   → kem_ct + ss
+   │
+   ▼
+KDF BLAKE3       (domain-separated: "polygone session key v1")  → 32B key
+   │
+   ▼
+AES-256-GCM      (random 96-bit nonce)                   → ciphertext
+   │
+   ▼
+Shamir 4-of-7    (split ciphertext into 7 shares)        → 7 fragments
+   │
+   ▼
+wire text        "KEM_CT:<hex>:/SENDER_PK:<hex>:/FRAG:<b64>,<b64>,..."
+```
+
+`polygone recevoir <fichier>` reverses it: ≥4 fragments → Shamir
+reconstruction → AES-GCM decrypt → plaintext. The sender's public key
+travels in the wire text so the recipient knows *who to reply to*.
+
+**Security posture :** KEM IND-CCA2 (ML-KEM-1024) + AES-256-GCM. The
+session key is `ZeroizeOnDrop`. Wrong-key decrypt is tested to fail.
 
 ---
 
-## 3. Data flow — what happens when you press Enter
+## 3. The network pipeline (net.rs) — plane 2, real transport
 
-```
-       ┌──────────────────────────────────────────────────────┐
-       │                       USER                            │
-       └───────────────────────┬──────────────────────────────┘
-                               │ arrow keys + Enter
-                               ▼
-                ┌──────────────────────────┐
-                │   polygone (TUI)         │
-                │   ratatui + crossterm    │
-                │   4 tabs, 250ms redraw   │
-                └────────────┬─────────────┘
-                             │ connect /tmp/polygone-computer.sock
-                             │ write JSON line
-                             ▼
-                ┌──────────────────────────┐
-                │  polygone-computer       │
-                │  Computer::dispatch      │
-                │  ─────────────────       │
-                │  start_all / stop_all    │
-                │  / per-service start_one │
-                └────────────┬─────────────┘
-                             │
-                ┌────────────┴──────────────┐
-                │                           │
-                ▼                           ▼
-       ┌──────────────────┐       ┌──────────────────┐
-       │  drive service   │       │  hide service    │
-       │  (Arc<dyn Svc>)  │       │  (Arc<dyn Svc>)  │
-       └────────┬─────────┘       └────────┬─────────┘
-                │ libp2p swarm              │ SOCKS5 listener
-                ▼                           ▼
-       ┌──────────────────┐       ┌──────────────────┐
-       │  peer: bob       │       │  firefox:9050    │
-       │  direct or via   │       │  → internet      │
-       │  polygone-server │       │  anonymized      │
-       └──────────────────┘       └──────────────────┘
-```
+TCP, newline-delimited JSON (NDJSON), through the blind relay.
 
----
-
-## 4. Threading model
-
-The project uses **tokio multi-thread** for binaries that need it
-(`polygone-server`, `polygone-computer`, `polygone`), and
-`current_thread` for tiny clients (`polygone-ctl`).
-
-| Binary                 | Runtime    | Why                                            |
-| ---------------------- | ---------- | ---------------------------------------------- |
-| `polygone`             | multi      | TUI needs a separate task for stdin/stdout     |
-| `polygone-computer`    | multi      | one task per service + watchdog + IPC accept   |
-| `polygone-server`      | multi      | one task per TCP connection                     |
-| `polygone-ctl`         | current    | one request, one response                      |
-
-The Computer spawns:
-- 1 task for the 1 Hz watchdog loop
-- 1 task per running service (each is a long-lived `tokio::spawn`)
-- 1 task for the IPC Unix listener
-- 1 task for the status-file writer
-
-Total: **2 + N** tasks where N is the number of services.
-
----
-
-## 5. Error handling
-
-A single error type: `PolygoneError` (in `src/crypto/error.rs`).
-
-```rust
-pub enum PolygoneError {
-    Crypto(String),
-    Network(String),
-    Storage(String),
-    InvalidArgument(String),
-    NotFound(String),
-    Internal(String),
-    Io(std::io::Error),
-    Serde(serde_json::Error),
-}
-```
-
-There is **no** `From<std::net::TcpListener>` etc. — conversions are
-written by hand at the boundary. The `?` operator is only used for
-`std::io::Error` and `serde_json::Error` (both have `From`).
-
-If you find yourself adding `From<X> for PolygoneError`, ask first:
-*do we really want every `X` to silently become a `PolygoneError`?*
-
----
-
-## 6. The Service trait — full definition
-
-```rust
-#[async_trait]
-pub trait Service: Send + Sync {
-    fn info(&self) -> ServiceInfo;
-    async fn start(&self) -> PolyResult<()>;
-    async fn stop(&self)  -> PolyResult<()>;
-    async fn phase(&self) -> Phase;
-    async fn health(&self) -> Health;
-    async fn metrics(&self) -> Vec<Metric>;
-}
-```
-
-### ServiceInfo
-
-```rust
-pub struct ServiceInfo {
-    pub id:          &'static str,   // "drive"
-    pub name:        &'static str,   // "Polygone Drive"
-    pub tagline:     &'static str,   // one-line description
-    pub category:    &'static str,   // "storage", "network", "ai", "messaging"
-    pub version:     &'static str,   // semver of the service itself
-    pub default:     bool,           // should Computer::boot start it?
-}
-```
-
-### Phase
-
-```
-Stopped ──start()──▶ Starting ──ok──▶ Running ──stop()──▶ Stopping ──▶ Stopped
-                          │                                  │
-                          └─ error ──▶ Crashed ──start()──▶ Starting …
-```
-
-### Health
-
-```
-Ok < Degraded < Failing < Down
-```
-
-The Computer rolls up the worst across all services.
-
-### Metric
-
-```rust
-pub struct Metric {
-    pub name:  String,    // "drive.fragments.stored"
-    pub value: f64,
-    pub kind:  MetricKind,    // Counter | Gauge
-    pub unit:  &'static str, // "fragments", "bytes", "ms", "°C"
-}
-```
-
----
-
-## 7. The IPC protocol — wire format
-
-A single line of UTF-8 JSON, terminated by `\n`. No length prefix, no
-framing, no binary. The socket is `SOCK_STREAM` so the OS handles
-framing for us; we just read until `\n`.
-
-### Why JSON and not bincode?
-
-- Trivial to debug with `socat` or `nc`
-- Trivial to consume from any language
-- The payloads are tiny (status snapshots are < 1 KB)
-- Versioning is forward-compatible: extra fields are ignored
-
-### Operations
-
-| `op`      | `service` | Effect                                            |
-| --------- | --------- | ------------------------------------------------- |
-| `status`  | —         | full snapshot of Computer + all services          |
-| `list`    | —         | just the list of services with phase + health     |
-| `start`   | required  | start one service (idempotent if already running)  |
-| `stop`    | required  | stop one service (idempotent if already stopped)   |
-
-### Response shape
+### Wire contract
 
 ```json
-{
-  "id": "abc",
-  "ok": true,
-  "data": { /* any JSON */ }
-}
+{"kind":"fragment","from":"<node_id>","to":"<node_id>","session":"<hex>",
+ "seq":0,"type":"kem"|"frag","idx":0,"threshold":4,"total":7,
+ "payload":[...], "name":"<file name — KEM envelope of a file only>"}
 ```
 
-or
+### Handshake
 
-```json
-{
-  "id": "abc",
-  "ok": false,
-  "error": "unknown service: x"
-}
+```
+client → relay : HELLO <node_id>\n
 ```
 
-The `id` is **always** echoed back, even on parse errors. This is what
-lets the client multiplex requests over a single connection if it
-wants to.
+`node_id` = first 16 hex chars of the **KEM public key** (stable,
+derived, persistent). The relay routes fragments to connected node_ids.
+
+### Send
+
+`envoyer --via <relay:port> --a <dest_node_id> <message>` :
+
+1. `msg::send_bytes` → KEM_CT + 7 fragments (as in §2).
+2. 1 KEM envelope + 7 fragment envelopes written to the relay.
+3. The relay forwards each to `to` if connected; otherwise drops.
+
+### Receive
+
+`ecouter <relay:port>` :
+
+1. `HELLO <node_id>` to the relay, then read lines.
+2. Buffer envelopes by `session`; when ≥ `threshold` fragments arrive →
+   Shamir reconstruct → decrypt.
+3. Delivers the message / writes the file to `~/.polygone/received/`.
+
+### Mesh (Phase 4)
+
+`annoncer` / `voisins` / `ecouter --a` : UDP broadcast on port 7642.
+Each announcement carries node_id + relay address + free RAM, so peers
+can discover a relay without configuration.
 
 ---
 
-## 8. The Server — protocol
+## 4. The relay (crates/relay) — blind, not omniscient
 
-Two HTTP endpoints, plain HTTP/1.1, no TLS (the server is zero-knowledge
-anyway — TLS would just add CPU).
+An async TCP server with an in-memory routing table
+(`HashMap<node_id, write_half>` under `RwLock`). It:
 
-### `PUT /relay`
+- reads **only** `kind`, `to`, `session` to route (payloads pass verbatim);
+- holds **no** state to disk — restart = full amnesia;
+- forgets a peer the moment it disconnects;
+- drops fragments for offline peers instead of buffering them.
 
-Request: opaque bytes in the body.
-Response: `{"id": "<16 hex chars>"}`
-
-The bytes are stored in an in-memory `HashMap<Token, Bytes>`. A
-background sweep task removes anything older than `ttl_secs` (default
-30, max 60).
-
-### `GET /relay/:id`
-
-Response: 200 + body if found, 404 otherwise. **After a successful GET
-the fragment is deleted** — the relay is not a CDN.
-
-### Constraints
-
-- max body size: 32 KB (configurable)
-- max in-memory: bounded by `ttl * put_rate`
-- the server holds **no** state to disk
-- restart = full amnesia, by design
+> **Honest limitation (documented, not hidden) :** the relay sees the
+> envelopes' metadata — `from`, `to`, `session`, sizes, and the file
+> `name` on KEM envelopes — because it must route on `to`. It *cannot*
+> read the encrypted payloads. The threat model is documented in
+> `docs/threat-commodity.md` and `docs/threat-high-value.md`.
+> The "zero-knowledge relay" claim is about **content**, not metadata.
 
 ---
 
-## 9. The TUI — layout
+## 5. RES — the execution layer (exec.rs)
 
-```
-╔════════════════════════════════════════════════════════════╗
-║  ⬡ polygone     v0.1.0   Computer: lvs0   ↑0  ↓0  ♥ 4/7   ║
-╠════════════════════════════════════════════════════════════╣
-║                                                            ║
-║   ┌── Dashboard ── Favoris ── Services ── Settings ──┐      ║
-║   │                                                  │      ║
-║   │  (current tab content)                           │      ║
-║   │                                                  │      ║
-║   └──────────────────────────────────────────────────┘      ║
-║                                                            ║
-║   ↑↓ navigate    ⏎ select    q quit    r refresh          ║
-╚════════════════════════════════════════════════════════════╝
-```
+Two sandboxes for ghost-node compute:
 
-- `Dashboard` — your node, your services, your traffic
-- `Favoris` — pinned peers / pinned fragments
-- `Services` — start/stop the 8 services, see metrics live
-- `Settings` — bind address, log level, identity export
+1. **Shell** : `systemd-run --user` with `MemoryMax`, `CPUQuota`,
+   `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`,
+   `PrivateNetwork`. Honest scope: *isolation against accidents, NOT a
+   cryptographic sandbox* (same UID, `$HOME` readable).
+2. **WASM** : `wasmi` + WASI, stdout captured, wall-clock timeout.
+   Known limitation: wasmi is synchronous — a non-terminating module
+   blocks the caller until timeout; an infinite loop without yield is
+   detected only after `start()` returns.
 
-Refresh: 250 ms. Colors: cyber-slate palette, `#22d3ee` (cyan) +
-`#0f172a` (slate).
+The grant protocol is locked by tests (`grant_for()` pure + routing).
 
 ---
 
-## 10. The web UI
+## 6. Identity (identity.rs) — `~/.polygone/identity.json`
 
-Four HTML pages, no framework, no build step. The Rust binary embeds
-them at compile time via `include_bytes!`.
+First run generates and persists (chmod 600) :
 
-| Page        | Path        | Talks to                                |
-| ----------- | ----------- | --------------------------------------- |
-| Landing     | `/`         | static                                  |
-| Node        | `/node.html`| `/api/status` (poll every 3 s)          |
-| Drive       | `/drive.html` | `/api/drive/*` (planned)              |
-| Mesh        | `/mesh.html`  | `/api/peers` (planned)                |
+- ML-KEM-1024 public + secret keys (hex)
+- ML-DSA-65 public + secret keys (hex)
+- a pseudonym
 
-The dashboard has a **simulation fallback**: if `/api/status` 404s, it
-generates plausible local data so the page is never empty. This is
-honest — the data is clearly labelled "simulated".
+`polygone clef` prints the KEM public key — what you share to receive
+messages. `polygone duress --confirmer` destroys identity + received
+files (Axiome 5).
 
 ---
 
-## 11. The build matrix
+## 7. The daemon (polygoned)
 
-| Target                 | Subcommand              | Output                |
-| ---------------------- | ----------------------- | --------------------- |
-| `cargo build --lib`    | —                       | `libpolygone.rlib`    |
-| `cargo build --bin polygone`          | CLI       | `polygone`            |
-| `cargo build --bin polygone-computer` | daemon    | `polygone-computer`   |
-| `cargo build --bin polygone-server`   | relay     | `polygone-server`     |
-| `cargo build --bin polygone-ctl`      | IPC       | `polygone-ctl`        |
-| `cargo build --release`               | all       | `target/release/*`    |
-| `cargo test --lib`                    | tests     | 43/43 passing         |
+A 5-second loop: `SystemSnapshot::capture` → `GlowUpEngine::tick` →
+`apply`. It measures CPU, RAM, GPU, bandwidth and computes an
+allocation; `apply()` re-nices the daemon and writes `memory.max` into
+its own cgroup. A command socket (`~/.polygone/daemon.sock`) accepts
+`set_alloc / shrink / grow / status`.
 
-Release profile:
-```toml
-[profile.release]
-opt-level = 3
-lto       = "thin"
-strip     = true
-panic     = "abort"
-codegen-units = 1
+> **Honest status :** no process currently reads the daemon socket, and
+> `user_active()` returns `false` on Linux — the "throttle on user
+> activity" is not wired. Bandwidth/GPU numbers are *reported, not
+> enforced*. `allocator.rs` (the "Wozniak" allocator) is legacy code not
+> used by the loop — the policy engine is `GlowUpEngine`.
+
+---
+
+## 8. Error handling
+
+`PolygoneError` in `crates/core/src/error.rs` — `Crypto`, `Network`,
+`Storage`, `InvalidArgument`, `NotFound`, `Internal`, `Io`, `Serde`.
+The `?` operator is used where `From` exists; conversions at boundaries
+are written by hand.
+
+---
+
+## 9. Testing
+
+`cargo test --workspace` — 89 tests (client 30, core 34, relay 4,
+daemon 21). Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
+exact sizes, wrong-key KEM failure, full network pipeline round-trips,
+relay routing/drop/ignore tests.
+
+---
+
+## 10. Build
+
+```bash
+cargo build --release            # all 4 binaries
+cargo test --workspace           # 89 tests
+cargo clippy --all --all-targets -- -D warnings
 ```
 
-A full release build of all four binaries: **~1.3 MB** stripped.
+Release profile: `opt-level=3`, `lto="thin"`, `codegen-units=1`,
+`strip=true`.
+
+---
+
+## 11. Known gaps (tracked, honest)
+
+| Gap | Where | Status |
+| --- | ----- | ------ |
+| ML-DSA-65 generated but **not signed/verified** on the network path | net.rs / sign.rs | Phase 1 of the product++ plan |
+| Relay metadata in clear (from/to/tailles/name) | relay.rs + net.rs | Assumed + documented; name → out-of-band (Phase 1) |
+| Relay: HELLO unauthenticated, no line limit, no rate-limit | relay.rs | Phase 1 |
+| RES shell sandbox reads `$HOME` (same UID) | exec.rs | Phase 2 |
+| WASM timeout after `start()` (sync wasmi) | exec.rs | Phase 2 |
+| Daemon socket has no consumer | daemon/socket.rs | Decision pending (D5) |
+| `time_sync` engine with no consumers | core/time_sync | Decision: wire or archive |
+| At-rest: identity.json + received/ in clear | identity.rs / net.rs | Decision: encrypt-at-rest or document (Phase 2) |
 
 ---
 
 ## 12. What is not in this document
 
 - The exact `Cargo.toml` features — read it.
-- The wire format of `msh` (mesh gossip) — see `src/network/mesh.rs`.
-- The Drive chunking strategy — see `src/network/drive.rs`.
-- The ML-KEM-1024 / ML-DSA-87 key schedule — see `src/crypto/`.
+- The daemon's resource math — see `daemon/` source.
+- The time_sync CBOR protocol — see `crates/core/src/time_sync/`.
 
 If something is missing here, it is because the code is the source of
 truth, not the docs. **Always trust the tests.**

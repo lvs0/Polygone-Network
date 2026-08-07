@@ -36,8 +36,8 @@ des faiblesses génériques à grande échelle.
 | Déchiffrement futur par ordinateur quantique | KEM post-quantique | ML-KEM-1024 (FIPS 203) |
 | Reconstruction d'un message capturé | Fragmentation à seuil | Shamir 4-of-7 — 3 fragments = zéro information |
 | Persistance du message sur les nœuds | Éphémérité | TTL ≤ 30 s, fragments non consolidés désintégrés |
-| Usurpation de l'expéditeur | Signature | ML-DSA-65 (FIPS 204), détachée, vérifiable |
-| Fuite d'identité via le relay | Relay aveugle | Le relay ne voit que des fragments chiffrés |
+| Usurpation de l'expéditeur | Signature | ML-DSA-65 (FIPS 204), détachée, vérifiable — ⚠ **à brancher** au chemin réseau (générée, pas encore signée/verifiée dans `send`/`receive` réseau, Phase 1) |
+| Fuite d'identité via le relay | Relay routant | Le relay route sur `from`/`to`/`session` et voit les **métadonnées** (tailles, nom de fichier) — il ne voit **jamais** le contenu chiffré. Voir §4 « Métadonnées réseau » |
 
 ## 4. Ce que Polygone ne protège PAS
 

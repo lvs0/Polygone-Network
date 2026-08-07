@@ -89,4 +89,4 @@
 ---
 
 *Stub honnête Honoré Conseil des Sages. Mise à jour S2.*
-*MIT License · Pas de token · Pas de télémétrie.*
+*AGPL-3.0 · Pas de token · Pas de télémétrie.*

@@ -151,4 +151,4 @@ Ce document ne couvre **pas** :
 ---
 
 *Fin de `kill-switch.md`.*
-*MIT License, voir `LICENSE`.*
+*AGPL-3.0, voir `LICENSE`.*

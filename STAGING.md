@@ -106,4 +106,4 @@ L'inverse du silence marketing = promettre 8 services pour en livrer 2. Coupe Mu
 ---
 
 *Hérite de : `ECOSYSTEM.md` (original 8 services), Conseil des Sages 2026-06-29 (Musk + Gödel).*
-*MIT License · Pas de monétisation.*
+*AGPL-3.0 · Pas de monétisation.*

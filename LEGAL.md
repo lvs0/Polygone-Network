@@ -1,6 +1,6 @@
 # LEGAL.md — Posture légale de Polygone
 
-> *Document associé à `LICENSE` (MIT) et `ECOSYSTEM.md`.*
+> *Document associé à `LICENSE` (AGPL-3.0) et `ECOSYSTEM.md`.*
 > *Lisible par tous · Citable dans une procédure judiciaire.*
 > *Date : 2026-06-29 · Statut : v0.2 · Posture « honest-first » (Conseil des Sages 2026-06-29, S5).*
 
@@ -10,7 +10,7 @@
 
 Polygone est :
 
-- **Un logiciel libre** distribué sous **licence MIT**.
+- **Un logiciel libre** distribué sous **licence AGPL-3.0**.
 - **Un écosystème d'outils** de chiffrement post-quantique : ML-KEM-1024 (FIPS 203) · ML-DSA-65 (FIPS 204) · AES-256-GCM · Shamir 4-of-7 · BLAKE3.
 - **Un réseau peer-to-peer décentralisé**. Aucun serveur central n'est opéré par Polygone.
 
@@ -80,23 +80,12 @@ Pas de programme de bug bounty avec финансовое-incitatif (pas de budge
 
 ## 7. Licence
 
-MIT. Voir `LICENSE`.
+**AGPL-3.0** (GNU Affero General Public License v3). Voir `LICENSE`.
 
-```
-MIT License
-
-Copyright (c) 2026 Lévy & Polygone contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-```
+Décision 2026-08-07 : l'AGPL protège le travail contre l'appropriation —
+quiconque modifie et *héberge* un service Polygone doit publier son code
+sous la même licence. Le texte intégral est disponible à
+https://www.gnu.org/licenses/agpl-3.0.txt.
 
 ## 8. Pas de garantie
 
