@@ -145,9 +145,17 @@ Le reste derrière `:` — `:recevoir :clef :voisins :compute :ia :demo
 
 `polygone compute --emprunter <node> --via <relay>` → grant du nœud
 fantôme (`ecouter --compute`) → `--executer <tâche>` (shell sandboxé
-`systemd-run --user`) ou `:wasm <fichier>` (wasmi/WASI). Honnête : la
-sandbox shell isole contre les accidents, pas contre un attaquant
-local (même UID) — durcissement en cours (Phase 2).
+`systemd-run --user`) ou `:wasm <fichier>` (wasmi/WASI).
+
+**Sandbox durcie (Phase 2, 2026-08-07) :** `ProtectHome=yes`,
+`InaccessiblePaths=~/.polygone` (l'identité est **illisible** depuis la
+sandbox — plus de vol de clés en une requête), `PrivateDevices`,
+`PrivateNetwork`, `RestrictAddressFamilies`, `SystemCallFilter`, CPU/RAM
+bornés, **2 exécutions max en parallèle**, unité transitoire arrêtée au
+timeout (pas d'orphelins), et WASM sous **fuel metering** (une boucle
+infinie trappe, le nœud ne gèle plus). Le ghost refuse les demandeurs à
+mauvaise réputation locale. Honnête : isolation contre les accidents et
+l'abus opportuniste — pas une sandbox cryptographique (même UID).
 
 ---
 

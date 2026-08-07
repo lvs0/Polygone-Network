@@ -3,6 +3,7 @@
 //! `polygone duress --confirmer` détruit **irréversiblement** :
 //!   - l'identité locale (`~/.polygone/identity.json`)
 //!   - les fichiers reçus (`~/.polygone/received/`)
+//!   - l'état RES local (`~/.polygone/reputation.json`)
 //!
 //! Les fragments chez les destinataires et les backups hors-ligne ne sont
 //! PAS détruits — mais sans les clés locales, ils deviennent définitivement
@@ -17,9 +18,10 @@ use std::path::PathBuf;
 /// What duress destroys, and what it does not — printed before destruction.
 pub fn plan() -> String {
     format!(
-        "mode duress — destruction irréversible de :\n  · {} (identité, clés ML-KEM/ML-DSA)\n  · {} (fichiers reçus)\n\nReste intact : fragments chez les destinataires, backups hors-ligne —\nmais ils deviennent définitivement illisibles sans vos clés.",
+        "mode duress — destruction irréversible de :\n  · {} (identité, clés ML-KEM/ML-DSA)\n  · {} (fichiers reçus)\n  · {} (état RES local)\n\nReste intact : fragments chez les destinataires, backups hors-ligne —\nmais ils deviennent définitivement illisibles sans vos clés.",
         identity_path().display(),
-        received_dir().display()
+        received_dir().display(),
+        reputation_path().display()
     )
 }
 
@@ -46,6 +48,13 @@ pub fn execute() -> Result<Vec<String>> {
         ));
     }
 
+    // 3. Local RES state (reputation of peers is a trace of past sessions).
+    let rep = reputation_path();
+    if rep.exists() {
+        std::fs::remove_file(&rep)?;
+        removed.push(format!("état RES supprimé : {}", rep.display()));
+    }
+
     if removed.is_empty() {
         removed.push("rien à détruire : pas d'identité locale".to_string());
     }
@@ -63,6 +72,11 @@ fn received_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
     home.join(".polygone").join("received")
+}
+
+/// `~/.polygone/reputation.json`
+fn reputation_path() -> PathBuf {
+    crate::reputation::ReputationTable::path()
 }
 
 #[cfg(test)]

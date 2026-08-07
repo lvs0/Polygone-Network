@@ -585,9 +585,26 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
         }
 
         // RES compute requests: answer with a grant (ghost node).
-        // Only answer requests addressed to this node (anti-spoofing).
+        // Only answer requests addressed to this node (anti-spoofing), and
+        // refuse borrowers whose local reputation is bad (fail-closed gate).
         if let Ok(env) = serde_json::from_str::<NetEnvelope>(line.trim()) {
             if env.typ == "req" && compute && env.to == node_id(identity) {
+                let mut grant = grant_for(&env, identity);
+                // Reputation gate: a borrower known to fail is refused.
+                let table = crate::reputation::ReputationTable::load();
+                if let Some(rep) = table.nodes.get(&env.from) {
+                    if rep.fail >= 3 && rep.score() < 30 {
+                        let mut body: serde_json::Value =
+                            serde_json::from_slice(&grant.payload).unwrap_or(serde_json::json!({}));
+                        body["ok"] = serde_json::Value::Bool(false);
+                        body["refus"] = serde_json::Value::String("réputation insuffisante".into());
+                        grant.payload = body.to_string().into_bytes();
+                        let _ = writer
+                            .write_all(format!("{}\n", serde_json::to_string(&grant)?).as_bytes())
+                            .await;
+                        continue;
+                    }
+                }
                 let mut grant = grant_for(&env, identity);
                 // Execute the task in the systemd sandbox (RES execution layer).
                 if let Some(output) = run_res_task(&env) {

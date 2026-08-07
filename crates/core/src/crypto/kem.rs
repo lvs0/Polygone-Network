@@ -1,6 +1,8 @@
 //! ML-KEM-1024 key encapsulation — NIST FIPS 203.
 //!
-//! Wraps `pqcrypto-mlkem` with a typed, zeroize-safe API.
+//! Wraps `pqcrypto-mlkem` with a typed API. The wrapper zeroises itself
+//! on drop; the *inner* pqcrypto buffer is zeroized only best-effort
+//! (pqcrypto does not expose mutable bytes — see `KemSecretKey`).
 
 use pqcrypto_mlkem::mlkem1024;
 use pqcrypto_traits::kem::{
@@ -54,6 +56,12 @@ impl KemPublicKey {
 }
 
 /// An ML-KEM-1024 decapsulation (secret) key, zeroised on drop.
+///
+/// Honest limit: `#[zeroize(skip)]` is required because
+/// `pqcrypto_mlkem::SecretKey` does not implement `Zeroize` and exposes no
+/// mutable bytes. The wrapper's own copies are zeroized; the pqcrypto
+/// inner buffer is not — treat this as best-effort, and prefer destroying
+/// `identity.json` via `polygone duress` for real at-rest erasure.
 #[derive(ZeroizeOnDrop)]
 pub struct KemSecretKey(#[zeroize(skip)] pub mlkem1024::SecretKey);
 

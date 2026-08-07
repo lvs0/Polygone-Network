@@ -291,11 +291,14 @@ Release profile: `opt-level=3`, `lto="thin"`, `codegen-units=1`,
 | ~~Relay metadata in clear (from/to/tailles/name)~~ | relay.rs + net.rs | 🟡 Assumed + documented; **file name now out-of-band** (encrypted) |
 | ~~Relay: no line limit, no rate limit, from spoofing~~ | relay.rs | ✅ **FIXED (Phase 1)** — 64 KiB cap, 200 env/s, `from` must equal HELLO, sharded table |
 | Relay: HELLO not cryptographically authenticated | relay.rs | 🟡 Assumed — authenticity lives at the receiver (ML-DSA + known_peers); a signed HELLO is a design option |
-| RES shell sandbox reads `$HOME` (same UID) | exec.rs | Phase 2 |
-| WASM timeout after `start()` (sync wasmi) | exec.rs | Phase 2 |
+| ~~RES shell sandbox reads `$HOME` (same UID)~~ | exec.rs | ✅ **FIXED (Phase 2)** — `ProtectHome=yes`, `InaccessiblePaths=~/.polygone` (identité illisible), `PrivateDevices`, `RestrictAddressFamilies`, `SystemCallFilter=@system-service`, max 2 exécutions concurrentes |
+| ~~WASM timeout after `start()` (sync wasmi)~~ | exec.rs | ✅ **FIXED (Phase 2)** — fuel metering wasmi (`Config::consume_fuel` + `set_fuel(1e10)`) : une boucle infinie trappe, le nœud ne gèle plus |
+| ~~run_with_timeout laisse des unités transitoires orphelines~~ | exec.rs | ✅ **FIXED (Phase 2)** — unité nommée `polygone-res-<pid>-<nanos>`, `systemctl --user stop` au timeout |
+| ~~Duress ne couvre que identity + received~~ | duress.rs | ✅ **FIXED (Phase 2)** — `reputation.json` détruit aussi |
+| Zeroize : `#[zeroize(skip)]` ML-KEM + ML-DSA SecretKey sans zeroize | core | 🟡 Documenté honnêtement (pqcrypto n'expose pas de bytes mutables) ; l'effacement réel passe par `duress` |
 | Daemon socket has no consumer | daemon/socket.rs | Decision pending (D5) |
 | `time_sync` engine with no consumers | core/time_sync | Decision: wire or archive |
-| At-rest: identity.json + received/ in clear | identity.rs / net.rs | Decision: encrypt-at-rest or document (Phase 2) |
+| At-rest: identity.json + received/ in clear | identity.rs / net.rs | Decision: encrypt-at-rest or document (Phase 2 — documenté, duress = effacement) |
 | `known_peers` map never populated by the CLI | net.rs | Phase 4 — contacts feature |
 
 ---

@@ -28,6 +28,31 @@
   Axiome 4 → coupe documentée + garde `wc -l crates/client ≤ 5000`.
 - **Licence unifiée : AGPL-3.0** (README, PHILOSOPHY, docs alignés sur
   `Cargo.toml`). MIT supprimé des docs.
+
+### Security (Phase 1 — le transport)
+- **ML-DSA-65 branché au réseau** : chaque message est signé
+  (`session‖from‖to‖kem_ct‖ciphertext`), vérifié avant déchiffrement,
+  fail-closed. Ancre `known_peers` : une clé connue ne peut pas être
+  usurpée (TOFU documenté au premier contact).
+- **Nom de fichier hors-bande** : chiffré avec la clé de session
+  (`name_ct`) — le relay ne voit plus les noms.
+- **Relay durci** : cap 64 KiB/ligne, rate-limit 200 env/s, `from` doit
+  égaler le HELLO (anti-usurpation), table shardée 16×.
+- `process_line` : vérifie `to`, drop les idx dupliqués, session OsRng.
+
+### Security (Phase 2 — la machine)
+- **Sandbox RES verrouillée** : `ProtectHome`, `InaccessiblePaths=
+  ~/.polygone` (identité illisible), `PrivateDevices`, `SystemCallFilter`,
+  2 exécutions max en parallèle.
+- **WASM fuel metering** : une boucle infinie trappe au lieu de geler le
+  nœud.
+- **Timeout réel** : l'unité transitoire `systemd-run` est arrêtée
+  (`systemctl --user stop`) — plus d'orphelins.
+- **Duress étendu** : détruit aussi `reputation.json` (traces RES).
+- **Portillon de réputation** au ghost : refuse les demandeurs à mauvaise
+  réputation locale.
+- Zeroize : limitation pqcrypto documentée honnêtement (bytes non
+  mutables), l'effacement réel passe par `duress`.
 - **README rc2** — version, statuts services, test count (89), commandes
   réelles.
 
