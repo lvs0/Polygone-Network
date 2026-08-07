@@ -23,6 +23,19 @@ pub struct EncryptedPayload {
 #[derive(ZeroizeOnDrop, Zeroize)]
 pub struct SessionKey([u8; 32]);
 
+impl Clone for SessionKey {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+
+impl std::fmt::Debug for SessionKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never leak key material through Debug.
+        f.write_str("SessionKey(***REDACTED***)")
+    }
+}
+
 impl SessionKey {
     /// Wrap raw bytes into a session key.
     pub fn from_bytes(bytes: [u8; 32]) -> Self {

@@ -104,6 +104,12 @@ impl Signature {
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
+
+    /// Build a detached signature from raw bytes (e.g. parsed from a
+    /// received envelope).
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        Signature(bytes.to_vec())
+    }
 }
 
 /// High-level signer interface.
@@ -117,6 +123,12 @@ impl Signer {
     /// leaves the machine and is zeroized on drop.
     pub fn secret_key(&self) -> &SecretKey {
         &self.sk
+    }
+
+    /// Build a signer from an existing secret key (e.g. parsed from a
+    /// persisted identity).
+    pub fn from_secret(sk: SecretKey) -> Self {
+        Self { sk }
     }
 
     /// Sign a message, returning a detached signature.
@@ -138,6 +150,12 @@ impl Verifier {
     /// The public key this verifier authenticates with.
     pub fn public_key(&self) -> &PublicKey {
         &self.pk
+    }
+
+    /// Build a verifier from an existing public key (e.g. parsed from a
+    /// received envelope's `signer` field).
+    pub fn from_public(pk: PublicKey) -> Self {
+        Self { pk }
     }
 
     /// Verify a detached signature.

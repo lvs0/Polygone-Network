@@ -98,6 +98,20 @@ impl LocalIdentity {
     pub fn kem_secret_key(&self) -> anyhow::Result<kem::KemSecretKey> {
         Ok(kem::KemSecretKey::from_hex(&self.kem_sk_hex)?)
     }
+
+    /// The ML-DSA signer built from the persisted secret key (only you).
+    pub fn sign_signer(&self) -> anyhow::Result<sign::Signer> {
+        Ok(sign::Signer::from_secret(sign::SecretKey::from_hex(
+            &self.sign_sk_hex,
+        )?))
+    }
+
+    /// The ML-DSA verifier built from the persisted public key (shareable).
+    pub fn sign_verifier(&self) -> anyhow::Result<sign::Verifier> {
+        Ok(sign::Verifier::from_public(sign::PublicKey::from_hex(
+            &self.sign_pk_hex,
+        )?))
+    }
 }
 
 /// Generate a random 3-syllable pseudo (e.g. "vox-kali-ren").

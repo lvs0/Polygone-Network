@@ -10,60 +10,138 @@
 //! ```
 //!
 //! The relay only reads three fields: `kind` (must be "fragment"), `to`
-//! (routing), and `session` (TTL bookkeeping). It never inspects the payload.
+//! (routing), and `session` (bookkeeping). It never inspects the payload.
 //! It never stores fragments. It forgets a peer the moment it disconnects.
+//!
+//! Hardening (Phase 1, 2026-08-07):
+//! - **`from` must equal the HELLO identity** — a connection cannot emit
+//!   envelopes under another node's name (anti-spoofing at routing level).
+//! - **Line size cap** (64 KiB) and a **per-connection rate limit** —
+//!   a misbehaving client cannot exhaust relay memory or CPU.
+//! - **Sharded routing table** (16 shards) — forwarding is no longer
+//!   serialized behind a single global lock.
 
 use anyhow::Result;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
-/// In-memory routing table: peer_id → open write half.
-type PeerTable = Arc<RwLock<HashMap<String, OwnedWriteHalf>>>;
+/// Max length of a single wire line (envelope). 64 KiB bounds memory.
+const MAX_LINE: usize = 64 * 1024;
+/// Max envelopes forwarded per second per connection.
+const RATE_LIMIT_PER_SEC: usize = 200;
+/// Number of routing-table shards (parallelism for forwarding).
+const SHARDS: usize = 16;
+
+/// In-memory routing table: node_id → open write half, sharded to avoid a
+/// global write lock serializing every forward.
+type Shard = RwLock<HashMap<String, OwnedWriteHalf>>;
+type Peers = Arc<Vec<Shard>>;
+
+fn shard_for<'a>(peers: &'a Peers, node_id: &str) -> &'a Shard {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    node_id.hash(&mut hasher);
+    &peers[hasher.finish() as usize % SHARDS]
+}
+
+/// Read one line (up to `cap` bytes) without unbounded allocation.
+/// Returns `None` on EOF, `Some(None)` for an oversized line.
+async fn read_line_capped(
+    reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
+    cap: usize,
+) -> std::io::Result<Option<Option<Vec<u8>>>> {
+    let mut buf = Vec::with_capacity(256);
+    loop {
+        let mut byte = [0u8; 1];
+        let n = reader.read(&mut byte).await?;
+        if n == 0 {
+            return Ok(if buf.is_empty() {
+                None
+            } else {
+                Some(Some(buf))
+            });
+        }
+        if byte[0] == b'\n' {
+            return Ok(Some(Some(buf)));
+        }
+        buf.push(byte[0]);
+        if buf.len() > cap {
+            // Drain until newline so the stream stays aligned, then report.
+            loop {
+                let n = reader.read(&mut byte).await?;
+                if n == 0 || byte[0] == b'\n' {
+                    break;
+                }
+            }
+            return Ok(Some(None));
+        }
+    }
+}
 
 /// Handle one client connection.
-async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: PeerTable) -> Result<()> {
+async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: Peers) -> Result<()> {
     let (reader, writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
-    let mut line = String::new();
 
     // ── Handshake: first line must be "HELLO <node_id>" ───────────────────
     let hello = loop {
-        line.clear();
-        let n = reader.read_line(&mut line).await?;
-        if n == 0 {
-            return Ok(()); // disconnected before HELLO
-        }
+        let line = match read_line_capped(&mut reader, MAX_LINE).await? {
+            Some(Some(b)) => String::from_utf8_lossy(&b).to_string(),
+            Some(None) => {
+                log::warn!("relay: oversized HELLO from {} — dropping", peer_addr);
+                return Ok(());
+            }
+            None => return Ok(()), // disconnected before HELLO
+        };
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("HELLO ") {
-            break rest.to_string();
+            break rest.trim().to_string();
         }
         log::debug!("relay: ignoring non-HELLO from {}", peer_addr);
     };
 
     // Register the write half so fragments can be routed here.
-    peers.write().await.insert(hello.clone(), writer);
+    shard_for(&peers, &hello)
+        .write()
+        .await
+        .insert(hello.clone(), writer);
     log::debug!("relay: {} registered as '{}'", peer_addr, hello);
     let mut dead_streams = Vec::new();
 
     // ── Relay loop ────────────────────────────────────────────────────────
+    let mut rate_tokens = RATE_LIMIT_PER_SEC;
+    let mut rate_window_start = std::time::Instant::now();
     loop {
-        line.clear();
-        let n = reader.read_line(&mut line).await?;
-        if n == 0 {
-            break; // client disconnected
-        }
-        let raw = line.trim();
-        if raw.is_empty() {
+        let line = match read_line_capped(&mut reader, MAX_LINE).await? {
+            Some(Some(b)) => b,
+            Some(None) => {
+                log::warn!("relay: oversized line from {} — dropping", peer_addr);
+                continue;
+            }
+            None => break, // client disconnected
+        };
+        if line.is_empty() {
             continue;
         }
+        // Per-connection rate limit: token bucket, refilled each second.
+        let now = std::time::Instant::now();
+        if now.duration_since(rate_window_start).as_secs() >= 1 {
+            rate_window_start = now;
+            rate_tokens = RATE_LIMIT_PER_SEC;
+        }
+        if rate_tokens == 0 {
+            log::warn!("relay: rate limit exceeded by {} — dropping", peer_addr);
+            return Ok(());
+        }
+        rate_tokens -= 1;
 
         // The ONLY inspection: kind + routing fields. Never the payload.
-        let val: serde_json::Value = match serde_json::from_str(raw) {
+        let val: serde_json::Value = match serde_json::from_slice(&line) {
             Ok(v) => v,
             Err(_) => {
                 log::warn!("relay: ignoring non-JSON from {}", peer_addr);
@@ -77,18 +155,31 @@ async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: PeerTabl
             continue;
         }
 
+        // Anti-spoofing: a connection forwards only under its own name.
+        let from = val.get("from").and_then(|v| v.as_str()).unwrap_or("");
+        if from != hello {
+            log::warn!(
+                "relay: '{}' tried to forward as '{}' — dropped",
+                hello,
+                from
+            );
+            continue;
+        }
+
         let to = val.get("to").and_then(|v| v.as_str()).unwrap_or("");
         if to.is_empty() {
             continue;
         }
 
         // Forward to the destination if it is connected.
-        let mut table = peers.write().await;
+        let mut table = shard_for(&peers, to).write().await;
+        let mut out = line.clone();
+        out.push(b'\n'); // NDJSON framing: the peer's read_line needs the newline
         let forwarded = match table.get_mut(to) {
             Some(dst) => {
                 // Dead streams are dropped on write failure.
                 let mut ok = true;
-                if let Err(e) = dst.write_all(format!("{raw}\n").as_bytes()).await {
+                if let Err(e) = dst.write_all(&out).await {
                     log::warn!("relay: drop dead peer '{}': {}", to, e);
                     ok = false;
                     dead_streams.push(to.to_string());
@@ -116,7 +207,7 @@ async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: PeerTabl
     }
 
     log::debug!("relay: '{}' ({}) disconnected", hello, peer_addr);
-    peers.write().await.remove(&hello);
+    shard_for(&peers, &hello).write().await.remove(&hello);
     Ok(())
 }
 
@@ -130,7 +221,11 @@ pub async fn run(port: u16) -> Result<()> {
 
 /// Serve on an already-bound listener (used by tests with port 0).
 async fn run_listener(listener: TcpListener) -> Result<()> {
-    let peers: PeerTable = Arc::new(RwLock::new(HashMap::new()));
+    let mut shards = Vec::with_capacity(SHARDS);
+    for _ in 0..SHARDS {
+        shards.push(RwLock::new(HashMap::new()));
+    }
+    let peers: Peers = Arc::new(shards);
 
     loop {
         match listener.accept().await {
@@ -153,6 +248,7 @@ async fn run_listener(listener: TcpListener) -> Result<()> {
 mod tests {
     use super::*;
     use std::time::Duration;
+    use tokio::io::AsyncBufReadExt;
 
     /// Spawn a relay on a random port, return the bound address.
     async fn spawn_relay() -> std::net::SocketAddr {
@@ -259,5 +355,63 @@ mod tests {
         })
         .await;
         assert!(got.is_err(), "relay must not forward non-fragments");
+    }
+
+    #[tokio::test]
+    async fn drops_envelopes_with_mismatched_from() {
+        let addr = spawn_relay().await;
+
+        let mut bob = TcpStream::connect(addr).await.unwrap();
+        bob.write_all(b"HELLO bob\n").await.unwrap();
+        let mut alice = TcpStream::connect(addr).await.unwrap();
+        alice.write_all(b"HELLO alice\n").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Alice tries to forward under Mallory's name — anti-spoofing.
+        let forged = r#"{"kind":"fragment","from":"mallory","to":"bob","session":"sX","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[9,9]}"#;
+        alice
+            .write_all(format!("{forged}\n").as_bytes())
+            .await
+            .unwrap();
+
+        let mut line = String::new();
+        let got = tokio::time::timeout(Duration::from_millis(300), async {
+            let mut reader = BufReader::new(&mut bob);
+            reader.read_line(&mut line).await.unwrap();
+        })
+        .await;
+        assert!(got.is_err(), "relay must not forward a mismatched from");
+    }
+
+    #[tokio::test]
+    async fn oversized_lines_are_dropped_not_forwarded() {
+        let addr = spawn_relay().await;
+
+        let mut bob = TcpStream::connect(addr).await.unwrap();
+        bob.write_all(b"HELLO bob\n").await.unwrap();
+        let mut alice = TcpStream::connect(addr).await.unwrap();
+        alice.write_all(b"HELLO alice\n").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // One line bigger than MAX_LINE, then a valid fragment.
+        let huge = "x".repeat(MAX_LINE + 100);
+        alice.write_all(huge.as_bytes()).await.unwrap();
+        alice.write_all(b"\n").await.unwrap();
+        let ok = r#"{"kind":"fragment","from":"alice","to":"bob","session":"sY","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[1,2,3]}"#;
+        alice.write_all(format!("{ok}\n").as_bytes()).await.unwrap();
+
+        // Bob receives ONLY the valid fragment.
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            let mut reader = BufReader::new(&mut bob);
+            reader.read_line(&mut line).await.unwrap();
+        })
+        .await
+        .unwrap();
+        assert!(line.contains("\"session\":\"sY\""), "forwarded: {line}");
+        assert!(
+            !line.contains("xxxx") && !line.contains("sX"),
+            "oversized lines must never be forwarded: {line}"
+        );
     }
 }

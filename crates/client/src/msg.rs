@@ -46,6 +46,15 @@ pub struct SendOutput {
     pub sender_pk: KemPublicKey,
     /// The 7 Shamir fragments.
     pub fragments: Vec<Fragment>,
+    /// The AES-256-GCM ciphertext *before* Shamir splitting (`Some` only
+    /// from `send_bytes`). Kept so the network layer can sign the canonical
+    /// message — the signature covers the reconstructed ciphertext, which
+    /// Shamir deterministically rebuilds from any 4-of-7 fragments.
+    pub ciphertext: Option<Vec<u8>>,
+    /// The session key derived from the KEM shared secret (`Some` only from
+    /// `send_bytes`). Used to encrypt the file name out-of-band — only the
+    /// recipient can derive it.
+    pub session_key: Option<symmetric::SessionKey>,
 }
 
 impl SendOutput {
@@ -84,6 +93,8 @@ impl SendOutput {
             kem_ct: kem_ct.ok_or_else(|| anyhow::anyhow!("missing KEM_CT"))?,
             sender_pk: sender_pk.ok_or_else(|| anyhow::anyhow!("missing SENDER_PK"))?,
             fragments,
+            ciphertext: None, // not carried by the wire format (offline path)
+            session_key: None,
         })
     }
 }
@@ -122,6 +133,8 @@ pub fn send_bytes(plaintext: &[u8], recipient_pk: &KemPublicKey) -> anyhow::Resu
         kem_ct,
         sender_pk,
         fragments,
+        ciphertext: Some(encrypted),
+        session_key: Some(session_key),
     })
 }
 

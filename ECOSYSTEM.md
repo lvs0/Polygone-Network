@@ -101,24 +101,29 @@ Wire contract — NDJSON over TCP :
 ```json
 {"kind":"fragment","from":"<node_id>","to":"<node_id>","session":"<hex>",
  "seq":0,"type":"kem"|"frag","idx":0,"threshold":4,"total":7,
- "payload":[...], "name":"<nom de fichier — enveloppe KEM d'un fichier>"}
+ "payload":[...],
+ "sig":"<ML-DSA-65 signature — KEM envelope>",
+ "signer":"<ML-DSA pk hex — KEM envelope>",
+ "name_ct":"<nom de fichier chiffré par la clé de session — enveloppe KEM d'un fichier>"}
 ```
 
 Handshake : `HELLO <node_id>\n`. `node_id` = 16 premiers hex de la clé
 KEM publique (stable — c'est ce qui permet d'être retrouvé).
 
-- `envoyer --via <relay> --a <node> [--fichier]` : 1 enveloppe KEM +
-  7 fragments → le relay route chaque enveloppe sur `to`.
-- `ecouter <relay>` : buffer par session, ≥4/7 → reconstruction →
-  message affiché / fichier écrit dans `~/.polygone/received/`.
+- `envoyer --via <relay> --a <node> [--fichier]` : 1 enveloppe KEM
+  (signée + nom chiffré) + 7 fragments → le relay route sur `to`.
+- `ecouter <relay>` : buffer par session, ≥4/7 → vérification de la
+  signature ML-DSA (**« c'est bien Alice »**) → reconstruction →
+  déchiffrement → message affiché / fichier écrit dans
+  `~/.polygone/received/`.
 
 **Honnêteté du relay (assumée et documentée, pas cachée) :** le relay
-voit les métadonnées de routage (from/to/session/tailles, et le nom de
-fichier sur l'enveloppe KEM). Il ne voit jamais le contenu. Le modèle de
-menace est dans `docs/threat-commodity.md` et
+voit les métadonnées de routage (from/to/session/tailles) mais **plus
+les noms de fichiers** (hors-bande, chiffrés). Il ne voit jamais le
+contenu. Le modèle de menace est dans `docs/threat-commodity.md` et
 `docs/threat-high-value.md`. La promesse « zero-knowledge » porte sur le
-**contenu** ; la visibilité des métadonnées est le prix du routage — à
-réduire (nom de fichier hors-bande, pseudonymes) et à documenter.
+**contenu** ; les métadonnées de routage sont le prix du routage —
+réduites (noms hors-bande) et documentées.
 
 ---
 

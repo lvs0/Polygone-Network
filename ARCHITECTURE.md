@@ -123,7 +123,10 @@ TCP, newline-delimited JSON (NDJSON), through the blind relay.
 ```json
 {"kind":"fragment","from":"<node_id>","to":"<node_id>","session":"<hex>",
  "seq":0,"type":"kem"|"frag","idx":0,"threshold":4,"total":7,
- "payload":[...], "name":"<file name — KEM envelope of a file only>"}
+ "payload":[...],
+ "sig":"<ML-DSA-65 signature, KEM envelope only>",
+ "signer":"<sender ML-DSA pk hex, KEM envelope only>",
+ "name_ct":"<file name encrypted with the session key, KEM envelope of a file only>"}
 ```
 
 ### Handshake
@@ -134,6 +137,23 @@ client → relay : HELLO <node_id>\n
 
 `node_id` = first 16 hex chars of the **KEM public key** (stable,
 derived, persistent). The relay routes fragments to connected node_ids.
+
+### Signatures — "c'est bien Alice"
+
+Every message is signed by the sender's ML-DSA-65 key. The signature
+covers the canonical bytes `session ‖ from ‖ to ‖ kem_ct ‖ ciphertext`
+(Shamir deterministically rebuilds the same ciphertext from any 4-of-7
+fragments, so the receiver verifies before decrypting). The receiver
+fails closed on: missing signature, unverifiable signature, envelope not
+addressed to it, duplicate fragment index. A `known_peers` map (`from` →
+expected ML-DSA pk) turns first-contact trust (TOFU) into a real trust
+anchor: a peer whose signing key is known cannot be impersonated.
+
+### File names are out-of-band
+
+The relay never sees a file name: `name_ct` is the name encrypted with
+the session key, which only the recipient can derive. The relay sees
+opaque bytes.
 
 ### Send
 
@@ -162,20 +182,26 @@ can discover a relay without configuration.
 
 ## 4. The relay (crates/relay) — blind, not omniscient
 
-An async TCP server with an in-memory routing table
-(`HashMap<node_id, write_half>` under `RwLock`). It:
+An async TCP server with an in-memory routing table — **16 shards** of
+`HashMap<node_id, write_half>`, so forwarding is parallel, not
+serialized behind one lock. It:
 
-- reads **only** `kind`, `to`, `session` to route (payloads pass verbatim);
+- reads **only** `kind`, `from`, `to`, `session` to route (payloads pass
+  verbatim);
+- **drops any envelope whose `from` differs from the HELLO identity**
+  (a connection cannot emit under another node's name);
+- caps lines at **64 KiB** and rate-limits each connection (200 env/s);
 - holds **no** state to disk — restart = full amnesia;
 - forgets a peer the moment it disconnects;
 - drops fragments for offline peers instead of buffering them.
 
 > **Honest limitation (documented, not hidden) :** the relay sees the
-> envelopes' metadata — `from`, `to`, `session`, sizes, and the file
-> `name` on KEM envelopes — because it must route on `to`. It *cannot*
-> read the encrypted payloads. The threat model is documented in
-> `docs/threat-commodity.md` and `docs/threat-high-value.md`.
-> The "zero-knowledge relay" claim is about **content**, not metadata.
+> envelopes' metadata — `from`, `to`, `session`, sizes — because it must
+> route on them. It *cannot* read the encrypted payloads, and since
+> Phase 1 it no longer sees file names (encrypted out-of-band). The
+> threat model is documented in `docs/threat-commodity.md` and
+> `docs/threat-high-value.md`. Authenticity of the sender is enforced at
+> the receiver (ML-DSA signature + trust anchor), not at the relay.
 
 ---
 
@@ -261,14 +287,16 @@ Release profile: `opt-level=3`, `lto="thin"`, `codegen-units=1`,
 
 | Gap | Where | Status |
 | --- | ----- | ------ |
-| ML-DSA-65 generated but **not signed/verified** on the network path | net.rs / sign.rs | Phase 1 of the product++ plan |
-| Relay metadata in clear (from/to/tailles/name) | relay.rs + net.rs | Assumed + documented; name → out-of-band (Phase 1) |
-| Relay: HELLO unauthenticated, no line limit, no rate-limit | relay.rs | Phase 1 |
+| ~~ML-DSA-65 not signed/verified on the network path~~ | net.rs / sign.rs | ✅ **FIXED (Phase 1)** — every message is signed, verified, fail-closed |
+| ~~Relay metadata in clear (from/to/tailles/name)~~ | relay.rs + net.rs | 🟡 Assumed + documented; **file name now out-of-band** (encrypted) |
+| ~~Relay: no line limit, no rate limit, from spoofing~~ | relay.rs | ✅ **FIXED (Phase 1)** — 64 KiB cap, 200 env/s, `from` must equal HELLO, sharded table |
+| Relay: HELLO not cryptographically authenticated | relay.rs | 🟡 Assumed — authenticity lives at the receiver (ML-DSA + known_peers); a signed HELLO is a design option |
 | RES shell sandbox reads `$HOME` (same UID) | exec.rs | Phase 2 |
 | WASM timeout after `start()` (sync wasmi) | exec.rs | Phase 2 |
 | Daemon socket has no consumer | daemon/socket.rs | Decision pending (D5) |
 | `time_sync` engine with no consumers | core/time_sync | Decision: wire or archive |
 | At-rest: identity.json + received/ in clear | identity.rs / net.rs | Decision: encrypt-at-rest or document (Phase 2) |
+| `known_peers` map never populated by the CLI | net.rs | Phase 4 — contacts feature |
 
 ---
 
