@@ -163,6 +163,40 @@ if ! HOME="$SO" timeout 15 "$PD" status 2>/dev/null | grep -q "daemon.sock.*✅"
 fi
 echo "✓ polygoned status reflète le socket réel (absent → ❌, présent → ✅)"
 
+# ── run-loop — la boucle d'allocation dynamique tourne et sort proprement ─
+# La promesse centrale du daemon (allouer les ressources libres en temps
+# réel) doit tourner sur le binaire réel : ticks visibles, SIGINT géré,
+# sortie propre (exit 0, pas de kill brutal).
+RUN="$TMP/runloop"
+mkdir -p "$RUN/.config/polygone"
+cat >"$RUN/.config/polygone/daemon.toml" <<'TOML'
+tier = "Eco"
+
+[behavior]
+grow_step_pct = 10
+shrink_step_pct = 5
+shrink_hysteresis_ticks = 5
+throttle_on_user_activity = true
+tick_interval_secs = 1
+
+[safety]
+min_free_ram_gb = 4.0
+min_free_cpu_cores = 1
+min_free_vram_mb = 512
+max_cpu_percent = 85
+TOML
+if HOME="$RUN" timeout -s INT --preserve-status 6 "$PD" --dry-run \
+    >"$TMP/run.log" 2>&1 \
+  && grep -q "starting on linux" "$TMP/run.log" \
+  && grep -q "CPU:.*Alloc:" "$TMP/run.log" \
+  && grep -q "exited cleanly" "$TMP/run.log"; then
+  echo "✓ polygoned --dry-run : la boucle d'allocation tourne (ticks) et sort proprement"
+else
+  echo "✖ le run-loop du daemon ne tourne pas proprement"
+  tail -5 "$TMP/run.log"
+  exit 1
+fi
+
 echo
 echo "═══ VERDICT : les commandes promues tiennent leurs verdicts. ═══"
 exit 0
