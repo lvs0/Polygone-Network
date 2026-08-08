@@ -2,7 +2,78 @@
 
 > *Style : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).*
 > *Semver : voir `Cargo.toml`.*
-> *Dernier format : 2026-08-07.*
+> *Dernier format : 2026-08-08.*
+
+---
+
+## [Unreleased] — 2026-08-08 — déterminisme, preuves système, D8
+
+### Added
+
+- **`polygone envoyer --stdin`** — le message passe par le stdin (symétrique
+  de `recevoir -`) : il n'apparaît jamais dans l'historique shell.
+  Recommandé par `docs/kill-switch.md`, désormais réel — round-trip
+  prouvé en CI (zéro argument en clair).
+- **`docs/observation-premier-soir.md`** — le carnet d'observation du
+  Premier Soir : le modèle complet (identité du soir, grille des 5
+  questions, 3 preuves, verdict collectif, résidu social, 4 métriques),
+  zéro résultat fictif, prêt à remplir et commiter.
+- **Preuves système en CI** — chaque promesse du README tourne sur les
+  binaires du commit :
+  - `scripts/forensic-drive.sh` — relay + 2 clients RÉELS, fichier
+    chiffré + fragmenté Shamir 4/7, comparaison octet à octet, relay
+    stateless (job CI `drive`).
+  - `scripts/smoke-commands.sh` — test 7/7, verite, carte, premier-soir,
+    demo, round-trip stdin, duress 4→0, versions ×3, doctor, config
+    legacy (job CI `smoke`).
+
+### Changed
+
+- **La CI ne ment plus (Phase 3.1)** — `-A clippy::all` retiré (le gate
+  clippy ne pouvait jamais rougir), mode parallèle `cargo test --workspace`
+  (celui exact de la CI), check MIT réparé, ~26 lints corrigés, garde
+  Axiome 4 honnête (D6 — le produit reste mesuré, la rigueur sort du
+  compteur).
+- **Supply-chain** — actions tierces épinglées au SHA (dtolnay,
+  Swatinem/rust-cache, softprops/action-gh-release, upload-artifact) +
+  commentaire de traçabilité (tag + date) : plus de tag mobile.
+- **Axiomes exécutables en CI** — Axiome 2 (`parse_known_commands` : le
+  TUI tient ses deux tons), Axiome 5 (duress détruit réellement 4 → 0
+  fichiers dans le smoke).
+- **Le 4ᵉ binaire prouvé** — `polygoned doctor` (diagnostics, exit 0,
+  HOME éphémère) rejoint le smoke + job CI.
+- **Versions honnêtes** — les 4 binaires affichent
+  `env!("CARGO_PKG_VERSION")` (fini relay 0.1.0 / daemon 0.3.0 en dur) ;
+  gate de version dans le smoke — il a attrapé un binaire stale qui
+  mentait encore.
+- **Compteurs alignés sur la réalité** — 109 tests partout (README,
+  PREMIER-SOIR, ARCHITECTURE, threat-commodity, threat-high-value).
+- **README TTL précisé** (audit des promesses) — les fragments meurent
+  immédiatement au relay (stateless, drop) ; le TTL 30 s appartient au
+  scénario `premier-soir`. Aligné dans `verite` et threat-high-value.
+
+### Fixed
+
+- **Config daemon lisible (D8)** — `polygoned --gen-config` écrit ce qu'il
+  lit (sérialisation serde), ET les configs legacy (`[tier]` en table,
+  `[platform]` ignoré) se lisent avec les defaults PRODUIT (planchers
+  réels, toggles activés — jamais de zéros silencieux). `polygoned
+  status` fonctionne sur la config réelle de la machine (avant : TOML
+  parse error).
+
+### Security
+
+- **Duress étendu (Phase 2.5)** — `peers.json` (ancres TOFU : la trace
+  relationnelle, qui on a contacté) détruit avec l'identité ; 4 cibles,
+  test HOME éphémère, couverture documentée dans THREAT_MODEL.md +
+  threat-high-value.md.
+
+### Known (attente Lévy)
+
+- **D7** — première CI réelle sur GitHub : `main` jamais poussé
+  (53 commits post-rc2), en attente de décision + credentials.
+- **Premier Soir réel** — 3 personnes de confiance, un soir, un carnet
+  commité : le seul chiffre qui compte.
 
 ---
 
