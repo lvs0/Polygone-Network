@@ -150,6 +150,7 @@ pour un pair connu = rejet). « C'est bien Alice » est signé **et** ancré.
 |---|---|
 | [`docs/cli.md`](./docs/cli.md) | Référence complète de la commande `polygone` |
 | [`docs/PREMIER-SOIR.md`](./docs/PREMIER-SOIR.md) | 🌙 Le protocole de sortie — premier test avec de vraies personnes |
+| [`docs/observation-premier-soir.md`](./docs/observation-premier-soir.md) | 📓 Le carnet d'observation — le modèle du soir, prêt à remplir et commiter |
 | [`docs/BUDGET.md`](./docs/BUDGET.md) | 💶 La soutenabilité du relay — €/mois, noir sur blanc |
 | [`docs/STRATEGIE.md`](./docs/STRATEGIE.md) | Les 3 angles, le pitch, le modèle économique |
 | [`docs/config.md`](./docs/config.md) | Fichiers de configuration |
