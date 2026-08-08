@@ -44,6 +44,27 @@ check "polygone carte (objet social)"      env HOME="$TMP/a" "$BIN" carte
 check "polygone premier-soir --ttl 2"     env HOME="$TMP/b" "$BIN" premier-soir --ttl 2
 check "polygone demo (E2E, ~60 s)"        env HOME="$TMP/c" timeout 150 "$BIN" demo
 
+# ── Axiome 5 : la machine est la menace — duress détruit RÉELLEMENT ────────
+# État éphémère complet (4 fichiers) → 0 après `duress --confirmer`.
+DU="$TMP/duress"
+mkdir -p "$DU/.polygone/received"
+printf 'keys' >"$DU/.polygone/identity.json"
+printf '{}'   >"$DU/.polygone/reputation.json"
+printf '{}'   >"$DU/.polygone/peers.json"
+printf 'data' >"$DU/.polygone/received/f.txt"
+before="$(find "$DU/.polygone" -type f | wc -l)"
+if ! HOME="$DU" "$BIN" duress --confirmer >/dev/null 2>&1; then
+  echo "✖ duress a échoué (exit non nul)"
+  exit 1
+fi
+after="$(find "$DU/.polygone" -type f 2>/dev/null | wc -l)"
+if [ "$before" -eq 4 ] && [ "$after" -eq 0 ]; then
+  echo "✓ polygone duress (destruction réelle : 4 → 0 fichiers)"
+else
+  echo "✖ duress n'a pas tout détruit (avant=$before, après=$after)"
+  exit 1
+fi
+
 echo
 echo "═══ VERDICT : les commandes promues tiennent leurs verdicts. ═══"
 exit 0
