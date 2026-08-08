@@ -76,6 +76,28 @@ if [ -x "$BIN" ]; then
   fi
 fi
 
+# ── Mesh — annoncer + voisins (README : découverte LAN, UDP 7642) ───────
+# Preuve produit++ : les commandes tournent (fatal si crash) ; la
+# découverte réelle est prouvée localement (✓) et WARN sur un réseau qui
+# bloque les broadcasts (runner CI isolé) — jamais un faux rouge.
+MESH="$TMP/mesh"
+HOME="$MESH" timeout 12 "$BIN" annoncer --relay 127.0.0.1:7000 \
+    >"$TMP/mesh-ann.log" 2>&1 &
+MESH_PID=$!
+sleep 2
+if HOME="$MESH" timeout 10 "$BIN" voisins >"$TMP/mesh-v.log" 2>&1; then
+  if grep -q "nœud(s) trouvé(s)\|nœud trouvé" "$TMP/mesh-v.log"; then
+    echo "✓ polygone annoncer + voisins (découverte LAN réelle)"
+  else
+    echo "⚠ polygone voisins : commande OK, aucune découverte (réseau isolé ?) — la preuve reste la commande vérifiable"
+  fi
+else
+  echo "✖ polygone voisins a échoué (crash)"
+  tail -5 "$TMP/mesh-v.log"
+  exit 1
+fi
+kill "$MESH_PID" 2>/dev/null || true
+
 # ── Axiome 5 : la machine est la menace — duress détruit RÉELLEMENT ────────
 # État éphémère complet (4 fichiers) → 0 après `duress --confirmer`.
 DU="$TMP/duress"

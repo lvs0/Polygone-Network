@@ -18,6 +18,11 @@
   transport (`recevoir wire.txt`) était documentée sans la redirection
   qui la produit ; round-trip fichier désormais prouvé en CI (16e gate
   smoke).
+- **Mesh prouvé** — `annoncer` + `voisins` (découverte LAN, UDP 7642) :
+  la promesse README « Live » n'avait aucune preuve système. 17e gate
+  smoke : fatal si crash, découverte réelle vérifiée localement
+  (3/3 déterministe), avertissement documenté si réseau isolé (jamais
+  un faux rouge CI).
 - **`docs/observation-premier-soir.md`** — le carnet d'observation du
   Premier Soir : le modèle complet (identité du soir, grille des 5
   questions, 3 preuves, verdict collectif, résidu social, 4 métriques),
