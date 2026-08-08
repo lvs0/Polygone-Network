@@ -244,3 +244,36 @@ Fallback conservé : `polygoned --gen-config` régénère quand même.
 **Exécutée** : commit `e10c22e` — `polygoned status` lit la vraie config
 legacy (exit 0, avant : TOML parse error) ; 4 tests de forme ajoutés ;
 113 tests workspace verts. Gate CI durable (smoke) au cran suivant.
+
+---
+
+## D9 — time_sync : câbler ou archiver (Lévy-blocking)
+
+**Déclencheur** : ARCHITECTURE.md (§11) suit « `time_sync` engine with no
+consumers — Decision: wire or archive ». Vérifié 2026-08-08 : `crates/
+core/src/time_sync/` = 1 019 LOC (engine, filter, protocol, types),
+re-exporté par lib.rs, **zéro consommateur** (aucun import dans daemon
+ni client) — du code vivant mais mort dans le crate crypto.
+
+**Question** : câbler `time_sync` (feature « synchronisation d'horloge
+entre nœuds » — en lien avec la demande récurrente de Lévy sur la
+synchronisation inter-nœuds) ou l'archiver ?
+
+**Options** :
+- **Câbler maintenant** — feature complète (protocole, intégration
+  réseau, tests) ; aucun consommateur ne la demande encore ; le réseau
+  n'en a pas besoin pour la promesse centrale (la mort du message).
+- **Archiver** (recommandé) — le code reste dans git (rien n'est
+  perdu) ; du code mort dans le crate crypto = surface d'attaque + coût
+  de maintenance pour zéro bénéfice. Ré-introduire au moment du feature
+  « sync inter-nœuds », avec une vraie décision de protocole.
+- **Laisser tel quel** — documenté dans ARCHITECTURE.md, mais laisse
+  une ambiguïté permanente.
+
+**Effet** : archiver = core allégé (~1 kLOC de moins), une décision
+claire ; câbler = un pas vers le rêve « organisme » de Lévy.
+
+**Statut** : 🟡 **PENDING — décision de Lévy** (direction produit :
+le sync inter-nœuds est-il dans le périmètre avant la sortie ?).
+Recommandation de l'architecte : **archiver**, ré-introduire avec le
+feature. En attendant : aucun cran ne dépend de cette décision.
