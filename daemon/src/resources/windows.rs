@@ -1,9 +1,11 @@
-//! Windows resource discovery — placeholder.
+//! Windows resource discovery — placeholder pour un futur portage.
 //!
-//! The daemon currently ships Linux and macOS implementations (SPEC §1 lists
-//! Windows as a target platform; the `#[cfg(target_os = "windows")]` branch
-//! exists so the cross-platform split compiles on all three).
+//! VÉRITÉ (2026-08-08) : `WindowsPlatform` n'est pas défini. Un build
+//! Windows de `polygoned` échoue à la compilation avec un message
+//! explicite (`compile_error!` dans resources/mod.rs) — jamais un lien
+//! cassé qui prétendrait fonctionner.
 //!
-//! Honest status: NOT implemented yet. A Windows build of `polygoned` will
-//! link, but resource discovery returns empty defaults. Tracked as a
-//! cross-platform gap, not silently claimed.
+//! La promesse produit est Linux + macOS (README) ; Windows rejoint la
+//! table des lacunes ARCHITECTURE.md §11. Ce fichier est le point
+//! d'entrée du futur portage : `pub struct WindowsPlatform` + impl
+//! `Platform` (découverte de ressources), testée sur un runner Windows.

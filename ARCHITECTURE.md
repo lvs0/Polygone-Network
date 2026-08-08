@@ -311,6 +311,7 @@ Release profile: `opt-level=3`, `lto="thin"`, `codegen-units=1`,
 | `time_sync` engine with no consumers | core/time_sync | Decision: wire or archive |
 | At-rest: identity.json + received/ in clear | identity.rs / net.rs | Decision: encrypt-at-rest or document (Phase 2 — documenté, duress = effacement) |
 | TOFU window : le premier contact d'un `from` inconnu est accepté puis appris | net.rs | 🟡 Assumé + documenté — l'empreinte du pair est affichée à l'écoute pour vérification hors-bande |
+| WindowsPlatform non défini — build Windows = `compile_error!` explicite | daemon/resources | ✅ Honnête (2026-08-08) — jamais un lien cassé qui prétendrait marcher ; `windows.rs` = placeholder du futur portage ; promesse produit = Linux/macOS |
 
 ---
 
