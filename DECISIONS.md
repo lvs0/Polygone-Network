@@ -173,3 +173,35 @@ réseau dans `net.rs`.
 
 **Statut** : ✅ **TRANCHÉE le 2026-08-08** — exécutée dans le commit
 `a6ea4e4` (Phase 3.1).
+
+---
+
+## D7 — Pousser main sur GitHub pour la première CI réelle (Lévy-blocking)
+
+**Déclencheur** : la Phase 3.1 est exécutée — tous les gates de la CI
+sont prouvés verts localement (clippy `-D warnings` exit 0, tests
+parallèles 108/108, self-test crypto 7/7, axiomes, forensic zero-log
+exit 0). Le repo a `origin = https://github.com/lvs0/Polygone-Network.git`
+mais **aucun upstream** : `main` n'a jamais été poussé ; la CI n'a jamais
+tourné sur les 53 commits post-rc2.
+
+**Question** : Pousser `main` vers GitHub maintenant — oui, quand, avec
+quels credentials (HTTPS : un token est-il configuré) ? Ou attendre un
+tag `v*` ?
+
+**Options** :
+- **PUSH maintenant** — la première CI réelle prouve le vert en public.
+  Risque : un échec CI runner malgré les vérifications locales (environnement
+  différent), exposition publique du code (AGPL, assumé).
+- **PUSH au tag** — la première CI est déclenchée par un tag `v*`
+  (release.yml inclus), plus solennel ; l'attente retarde la première preuve.
+- **Ne pas pousser** — le dépôt reste local ; aucune CI, aucune
+  visibilité ; contredit la promesse « open source ».
+
+**Effet** : PUSH = la Phase 3.1 se termine vraiment (« CI jamais passée »
+→ « CI verte ») ; le Premier Soir peut distribuer via GitHub Releases.
+
+**Statut** : 🟡 **PENDING — décision de Lévy** (action publique +
+credentials). En attendant, le cran suivant qui n'en dépend pas :
+audit des promesses README (règle produit++ — chaque promesse = test CI
+ou commande `polygone *`).
