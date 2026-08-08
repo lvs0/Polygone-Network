@@ -151,3 +151,25 @@ que le code ne tient pas.
   exécutée dans le code** le jour même.
 
 **Statut** : ✅ **TRANCHÉE le 2026-08-07** — exécutée en Phase 1 du plan produit++.
+
+---
+
+## D6 — Garde Axiome 4 : le produit, pas la rigueur (tranchée 2026-08-08)
+
+**Déclencheur** : en rendant la CI honnête (cran Phase 3.1, commit
+`a6ea4e4`), le gate « `wc -l crates/client/src/*.rs` ≤ 5000 » était
+**ROUGE** (5 560 lignes) — jamais exécuté depuis sa création (« les 51
+commits post-rc2 n'ont jamais vu la CI »). Dont 1 012 lignes de tests
+réseau dans `net.rs`.
+
+**Décision proposée** :
+| Champ | Valeur |
+|-------|--------|
+| **Action** | `net.rs` (2 041 l, dont 1 012 de tests) → `net/mod.rs` + `net/tests.rs` (pattern standard Rust pour les gros modules de tests). L'invariant documenté dans PHILOSOPHY.md Axiome 4 reste **littéralement inchangé** et passe : 3 519. |
+| **Lecture** | La garde mesure le PRODUIT (fichiers top-level `src/`), pas la rigueur (modules de tests en sous-répertoire). C'est l'intention de l'axiome : « le produit reste petit. Pas 11 000 » — en contraste avec le monolithe 11 356 LOC archivé. |
+| **Non-choix** | Couper 560 lignes de produit (aucune graisse : mesh/petals/reputation/product sont des fonctionnalités livrées) ; éditer la commande documentée de l'axiome (fragile, et réécrirait la philosophie). |
+| **Risque** | Le glob ne mesure plus les sous-modules (`net/mod.rs` invisible). Accepté : 11 fichiers top-level restent mesurés et le contraste « pas 11 000 » tient. |
+| **Acceptance** | (1) `wc -l crates/client/src/*.rs \| tail -1` → 3 519 ≤ 5000 ; (2) `cargo test --workspace` 108/108 en parallèle ; (3) `clippy --all --all-targets -- -D warnings` → exit 0. |
+
+**Statut** : ✅ **TRANCHÉE le 2026-08-08** — exécutée dans le commit
+`a6ea4e4` (Phase 3.1).
