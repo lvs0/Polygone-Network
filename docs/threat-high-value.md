@@ -77,7 +77,7 @@ Cet adversaire a du temps, de l'argent et la loi de son côté. Il cible
 ```bash
 git clone https://github.com/lvs0/Polygone-Network
 cd Polygone-Network
-cargo test --workspace          # 71 tests
+cargo test --workspace          # 109 tests
 cargo run -p polygone -- demo   # l'audit « on voit rien » est un test, pas une promesse
 ```
 

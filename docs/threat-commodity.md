@@ -65,7 +65,7 @@ aucune adresse email, aucune télémétrie.
 
 ## 6. Fabriquer la confiance (pour cet utilisateur)
 
-- `cargo test --workspace` reproduit l'état en 2 minutes (71 tests).
+- `cargo test --workspace` reproduit l'état en 2 minutes (109 tests).
 - Le code source est conçu pour être lisible en un après-midi.
 - `polygone demo` montre le pipeline complet — y compris l'audit du relay :
   « on voit rien » n'est pas une promesse, c'est un test.

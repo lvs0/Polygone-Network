@@ -71,10 +71,10 @@ polygone/
 | Crate      | LOC (rust) | Binaries              | Tests |
 | ---------- | ---------- | --------------------- | ----- |
 | core       | ~2 200     | — (lib)               | 34    |
-| client     | ~3 600     | `polygone`            | 30    |
-| relay      | ~340       | `polygone-relay`      | 4     |
+| client     | ~3 600     | `polygone`            | 47    |
+| relay      | ~340       | `polygone-relay`      | 7     |
 | daemon     | ~3 500     | `polygoned`           | 21    |
-| **Total**  | **~9 600** | 4 binaries            | **89** |
+| **Total**  | **~9 600** | 4 binaries            | **109** |
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is
 real: `pqcrypto-mlkem` (FIPS 203) and `pqcrypto-mldsa` (FIPS 204) with
@@ -268,7 +268,7 @@ are written by hand.
 
 ## 9. Testing
 
-`cargo test --workspace` — 89 tests (client 30, core 34, relay 4,
+`cargo test --workspace` — 109 tests (client 47, core 34, relay 7,
 daemon 21). Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
 exact sizes, wrong-key KEM failure, full network pipeline round-trips,
 relay routing/drop/ignore tests.
@@ -279,7 +279,7 @@ relay routing/drop/ignore tests.
 
 ```bash
 cargo build --release            # all 4 binaries
-cargo test --workspace           # 89 tests
+cargo test --workspace           # 109 tests
 cargo clippy --all --all-targets -- -D warnings
 ```
 
