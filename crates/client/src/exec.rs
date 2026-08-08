@@ -289,8 +289,23 @@ fn run_with_timeout(
 mod tests {
     use super::*;
 
+    /// The production guard `ACTIVE_EXEC` caps concurrent exec at
+    /// MAX_CONCURRENT_EXEC (2). Cargo's default parallel test runner
+    /// would trip that guard non-deterministically (3 exec tests racing
+    /// for 2 slots). Serialize exec tests so `cargo test --workspace`
+    /// is green in parallel mode — the CI mode.
+    static EXEC_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn exec_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        EXEC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn sandbox_runs_simple_command() {
+        let _serial = exec_test_guard();
+
         let out = run_sandboxed("echo hello-res", 64, 50, Duration::from_secs(10));
         match out {
             Ok(o) => assert!(o.contains("hello-res"), "got: {o}"),
@@ -301,6 +316,7 @@ mod tests {
     #[test]
     fn wasm_runs_and_captures_stdout() {
         // Environment-dependent (needs a compiled wasm): skip gracefully.
+        let _serial = exec_test_guard();
         let Ok(wasm) = std::fs::read("/tmp/wasmtest/test.wasm") else {
             eprintln!("skip: test.wasm absent");
             return;
@@ -314,6 +330,7 @@ mod tests {
 
     #[test]
     fn wasm_invalid_module_errors_gracefully() {
+        let _serial = exec_test_guard();
         let out = run_wasm(
             &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0xff],
             Duration::from_secs(5),

@@ -35,6 +35,24 @@ Self-test cryptographique réel — 7/7 assertions (ML-KEM, AES-GCM,
 BLAKE3 KDF, Shamir 4/7 + 3/7, ML-DSA sign/verify + tamper).
 Exit 0 uniquement si tout est vert.
 
+### `polygone premier-soir [--ttl <s>]`
+Le scénario guidé de 5 minutes — la promesse « Le message meurt. Regarde. »
+comme expérience : carte → 7 fragments naissent → TTL réel qui tourne
+(défaut 30 s) → 4/7 reconstruisent → `verite` prouve que rien ne reste →
+carnet d'observation à commiter. `--ttl` réduit l'attente (tests, démo).
+
+### `polygone verite`
+Forensique locale : énumère TOUT ce que ce nœud garde (identité, ancres
+`peers.json`, fichiers `received/`, scores), le classe (à moi / à toi /
+rien), puis rend le verdict — « voici ce que j'ai de toi : rien » quand il
+n'y a aucune donnée de message sur disque. La confiance devient une
+interaction, pas une lecture de README.
+
+### `polygone carte`
+La clé comme objet social : l'identité (pseudo, empreinte ML-KEM,
+empreinte ML-DSA, adresse ⬡) affichée en carte encadrée — à montrer et
+échanger en personne. C'est le résidu social du Premier Soir.
+
 ### `polygone demo`
 La démo E2E complète : Alice → relay aveugle → Bob, avec audit
 (« on voit rien ») + simulation d'adversaire (3/7 et 7/7 sans clé).
@@ -104,6 +122,7 @@ prochain lancement.
 | Fichier | Rôle |
 |---|---|
 | `~/.polygone/identity.json` | Identité (clés + pseudo), chmod 600 |
+| `~/.polygone/peers.json` | Ancre de confiance : `node_id → empreinte ML-DSA` (TOFU), chmod 600 |
 | `~/.polygone/received/` | Fichiers reçus via le relay |
 | `~/.config/polygone/daemon.toml` | Config du daemon `polygoned` |
 

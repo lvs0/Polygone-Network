@@ -1,0 +1,4 @@
+# Graphe = produit réel, pas l'archive. Le monolithe v1 vit dans archive/
+# (commité, donc indexé par graphify) mais n'est plus le produit : le graphe
+# de connaissances doit décrire le code qui existe au commit courant.
+archive/

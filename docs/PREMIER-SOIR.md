@@ -25,6 +25,11 @@ ne démontre que deux choses, dans l'ordre :
 Rien d'autre. Pas de compute, pas de pets, pas de token. **Deux promesses,
 tenues.**
 
+> **En amont du soir : `polygone premier-soir`** — le même scénario en solo,
+> 5 minutes, pour que toi, l'opérateur, tu aies déjà vu le message mourir
+> avant de le montrer à quelqu'un. La promesse devient une commande ; le
+> soir réel reste le protocole ci-dessous.
+
 ## 2. Les trois personnes
 
 Tu as dit : *« recruter des potes, des cousins, des personnes de
@@ -42,12 +47,14 @@ conclure elle-même : *« je ne peux pas lire le contenu »*.
 
 ## 3. La checklist avant le soir
 
-- [ ] `cargo test --workspace` → 98 verts (aujourd'hui : 98)
+- [ ] `cargo test --workspace` → 108 verts (uniques : produit 46, core 34, relay 7, daemon 21)
 - [ ] `cargo clippy --all --all-targets -- -D warnings -A clippy::all` → 0 erreur
 - [ ] `cargo fmt --all -- --check` → propre
 - [ ] `cargo build --release` sur **deux machines différentes** (pas deux
       fois la même)
 - [ ] `./target/release/polygone test` → **7/7**
+- [ ] `./target/release/polygone premier-soir` → le scénario se déroule
+      (les promesses produit sont des commandes qui tournent)
 - [ ] Un tarball `polygone-<os>-<arch>.tar.gz` + `sha256sum` noté sur un
       papier (les deux machines l'installent depuis ce tarball, PAS depuis
       un pipe-to-bash)

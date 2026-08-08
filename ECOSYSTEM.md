@@ -141,6 +141,20 @@ Style vim, deux commandes de premier niveau : `:envoyer` / `:quitter`.
 Le reste derrière `:` — `:recevoir :clef :voisins :compute :ia :demo
 :executer :wasm :statut :aide` (Axiome 2 : deux tons, pas trois).
 
+### Produit++ — la promesse comme commande
+
+Trois commandes transforment la promesse centrale en expérience exécutable
+(règle produit++ : toute promesse du README est un test CI ou une commande
+`polygone *`) :
+
+- **`polygone premier-soir`** — le scénario guidé : la carte → 7 fragments
+  naissent → TTL réel qui tourne → 4/7 reconstruisent → `verite` → carnet
+  d'observation. « Le message meurt. Regarde. »
+- **`polygone verite`** — forensique locale : énumère tout ce que le nœud
+  garde et rend le verdict (« voici ce que j'ai de toi : rien »).
+- **`polygone carte`** — la clé comme objet social encadré, à échanger en
+  personne. Le résidu social EST le produit.
+
 ### RES — exécution
 
 `polygone compute --emprunter <node> --via <relay>` → grant du nœud

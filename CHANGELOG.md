@@ -6,6 +6,34 @@
 
 ---
 
+## [Unreleased] — 2026-08-07 — produit++ (la promesse devient une commande)
+
+### Added
+- **`polygone verite`** — forensique locale : énumère tout ce que le nœud
+  garde (identité, ancres peers.json, fichiers reçus, scores), le classe,
+  puis rend le verdict « voici ce que j'ai de toi : rien ». La confiance
+  devient une interaction, pas une lecture de README.
+- **`polygone premier-soir`** — le scénario guidé de 5 minutes : carte →
+  7 fragments naissent → TTL réel qui tourne (défaut 30 s, `--ttl` pour
+  réduire) → 4/7 reconstruisent → `verite` → carnet d'observation. La
+  promesse « Le message meurt. Regarde. » devient une commande.
+- **`polygone carte`** — la clé comme objet social : identité encadrée
+  (pseudo, empreintes ML-KEM/ML-DSA, adresse ⬡), à échanger en personne.
+- **`docs/BUDGET.md`** — la soutenabilité du relay noir sur blanc
+  (€/mois réel, sources : poche, grants NLnet/Prototype Fund, lettres D3,
+  donate-free sans tracker, plan d'arrêt propre).
+
+### Changed
+- **README réécrit autour de la promesse unique** — « Le message meurt.
+  Regarde. » en tête, règle produit++ énoncée (toute promesse = test CI ou
+  commande `polygone *`), statut honnête mis à jour (108 tests uniques,
+  ML-DSA branché, relay durci, anti-rejeu).
+- **`docs/cli.md`** — les 3 nouvelles commandes + `peers.json` documentés.
+- **`docs/PREMIER-SOIR.md`** — pointe vers `premier-soir` comme répétition
+  solo du protocole, checklist alignée sur 108 tests.
+
+---
+
 ## [Unreleased] — 2026-08-07 — produit++ (Phase 0 : la vérité des docs)
 
 ### Added

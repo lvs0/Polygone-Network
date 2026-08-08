@@ -19,6 +19,7 @@ mod mesh;
 mod msg;
 mod net;
 mod petals;
+mod product;
 mod reputation;
 mod self_test;
 mod tui;
@@ -128,6 +129,16 @@ enum Commands {
     Id,
     /// Run the real crypto self-test suite (exit 0 = all green)
     Test,
+    /// Forensique locale — « voici ce que j'ai de toi : rien », énuméré
+    Verite,
+    /// Scénario guidé de 5 minutes — le message meurt, regardez
+    PremierSoir {
+        /// Durée de vie réelle des fragments (défaut : 30 s)
+        #[arg(long, default_value_t = 30)]
+        ttl: u64,
+    },
+    /// La clé comme objet social — à montrer et échanger en personne
+    Carte,
     /// Local AI service (D4 pilot) — talks to local Ollama, no cloud
     Petals {
         #[command(subcommand)]
@@ -493,6 +504,19 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Test) => {
             self_test::run()?;
+        }
+        Some(Commands::Verite) => {
+            product::verite()?;
+        }
+        Some(Commands::PremierSoir { ttl }) => {
+            let carnet = product::premier_soir(&identity, ttl)?;
+            // Le carnet est la sortie honnête : le scénario est rejouable.
+            println!("\n\x1b[1m── Carnet d'observation ──────────────────────────────\x1b[0m");
+            println!("{carnet}");
+            println!("\x1b[1m─────────────────────────────────────────────────────────\x1b[0m");
+        }
+        Some(Commands::Carte) => {
+            print!("{}", product::carte(&identity));
         }
         Some(Commands::Petals { action }) => match action {
             PetalsAction::Models => {
