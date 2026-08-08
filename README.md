@@ -1,228 +1,104 @@
 # ⬡ Polygone
 
-> **« Le message meurt. Regarde. »**
+**Un réseau de transit éphémère post-quantique, écrit en Rust.**
 
-Un réseau de transit éphémère post-quantique. Un message traversé, vu,
-**mort** — avec la preuve que rien ne reste.
-**ML-KEM-1024** · **ML-DSA-65** · **AES-256-GCM** · **Shamir 4-of-7** · **BLAKE3**.
+Un message est chiffré (ML-KEM-1024 + AES-256-GCM), découpé en fragments (Shamir 4-of-7), routé par un relais qui ne voit que du routage, puis reconstruit et déchiffré par le destinataire. **Rien n'est persisté :** le relais ne stocke rien, les fragments meurent.
 
-**Version : v2.0.0-rc2** · Posture `honesty-first` · AGPL-3.0.
-Pas de token. Pas de télémétrie. Pas d'investisseurs.
+Crypto : ML-KEM-1024 (FIPS 203) · ML-DSA-65 (FIPS 204) · AES-256-GCM · BLAKE3 · Shamir 4-of-7.
+Version : **v2.0.0-rc2** · Licence : **AGPL-3.0** · Pas de compte, pas de télémétrie.
 
 ---
 
-## Une seule promesse, une seule expérience
-
-Pas « chiffré » (Signal le fait), pas « éphémère » (tout le monde le dit) —
-**la mort visible du message, avec preuve post-quantique**. L'effacement est
-une expérience, pas une propriété :
+## Installation
 
 ```bash
-polygone premier-soir     # 5 minutes : envoyez, voyez mourir, vérifiez
-```
-
-Le scénario guidé : votre carte → 7 fragments naissent → le TTL tourne sous
-vos yeux (réellement) → 4/7 reconstruisent → `verite` prouve que rien ne
-reste → un carnet d'observation à commiter. C'est le premier utilisateur :
-**vous**, ce soir.
-
-Deux commandes font le reste de la promesse, toujours vérifiables :
-
-```bash
-polygone verite           # forensique locale : « voici ce que j'ai de toi : rien »
-polygone carte            # la clé comme objet social — à échanger en personne
-```
-
-Règle produit++ : **toute promesse de ce README est soit un test CI, soit une
-commande `polygone *` que vous pouvez lancer vous-même.** Pas de troisième
-voie.
-
----
-
-## Quickstart
-
-```bash
-# Installation (Linux/macOS)
 curl -fsSL https://github.com/lvs0/Polygone-Network/releases/latest/install.sh | bash
+```
 
-# Ou depuis le repo
+Ou depuis le code :
+
+```bash
+git clone https://github.com/lvs0/Polygone-Network.git
+cd Polygone-Network
 cargo build --workspace --release
+```
 
-# Le produit — la TUI (2 commandes : envoyer / quitter, style vim)
+## Démarrage rapide
+
+```bash
+# L'essentiel — la TUI (envoyer / quitter, style vim)
 polygone
 
-# Le Premier Soir — la promesse, en 5 minutes
+# Le scénario guidé : envoie un message, vois-le mourir, vérifie (5 minutes)
 polygone premier-soir
 
-# Vérifier l'absence — ce que ce nœud garde de vous
+# Vérifier l'absence : ce que ce nœud garde de toi
 polygone verite
 
-# La clé comme objet social
+# La clé comme objet à échanger en personne
 polygone carte
 
-# Les commandes de transport
-polygone demo            # démo E2E post-quantique complète (60 s)
-polygone envoyer -d <clef> "message" > wire.txt  # chiffrer + fragmenter, wire sur stdout
-polygone recevoir wire.txt                       # reconstruire + déchiffrer
+# Envoyer / recevoir, sans réseau
+polygone envoyer -d <clef> "message" > wire.txt
+polygone recevoir wire.txt
 
-# Le vrai réseau (plane 2 — relay)
+# Envoyer / recevoir, via le relay
 polygone-relay                          # terminal 1 : le relay
 polygone ecouter                        # terminal 2 : Bob écoute
 polygone envoyer --via 127.0.0.1:7000 --a <node_bob> -d <clef_bob> "salut"
-                                        # terminal 3 : Alice envoie
-# → Bob reçoit et déchiffre avec 4/7 fragments. Le relay route, il ne lit pas le contenu.
 
-# Le Drive — un FICHIER chiffré + fragmenté (2e service livré)
-polygone envoyer --via 127.0.0.1:7000 --a <node_bob> -d <clef_bob> \
-    --fichier ~/documents/secret.txt
-# → Bob : ~/.polygone/received/secret.txt — contenu vérifié identique
+# Envoyer un fichier (chiffré + fragmenté)
+polygone envoyer --via 127.0.0.1:7000 --a <node_bob> -d <clef_bob> --fichier ~/documents/secret.txt
 
-# Le Mesh — trouver les nœuds du LAN sans adresse en dur
-polygone annoncer --relay 127.0.0.1:7000   # Bob annonce son relay sur le LAN
-polygone voisins                           # Alice scanne : node + relay trouvés
+# Trouver les nœuds du LAN
+polygone annoncer --relay 127.0.0.1:7000
+polygone voisins
 
-# L'IA locale (zéro cloud)
-polygone petals status                 # modèles installés
+# IA locale (zéro cloud)
 polygone petals ask --model phi4-mini:latest "ta question"
-
-# Les 4 binaires du workspace :
-#   polygone                 la commande produit (+ TUI, demo, msg, net)
-#   polygone-client          alias de build du même binaire
-#   polygone-relay           relay (stateless, routage)
-#   polygoned                daemon d'allocation de ressources
 ```
 
-Pas de YAML. Pas de `config.toml`. Pas de provider à choisir.
+`polygone demo` lance une démo E2E complète en 60 secondes.
 
----
+## Comment ça marche
 
-## Qu'est-ce que ce produit fait (vraiment)
+1. **Chiffrer** — ML-KEM-1024 encapsule la clé de session, AES-256-GCM chiffre le message (nonce frais par message).
+2. **Fragmenter** — Shamir 4-of-7 : le message n'existe nulle part en entier.
+3. **Router** — le relay fait transiter les fragments ; il ne les lit pas et ne les stocke pas (stateless, drop).
+4. **Reconstruire** — 4 fragments sur 7 suffisent au destinataire pour déchiffrer, puis tout est oublié (`zeroize`).
 
-Deux choses, et leur négatif :
+Chaque message est signé ML-DSA-65 et horodaté (±300 s) : le rejeu est impossible.
 
-1. **Envoyer un message** que le relay ne peut pas lire — chiffré ML-KEM-1024
-   + AES-256-GCM, fragmenté Shamir 4-of-7, signé ML-DSA-65, rejoué
-   impossible (horodatage signé ±300 s).
-2. **Envoyer un fichier** que personne d'autre ne peut lire — même chemin, nom
-   chiffré hors-bande (le relay voit des octets opaques).
-3. **Rien ne reste.** Le relay est stateless : un fragment non livré meurt
-   immédiatement (drop, jamais buffer). Livré, 4/7 reconstruisent, puis
-   oublient (`zeroize`). `polygone verite` l'énumère. Le TTL visible
-   (`--ttl`, défaut 30 s) est celui du scénario `premier-soir`.
+## Ce que ça ne fait pas
 
-**Honnêteté d'architecture (lue dans le code, pas dans le rêve) :** le relay
-voit les *métadonnées* de routage (`from`, `to`, `session`, tailles) parce
-qu'il route dessus — et rien d'autre. Le modèle de menace est documenté dans
-[`docs/threat-commodity.md`](./docs/threat-commodity.md) et
-[`docs/threat-high-value.md`](./docs/threat-high-value.md).
-
-**Honnêteté de confiance :** chaque pair a une ancre réelle —
-`~/.polygone/peers.json` (TOFU : empreinte ML-DSA apprise au premier contact
-vérifié, affichée à l'écoute pour vérification hors-ligne, clé différente
-pour un pair connu = rejet). « C'est bien Alice » est signé **et** ancré.
-
----
-
-## Qu'est-ce que ce produit ne fait PAS
-
-| Pas dans v2.0.0-rc2 | Pourquoi |
-|----------------------|----------|
-| Browser GUI | La TUI suffit. Pas d'ambition UX. |
-| Tor replacement | Polygone-hide pas livré. Voir [`STAGING.md`](./STAGING.md). |
-| Cloud sync | Privacy-by-default. |
-| Compte utilisateur | Privacy-by-default. |
-| Subscription / token | AGPL-3.0, $0, forever. |
-| Chiffrement au repos | Décision : effacement par duress, pas coffre. Voir [`DECISIONS.md`](./DECISIONS.md). |
-
----
-
-## Lisez ceci en premier
-
-1. [`PHILOSOPHY.md`](./PHILOSOPHY.md) — les 5 axiomes. Poétique **et** technique.
-2. [`THREAT_MODEL.md`](./THREAT_MODEL.md) — ce que Polygone protège, ce qu'il ne protège PAS.
-3. [`ARCHITECTURE.md`](./ARCHITECTURE.md) — l'architecture **réelle** (4 crates).
-4. [`STAGING.md`](./STAGING.md) — services archivés + conditions de retour.
-5. [`DECISIONS.md`](./DECISIONS.md) — les décisions binaires, dont D5 (relay public assumé).
-
-### Documentation produit
-
-| Doc | Contenu |
+| Pas dans v2.0.0-rc2 | Raison |
 |---|---|
-| [`docs/cli.md`](./docs/cli.md) | Référence complète de la commande `polygone` |
-| [`docs/PREMIER-SOIR.md`](./docs/PREMIER-SOIR.md) | 🌙 Le protocole de sortie — premier test avec de vraies personnes |
-| [`docs/observation-premier-soir.md`](./docs/observation-premier-soir.md) | 📓 Le carnet d'observation — le modèle du soir, prêt à remplir et commiter |
-| [`docs/BUDGET.md`](./docs/BUDGET.md) | 💶 La soutenabilité du relay — €/mois, noir sur blanc |
-| [`docs/STRATEGIE.md`](./docs/STRATEGIE.md) | Les 3 angles, le pitch, le modèle économique |
-| [`docs/config.md`](./docs/config.md) | Fichiers de configuration |
-| [`docs/threat-commodity.md`](./docs/threat-commodity.md) | Menace — utilisateur quotidien |
-| [`docs/threat-high-value.md`](./docs/threat-high-value.md) | Menace — dissident |
-| [`docs/kill-switch.md`](./docs/kill-switch.md) | Mode duress + runbook opérateur |
-| [`LEGAL.md`](./LEGAL.md) | Subpoena, kill-switch, licence AGPL-3.0 |
+| Interface web | La TUI suffit |
+| Compte / cloud sync | Confidentialité par défaut |
+| Chiffrement au repos | Effacement par duress, pas coffre |
+| Abonnement | AGPL-3.0, gratuit |
+
+## État
+
+- `cargo test --workspace` → **109 tests verts** (produit 47, core 34, relay 7, daemon 21)
+- Crypto (core) → réelle et testée : ML-KEM-1024, ML-DSA-65, AES-256-GCM, BLAKE3, Shamir 4-of-7
+- Services live : messages, fichiers, IA locale, mesh LAN, compute sandboxé, `verite`, `premier-soir`
+- En cours : `hide` (tunnel), `petals` distribué, `shell` — voir [`STAGING.md`](./STAGING.md)
+- Audit externe : pas encore réalisé
+
+## Documentation
+
+- [`docs/cli.md`](./docs/cli.md) — référence de la commande
+- [`THREAT_MODEL.md`](./THREAT_MODEL.md) — ce que Polygone protège, et ce qu'il ne protège pas
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — comment c'est construit (4 crates)
+- [`PHILOSOPHY.md`](./PHILOSOPHY.md) — les axiomes de design
+- [`DECISIONS.md`](./DECISIONS.md) — les décisions d'architecture
+- [`LEGAL.md`](./LEGAL.md) — licence AGPL-3.0, subpoena, kill-switch
+
+## Contribuer
+
+Voir [`CONTRIBUTING.md`](./CONTRIBUTING.md) et [`LEGAL.md`](./LEGAL.md).
 
 ---
 
-## Statut honnête
-
-- `cargo test --workspace` → ✅ **109 tests uniques** (produit 47, core 34, relay 7, daemon 21)
-- `cargo fmt --check` → ✅ propre
-- Crypto core (`polygone-core`) → ✅ **réelle et testée** : ML-KEM-1024, ML-DSA-65,
-  AES-256-GCM, BLAKE3 KDF, Shamir 4-of-7 — tailles exactes vérifiées par tests
-- **Signature réseau ML-DSA-65** → ✅ **branchée et vérifiée** (Phase 1 + contre-attaque Phase 4) :
-  chaque message est signé, vérifié, fail-closed ; ancrage de confiance `peers.json`
-- **Rejeu** → ✅ impossible : horodatage signé, fenêtre ±300 s, cache anti-rejeu
-- **Relay** → ✅ durci : HELLO authentifié par possession, ack `HELLO_OK`/`HELLO_DENIED`,
-  64 KiB/ligne, rate-limit, table shardée, plafond 1024 connexions
-- **Sandbox RES** → ✅ bornée : systemd durci + fuel metering WASM + sortie plafonnée
-- Démo E2E (`polygone demo`) → ✅ in-process
-- Audit externe → **NON RÉALISÉ** (cf. `LEGAL.md` §5 — l'Axiome 6 attendra)
-- **Premier Soir (utilisateur réel)** → ⬜ **LE SEUL CHIFFRE QUI COMPTE** — à faire.
-  Quand ce sera fait : « testé par N personnes le <date> ».
-
----
-
-## Pas de tagline sans footnote
-
-> *« Le message meurt. Regarde. »*
-
-Signifie littéralement : aucun message ne réside en aucun nœud — le relay
-ne stocke rien (stateless, drop), les fragments sont chiffrés, répartis
-4-of-7, reconstruits puis oubliés (`zeroize`). C'est une promesse **de
-design**, pas une déclaration métaphysique — et c'est une **commande** :
-`polygone premier-soir`.
-
-> *« L'information n'existe pas. Elle traverse. »* — cf. [`PHILOSOPHY.md`](./PHILOSOPHY.md) Axiome 1.
-
----
-
-## Statut par service
-
-| Service | Statut |
-|---------|--------|
-| `msg`   | 🟢 **Live** — messages E2E via relay (4/7, signés, anti-rejeu) |
-| `drive` | 🟢 **Live** — fichiers E2E via relay (4/7), `~/.polygone/received/` |
-| `brain` | 🟢 **Live** — IA locale (petals → Ollama, zéro cloud) |
-| `mesh`  | 🟢 **Live** — découverte LAN |
-| `compute` | 🟢 **Live (MVP)** — prêt + exécution sandboxée (shell + WASM, authentifié) |
-| `verite` | 🟢 **Live** — forensique locale, « voici ce que j'ai de toi : rien » |
-| `premier-soir` | 🟢 **Live** — le scénario guidé (la promesse, en 5 min) |
-| `carte` | 🟢 **Live** — la clé comme objet social |
-| `hide`, `petals-distribué`, `shell` | ⚪ [`STAGING.md`](./STAGING.md) |
-
----
-
-## Soutenabilité (noir sur blanc)
-
-Le relay public est un bien commun : gratuit pour les utilisateurs, payé par
-un budget assumé. Voir [`docs/BUDGET.md`](./docs/BUDGET.md) — coût €/mois,
-sources (grants NLnet/Prototype Fund, dons), et la règle : **si le budget ne
-tient plus, le relay s'arrête en le disant — pas en silence.**
-
----
-
-## Contribution
-
-Voir [`LEGAL.md`](./LEGAL.md) §6 + [`.well-known/security.txt`](./.well-known/security.txt).
-
----
-
-*AGPL-3.0 · v2.0.0-rc2 · Hope · Posture « honesty-first » · « Le message meurt. Regarde. »*
+*AGPL-3.0 · v2.0.0-rc2 · 109 tests · Posture « honesty-first ».*
