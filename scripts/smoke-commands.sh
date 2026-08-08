@@ -81,6 +81,21 @@ else
   exit 1
 fi
 
+# ── polygoned — le 4e binaire du workspace (README) ──────────────────────
+PD="$ROOT/target/release/polygoned"
+if [ -x "$PD" ]; then
+  if HOME="$TMP/pd" timeout 15 "$PD" doctor >"$TMP/pd.log" 2>&1; then
+    echo "✓ polygoned doctor (diagnostics système, exit 0)"
+  else
+    echo "✖ polygoned doctor a échoué"
+    tail -5 "$TMP/pd.log"
+    exit 1
+  fi
+else
+  echo "✖ polygoned introuvable — le 4e binaire promis ne tourne pas"
+  exit 1
+fi
+
 echo
 echo "═══ VERDICT : les commandes promues tiennent leurs verdicts. ═══"
 exit 0
