@@ -241,3 +241,6 @@ jamais un utilisateur.
 **Statut** : ✅ **TRANCHÉE par l'architecte (2026-08-08)** — option (a),
 exécution au cran suivant avec test de round-trip (legacy + actuel).
 Fallback conservé : `polygoned --gen-config` régénère quand même.
+**Exécutée** : commit `e10c22e` — `polygoned status` lit la vraie config
+legacy (exit 0, avant : TOML parse error) ; 4 tests de forme ajoutés ;
+113 tests workspace verts. Gate CI durable (smoke) au cran suivant.
