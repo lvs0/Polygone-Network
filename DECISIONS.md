@@ -204,6 +204,15 @@ simple + une décision d'exposition, pas une stratégie de convergence.
 oui, quand, avec quels credentials (HTTPS : un token est-il configuré) ?
 Ou attendre un tag `v*` ?
 
+**Préparation push COMPLÈTE (2026-08-08)** : toutes les inconnues
+techniques sont levées — `cargo clean` + `cargo build --release
+--all-targets` from zéro (6 min 22 s, simulation du runner CI vierge) :
+**vert** ; smoke 15/15 sur les binaires frais : **vert** ;
+`cargo test --workspace` (mode parallèle CI) : **113 uniques verts** ;
+workflows self-contained (aucun `secrets.*` requis, GITHUB_TOKEN auto).
+**Il ne reste que la décision de Lévy + le token.** La CI ne devrait pas
+rougir au premier push.
+
 **Options** :
 - **PUSH maintenant** — la première CI réelle prouve le vert en public.
   Risque : un échec CI runner malgré les vérifications locales (environnement
