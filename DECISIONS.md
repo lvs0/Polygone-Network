@@ -185,9 +185,24 @@ exit 0). Le repo a `origin = https://github.com/lvs0/Polygone-Network.git`
 mais **aucun upstream** : `main` n'a jamais été poussé ; la CI n'a jamais
 tourné sur les 53 commits post-rc2.
 
-**Question** : Pousser `main` vers GitHub maintenant — oui, quand, avec
-quels credentials (HTTPS : un token est-il configuré) ? Ou attendre un
-tag `v*` ?
+**MISE À JOUR (2026-08-08, NO-PROGRESS CHECK — la réalité du remote)** :
+le remote N'EST PAS vide. `git ls-remote` public + `git cat-file`
+révèlent : `main` distant = `09be6e05` (« chore: remove unused wasmi
+imports in exec.rs ») — un commit **v1 qui est un ANCÊTRE du HEAD
+local**. Le local est **38 commits en avance** ; un `git push origin
+main` normal ferait un **FAST-FORWARD propre** : aucune perte, aucun
+force-push, l'histoire v1 reste dans le graphe (le local la contient
+déjà : v1.0.0 → legacy archivé → rewrite v2). Les tags distants
+v0.1.0/v0.2.0/v1.0.0 restent ; les 2 PR fermées d'avril 2026
+(« analyser-tous-les-fichiers-repo », « produit-grand-public-final »)
+sont de l'historique v1. **La formulation « jamais poussé / aucun
+upstream » était inexacte** : le v2 n'a jamais été poussé, mais le
+remote porte le commit v1 partagé. D7 se réduit donc à une action
+simple + une décision d'exposition, pas une stratégie de convergence.
+
+**Question** : Pousser `main` (fast-forward, 38 commits) maintenant —
+oui, quand, avec quels credentials (HTTPS : un token est-il configuré) ?
+Ou attendre un tag `v*` ?
 
 **Options** :
 - **PUSH maintenant** — la première CI réelle prouve le vert en public.
