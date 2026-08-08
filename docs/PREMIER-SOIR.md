@@ -47,8 +47,8 @@ conclure elle-même : *« je ne peux pas lire le contenu »*.
 
 ## 3. La checklist avant le soir
 
-- [ ] `cargo test --workspace` → 108 verts (uniques : produit 46, core 34, relay 7, daemon 21)
-- [ ] `cargo clippy --all --all-targets -- -D warnings -A clippy::all` → 0 erreur
+- [ ] `cargo test --workspace` → 109 verts (uniques : produit 47, core 34, relay 7, daemon 21)
+- [ ] `cargo clippy --all --all-targets -- -D warnings` → 0 erreur
 - [ ] `cargo fmt --all -- --check` → propre
 - [ ] `cargo build --release` sur **deux machines différentes** (pas deux
       fois la même)

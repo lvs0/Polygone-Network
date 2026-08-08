@@ -26,11 +26,11 @@
 ### Changed
 - **README réécrit autour de la promesse unique** — « Le message meurt.
   Regarde. » en tête, règle produit++ énoncée (toute promesse = test CI ou
-  commande `polygone *`), statut honnête mis à jour (108 tests uniques,
+  commande `polygone *`), statut honnête mis à jour (109 tests uniques,
   ML-DSA branché, relay durci, anti-rejeu).
 - **`docs/cli.md`** — les 3 nouvelles commandes + `peers.json` documentés.
 - **`docs/PREMIER-SOIR.md`** — pointe vers `premier-soir` comme répétition
-  solo du protocole, checklist alignée sur 108 tests.
+  solo du protocole, checklist alignée sur 109 tests.
 
 ---
 

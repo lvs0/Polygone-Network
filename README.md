@@ -162,7 +162,7 @@ pour un pair connu = rejet). « C'est bien Alice » est signé **et** ancré.
 
 ## Statut honnête
 
-- `cargo test --workspace` → ✅ **108 tests uniques** (produit 46, core 34, relay 7, daemon 21)
+- `cargo test --workspace` → ✅ **109 tests uniques** (produit 47, core 34, relay 7, daemon 21)
 - `cargo fmt --check` → ✅ propre
 - Crypto core (`polygone-core`) → ✅ **réelle et testée** : ML-KEM-1024, ML-DSA-65,
   AES-256-GCM, BLAKE3 KDF, Shamir 4-of-7 — tailles exactes vérifiées par tests
