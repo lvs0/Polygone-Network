@@ -44,6 +44,22 @@ check "polygone carte (objet social)"      env HOME="$TMP/a" "$BIN" carte
 check "polygone premier-soir --ttl 2"     env HOME="$TMP/b" "$BIN" premier-soir --ttl 2
 check "polygone demo (E2E, ~60 s)"        env HOME="$TMP/c" timeout 150 "$BIN" demo
 
+# ── stdin — le message n'apparaît jamais dans l'historique shell ─────────
+# kill-switch.md le recommande ; la promesse doit tourner : envoyer --stdin
+# → recevoir - (round-trip sans aucun argument en clair).
+if [ -x "$BIN" ]; then
+  PK="$(HOME="$TMP/stdin" "$BIN" clef 2>/dev/null | head -1)"
+  if printf 'message sensible — jamais dans l historique' \
+      | HOME="$TMP/stdin" "$BIN" envoyer -d "$PK" --stdin 2>/dev/null \
+      | HOME="$TMP/stdin" "$BIN" recevoir - 2>/dev/null \
+      | grep -q "message sensible"; then
+    echo "✓ polygone envoyer --stdin | recevoir - (round-trip, zéro arg en clair)"
+  else
+    echo "✖ le round-trip stdin ne tient pas la promesse"
+    exit 1
+  fi
+fi
+
 # ── Axiome 5 : la machine est la menace — duress détruit RÉELLEMENT ────────
 # État éphémère complet (4 fichiers) → 0 après `duress --confirmer`.
 DU="$TMP/duress"

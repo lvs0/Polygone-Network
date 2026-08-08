@@ -67,6 +67,12 @@ La démo E2E complète : Alice → relay aveugle → Bob, avec audit
   destinataire sur le LAN (mesh) — zéro configuration.
 - `--fichier <path>` : envoie un fichier (le destinataire le reçoit
   dans `~/.polygone/received/`).
+- `--stdin` : lit le message depuis stdin — rien n'apparaît dans
+  l'historique shell. À préférer pour les messages sensibles
+  (cf. `docs/kill-switch.md`). Exemple :
+  `printf 'secret' | polygone envoyer -d <clef> --stdin`
+  Symétrique de `polygone recevoir -`. Mutuellement exclusif avec
+  `--fichier`.
 
 ### `polygone recevoir [fichier | -]`
 Reconstruit (≥ 4/7) et déchiffre le format filaire (fichier ou stdin).

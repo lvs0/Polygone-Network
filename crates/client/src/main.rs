@@ -76,6 +76,9 @@ enum Commands {
         /// The message to send (everything after the flags)
         #[arg(required = false)]
         message: Vec<String>,
+        /// Read the message from stdin — nothing appears in the shell history
+        #[arg(long)]
+        stdin: bool,
     },
     /// Reconstruct + decrypt from wire text (file path, or stdin if '-')
     Recevoir {
@@ -209,16 +212,28 @@ async fn main() -> Result<()> {
             a,
             fichier,
             message,
+            stdin,
         }) => {
             let message = message.join(" ");
 
+            // stdin mode: the message never appears in the shell history.
+            // Mutually exclusive with --fichier.
+            if stdin && fichier.is_some() {
+                anyhow::bail!("--stdin et --fichier sont exclusifs");
+            }
             // File mode: read the file, send its bytes.
-            let payload: Vec<u8> = match &fichier {
-                Some(path) => std::fs::read(path)?,
-                None => message.as_bytes().to_vec(),
+            let payload: Vec<u8> = if stdin {
+                std::io::read_to_string(std::io::stdin())?
+                    .as_bytes()
+                    .to_vec()
+            } else {
+                match &fichier {
+                    Some(path) => std::fs::read(path)?,
+                    None => message.as_bytes().to_vec(),
+                }
             };
-            if fichier.is_none() && message.is_empty() {
-                anyhow::bail!("rien à envoyer : passez un message ou --fichier <chemin>");
+            if fichier.is_none() && message.is_empty() && !stdin {
+                anyhow::bail!("rien à envoyer : passez un message, --fichier <chemin> ou --stdin");
             }
 
             // Network mode: route the fragments through a blind relay.

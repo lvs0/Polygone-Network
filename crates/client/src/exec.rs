@@ -296,18 +296,27 @@ mod tests {
     /// is green in parallel mode — the CI mode.
     static EXEC_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    fn exec_test_guard() -> std::sync::MutexGuard<'static, ()> {
-        EXEC_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    /// Gardes combinés : EXEC (garde prod ACTIVE_EXEC) + GLOBAL (état du
+    /// process, ex. HOME muté par les tests duress). Les tests exec tournent
+    /// dans un sandbox systemd qui hérite de l'état global du process — ne
+    /// jamais les faire courir en parallèle des tests qui le mutent.
+    struct ExecGuards {
+        _global: std::sync::MutexGuard<'static, ()>,
+        _exec: std::sync::MutexGuard<'static, ()>,
+    }
+
+    fn exec_test_guards() -> ExecGuards {
+        ExecGuards {
+            _global: crate::testutil::with_global_state_guard(),
+            _exec: EXEC_TEST_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        }
     }
 
     #[test]
     fn sandbox_runs_simple_command() {
-        let _serial = exec_test_guard();
-        // Le sandbox hérite de l'état du process : ne jamais le faire
-        // tourner en parallèle des tests qui mutent HOME (duress).
-        let _global = crate::testutil::with_global_state_guard();
+        let _g = exec_test_guards();
 
         let out = run_sandboxed("echo hello-res", 64, 50, Duration::from_secs(10));
         match out {
@@ -319,7 +328,7 @@ mod tests {
     #[test]
     fn wasm_runs_and_captures_stdout() {
         // Environment-dependent (needs a compiled wasm): skip gracefully.
-        let _serial = exec_test_guard();
+        let _g = exec_test_guards();
         let Ok(wasm) = std::fs::read("/tmp/wasmtest/test.wasm") else {
             eprintln!("skip: test.wasm absent");
             return;
@@ -333,7 +342,7 @@ mod tests {
 
     #[test]
     fn wasm_invalid_module_errors_gracefully() {
-        let _serial = exec_test_guard();
+        let _g = exec_test_guards();
         let out = run_wasm(
             &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0xff],
             Duration::from_secs(5),
@@ -343,6 +352,7 @@ mod tests {
 
     #[test]
     fn sandbox_blocks_privilege_escalation() {
+        let _g = exec_test_guards();
         // NoNewPrivileges=yes — setuid/sudo must fail inside the sandbox.
         let out = run_sandboxed("id -u", 64, 50, Duration::from_secs(10));
         match out {
