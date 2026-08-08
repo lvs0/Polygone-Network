@@ -305,6 +305,9 @@ mod tests {
     #[test]
     fn sandbox_runs_simple_command() {
         let _serial = exec_test_guard();
+        // Le sandbox hérite de l'état du process : ne jamais le faire
+        // tourner en parallèle des tests qui mutent HOME (duress).
+        let _global = crate::testutil::with_global_state_guard();
 
         let out = run_sandboxed("echo hello-res", 64, 50, Duration::from_secs(10));
         match out {

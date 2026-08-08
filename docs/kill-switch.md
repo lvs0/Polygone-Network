@@ -50,12 +50,19 @@ Ce que la commande détruit, réellement :
 
 - `~/.polygone/identity.json` — clés ML-KEM-1024 + ML-DSA-65 (chmod 600)
 - `~/.polygone/received/` — fichiers reçus via le relay
+- `~/.polygone/reputation.json` — état RES local (trace des sessions)
+- `~/.polygone/peers.json` — ancres de confiance TOFU (la trace de *qui*
+  on a contacté : node_id → empreinte ML-DSA)
 
 Ce qu'elle ne détruit **pas** (et pourquoi) :
 
 - Les fragments chez les destinataires et les backups hors-ligne —
   mais sans vos clés, ils deviennent **définitivement illisibles**. C'est
   le point du mode duress.
+- Les journaux shell (ex. `~/.bash_history`) — c'est l'état de
+  l'utilisateur, pas de l'application. Pour les messages sensibles,
+  préférez la TUI (`polygone`) ou le pipe stdin au passage d'arguments
+  en clair.
 - L'implémentation reste volontairement simple et lisible : le signal
   explicite `--confirmer` évite le déclenchement accidentel.
 

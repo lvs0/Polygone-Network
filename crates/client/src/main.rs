@@ -22,6 +22,8 @@ mod petals;
 mod product;
 mod reputation;
 mod self_test;
+#[cfg(test)]
+mod testutil;
 mod tui;
 
 use anyhow::Result;
