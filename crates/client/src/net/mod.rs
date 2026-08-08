@@ -70,6 +70,10 @@ struct NetEnvelope {
     from: String,
     to: String,
     session: String,
+    /// Vestigial : numéro de fragment informatif, JAMAIS validé à la
+    /// réception. L'anti-replay réel est l'horodatage signé ±300 s +
+    /// le cache des sessions complétées (README, testé) — plus fort
+    /// qu'un seq strict, qui resterait rejouable dans la fenêtre.
     seq: u64,
     #[serde(rename = "type")]
     typ: String,
