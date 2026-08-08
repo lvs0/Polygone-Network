@@ -57,7 +57,7 @@ fn main() -> Result<()> {
 #[derive(Parser, Debug)]
 #[command(
     name = "polygone-relay",
-    version = "0.1.0",
+    version = env!("CARGO_PKG_VERSION"),
     about = "Stateless blind relay for Polygone P2P network"
 )]
 struct Args {

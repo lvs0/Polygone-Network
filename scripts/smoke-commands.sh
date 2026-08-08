@@ -81,6 +81,21 @@ else
   exit 1
 fi
 
+# ── version — la promesse « Version : v2.0.0-rc2 » du README ─────────────
+# Les binaires doivent afficher la version du workspace (Cargo.toml).
+EXPECTED_VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/')"
+for bin in "$BIN" "$ROOT/target/release/polygone-relay" "$ROOT/target/release/polygoned"; do
+  if [ -x "$bin" ]; then
+    actual="$("$bin" --version 2>/dev/null | awk '{print $2}')"
+    if [ -n "$EXPECTED_VERSION" ] && [ "$actual" = "$EXPECTED_VERSION" ]; then
+      printf '%s\n' "✓ $(basename "$bin") --version → $actual (== Cargo.toml)"
+    else
+      printf '%s\n' "✖ version incohérente : $(basename "$bin")='$actual', Cargo.toml='$EXPECTED_VERSION'"
+      exit 1
+    fi
+  fi
+done
+
 # ── polygoned — le 4e binaire du workspace (README) ──────────────────────
 PD="$ROOT/target/release/polygoned"
 if [ -x "$PD" ]; then

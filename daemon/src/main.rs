@@ -19,7 +19,7 @@ static RUNNING: AtomicBool = AtomicBool::new(true);
 #[derive(Parser, Debug)]
 #[command(
     name = "polygoned",
-    version = "0.3.0",
+    version = env!("CARGO_PKG_VERSION"),
     about = "Lightweight resource daemon for Polygone P2P",
     long_about = None,
 )]
