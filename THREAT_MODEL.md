@@ -27,7 +27,7 @@
 - ⚠ Disclosure HUMAINE forcée (« rubber-hose attack »)
 
 ### Coût d'adoption
-- **5 minutes** : `curl -fsSL polygone.network/install | bash`
+- **5 minutes** : `curl -fsSL https://github.com/lvs0/Polygone-Network/releases/latest/install.sh | bash`
 
 ### Fabriquer la confiance
 - `cargo test` reproduit le mode en 2 min

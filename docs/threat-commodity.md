@@ -34,7 +34,7 @@ des faiblesses génériques à grande échelle.
 |---|---|---|
 | Lecture du message en transit | Chiffrement bout-en-bout | AES-256-GCM, clé dérivée d'un secret ML-KEM-1024 |
 | Déchiffrement futur par ordinateur quantique | KEM post-quantique | ML-KEM-1024 (FIPS 203) |
-| Reconstruction d'un message capturé | Fragmentation à seuil | Shamir 4-of-7 — 3 fragments = zéro information |
+| Reconstruction d'un message capturé | Fragmentation à seuil | Shamir 4-of-7 — 3 fragments = zéro information. **Honnêteté** : au transit, le relay voit les 7 fragments (chiffrés) ; le seuil 4/7 protège contre la *perte* de fragments et la reconstruction partielle, pas contre le relay — la protection réelle est ML-KEM/AES (le relay sans clé ne lit rien) |
 | Persistance du message sur les nœuds | Éphémérité | TTL ≤ 30 s, fragments non consolidés désintégrés |
 | Usurpation de l'expéditeur | Signature | ML-DSA-65 (FIPS 204), détachée, vérifiable — ✅ **branché au chemin réseau** (Phase 1) : chaque message est signé, la signature est vérifiée avant déchiffrement, une clé connue = pas d'usurpation possible |
 | Fuite du nom de fichier | Nom hors-bande | Le nom du fichier est chiffré par la clé de session (`name_ct`) — le relay ne voit que des octets opaques |
@@ -52,11 +52,15 @@ des faiblesses génériques à grande échelle.
 - ⚠ **Disclosure humaine forcée** — personne ne peut vous empêcher de parler.
 - ⚠ **Métadonnées réseau** — le *timing*, les *tailles* et le *routage*
   restent observables au niveau réseau. Réduits, pas annulés.
+- ⚠ **Identité corrélable** — le `node_id` (empreinte stable de la clé KEM
+  publique) voyage dans chaque enveloppe : le relay sait *qui* parle à
+  *qui* (assomption documentée Phase 1.3), pas *quoi*. Un pseudonyme de
+  session éphémère est une piste future, pas une promesse.
 
 ## 5. Coût d'adoption
 
 ```
-curl -fsSL polygone.network/install | bash
+curl -fsSL https://github.com/lvs0/Polygone-Network/releases/latest/install.sh | bash
 polygone
 ```
 
