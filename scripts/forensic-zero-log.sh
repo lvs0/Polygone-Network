@@ -31,7 +31,7 @@ echo "   relay : $RELAY_BIN (port $PORT)"
 # ── 1. Le relay ne possède AUCUN fichier au démarrage ─────────────────────
 RELAY_WORKDIR="$TMP/relay-cwd"
 mkdir -p "$RELAY_WORKDIR"
-( cd "$RELAY_WORKDIR" && "$OLDPWD/$RELAY_BIN" --port "$PORT" >"$TMP/relay.log" 2>&1 ) &
+( cd "$RELAY_WORKDIR" && exec "$OLDPWD/$RELAY_BIN" --port "$PORT" >"$TMP/relay.log" 2>&1 ) &
 RELAY_PID=$!
 sleep 0.5
 
@@ -40,14 +40,18 @@ files_before="$(find "$RELAY_WORKDIR" -type f | wc -l)"
 log "Aucun fichier créé par le relay (stateless) — $files_before fichier"
 
 # ── 2. Session complète : Alice → relay → Bob ─────────────────────────────
-# Bob s'enregistre puis se déconnecte.
+# Bob s'enregistre (l'ACK HELLO_OK est consommé : le relay accuse réception).
 exec 3<>"/dev/tcp/127.0.0.1/$PORT"
 printf 'HELLO bob\n' >&3
 sleep 0.2
-# Alice envoie un fragment vers bob.
+IFS= read -r -t 2 ack_bob <&3 || die "pas d'ACK HELLO pour Bob"
+case "$ack_bob" in HELLO_OK*) log "Bob enregistré (HELLO_OK)" ;; *) die "ACK Bob inattendu : $ack_bob" ;; esac
+# Alice s'enregistre et envoie un fragment vers bob.
 exec 4<>"/dev/tcp/127.0.0.1/$PORT"
 printf 'HELLO alice\n' >&4
 sleep 0.2
+IFS= read -r -t 2 ack_alice <&4 || die "pas d'ACK HELLO pour Alice"
+case "$ack_alice" in HELLO_OK*) ;; *) die "ACK Alice inattendu : $ack_alice" ;; esac
 printf '%s\n' '{"kind":"fragment","from":"alice","to":"bob","session":"fs-1","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[1,2,3]}' >&4
 sleep 0.3
 # Bob lit le fragment (forward réussi) puis se déconnecte.
@@ -63,6 +67,8 @@ sleep 0.3
 exec 5<>"/dev/tcp/127.0.0.1/$PORT"
 printf 'HELLO bob\n' >&5
 sleep 0.4
+IFS= read -r -t 1 ack_bob2 <&5 || die "pas d'ACK HELLO pour le nouveau Bob"
+case "$ack_bob2" in HELLO_OK*) ;; *) die "ACK inattendu : $ack_bob2" ;; esac
 if IFS= read -r -t 1 line <&5; then
   die "le relay a rejoué un fragment à un pair fraîchement connecté — il stocke ! (reçu: $line)"
 else
