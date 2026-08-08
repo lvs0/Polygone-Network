@@ -47,7 +47,9 @@
 - **Pattern de messagerie** hors TTL (4-of-7 fragments)
 - **Mécanisme de subpoena** documenté (`LEGAL.md` §4, 24 h de gèle)
 - **Contenu chiffré** de bout-en-bout
-- **Mode duress** (`docs/kill-switch.md`) — autodestruction locaux sur signal
+- **Mode duress** (`docs/kill-switch.md`) — autodestruction locale sur
+  signal : identité, fichiers reçus, scores RES **et ancres `peers.json`**
+  (la trace relationnelle : qui on a contacté)
 
 ### Ce que Polygone ne protège PAS
 - ⚠ Rubber-hose attack (Mitnick, Comité 2)

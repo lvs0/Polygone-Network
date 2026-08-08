@@ -35,7 +35,7 @@ Cet adversaire a du temps, de l'argent et la loi de son côté. Il cible
 | Lien expéditeur ↔ destinataire | Relay aveugle, aucun routage par identité | Le relay ne voit que des fragments chiffrés, pas d'adresse résolue |
 | Subpoena sur l'opérateur | Mécanisme documenté, 24 h de gel | `LEGAL.md` §4 — l'opérateur ne *peut* pas fournir plus que des fragments |
 | Contenu en transit | Chiffrement bout-en-bout post-quantique | ML-KEM-1024 + AES-256-GCM + ML-DSA-65 |
-| Machine saisie en état d'usage | Mode duress | `docs/kill-switch.md` — autodestruction locale sur signal |
+| Machine saisie en état d'usage | Mode duress | `docs/kill-switch.md` — autodestruction locale : identité, fichiers reçus, scores, ancres `peers.json` (trace relationnelle) |
 | Déchiffrement rétroactif | Post-quantique par défaut | ML-KEM-1024 / ML-DSA-65 (FIPS 203/204) |
 
 ## 4. Ce que Polygone ne protège PAS
