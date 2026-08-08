@@ -184,9 +184,7 @@ pub fn verite() -> Result<()> {
     }
 
     println!();
-    println!(
-        "{DIM}messages : 0 octet stocké — ils vivent en mémoire (TTL 30 s) et meurent.{RESET}"
-    );
+    println!("{DIM}messages : 0 octet stocké — le relay ne stocke rien (stateless, drop).{RESET}");
     println!("{DIM}fragments : aucun — 4/7 reconstruisent, puis oublient.{RESET}\n");
 
     if kept_about_others == 0 {

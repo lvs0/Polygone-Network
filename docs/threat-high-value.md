@@ -31,7 +31,7 @@ Cet adversaire a du temps, de l'argent et la loi de son côté. Il cible
 
 | Menace | Protection | Mécanisme |
 |---|---|---|
-| Prouver qu'un échange a existé | Non-prouvabilité par construction | Fragments éphémères TTL 30 s, 4-of-7, aucun agrégat reconstituable après coup |
+| Prouver qu'un échange a existé | Non-prouvabilité par construction | Fragments éphémères (stateless, non rejouables), 4-of-7, aucun agrégat reconstituable après coup |
 | Lien expéditeur ↔ destinataire | Relay aveugle, aucun routage par identité | Le relay ne voit que des fragments chiffrés, pas d'adresse résolue |
 | Subpoena sur l'opérateur | Mécanisme documenté, 24 h de gel | `LEGAL.md` §4 — l'opérateur ne *peut* pas fournir plus que des fragments |
 | Contenu en transit | Chiffrement bout-en-bout post-quantique | ML-KEM-1024 + AES-256-GCM + ML-DSA-65 |

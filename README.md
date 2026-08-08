@@ -105,8 +105,10 @@ Deux choses, et leur négatif :
    impossible (horodatage signé ±300 s).
 2. **Envoyer un fichier** que personne d'autre ne peut lire — même chemin, nom
    chiffré hors-bande (le relay voit des octets opaques).
-3. **Rien ne reste.** Les fragments vivent en mémoire (TTL 30 s) et meurent.
-   4/7 reconstruisent, puis oublient (`zeroize`). `polygone verite` l'énumère.
+3. **Rien ne reste.** Le relay est stateless : un fragment non livré meurt
+   immédiatement (drop, jamais buffer). Livré, 4/7 reconstruisent, puis
+   oublient (`zeroize`). `polygone verite` l'énumère. Le TTL visible
+   (`--ttl`, défaut 30 s) est celui du scénario `premier-soir`.
 
 **Honnêteté d'architecture (lue dans le code, pas dans le rêve) :** le relay
 voit les *métadonnées* de routage (`from`, `to`, `session`, tailles) parce
@@ -181,10 +183,11 @@ pour un pair connu = rejet). « C'est bien Alice » est signé **et** ancré.
 
 > *« Le message meurt. Regarde. »*
 
-Signifie littéralement : aucun message ne réside en aucun nœud après son
-TTL. Les fragments sont chiffrés, répartis 4-of-7, reconstruits puis
-oubliés (`zeroize`). C'est une promesse **de design**, pas une déclaration
-métaphysique — et c'est une **commande** : `polygone premier-soir`.
+Signifie littéralement : aucun message ne réside en aucun nœud — le relay
+ne stocke rien (stateless, drop), les fragments sont chiffrés, répartis
+4-of-7, reconstruits puis oubliés (`zeroize`). C'est une promesse **de
+design**, pas une déclaration métaphysique — et c'est une **commande** :
+`polygone premier-soir`.
 
 > *« L'information n'existe pas. Elle traverse. »* — cf. [`PHILOSOPHY.md`](./PHILOSOPHY.md) Axiome 1.
 
