@@ -96,6 +96,42 @@ for bin in "$BIN" "$ROOT/target/release/polygone-relay" "$ROOT/target/release/po
   fi
 done
 
+# ── D8 — la config LEGACY se lit (rétro-compat) ─────────────────────────
+# Une config écrite par une version antérieure ([tier] en table, section
+# [platform] inconnue) doit charger et afficher SON tier — la preuve que
+# la config est lue, pas le fallback default.
+PD="$ROOT/target/release/polygoned"
+LEGACY="$TMP/legacy"
+mkdir -p "$LEGACY/.config/polygone"
+cat >"$LEGACY/.config/polygone/daemon.toml" <<'TOML'
+[tier]
+tier = "Performance"
+
+[safety]
+min_free_ram_gb = 4.0
+min_free_cpu_cores = 1
+min_free_vram_mb = 512
+max_cpu_percent = 85
+
+[behavior]
+grow_step_pct = 10
+shrink_step_pct = 5
+shrink_hysteresis_ticks = 5
+throttle_on_user_activity = true
+tick_interval_secs = 5
+
+[platform]
+mode = "linux"
+TOML
+if HOME="$LEGACY" timeout 15 "$PD" status 2>"$TMP/legacy.log" \
+    | grep -qi "tier.*performance"; then
+  echo "✓ polygoned lit la config legacy ([tier] en table) → tier Performance"
+else
+  echo "✖ la config legacy ne charge pas, ou son tier est perdu (default)"
+  tail -5 "$TMP/legacy.log"
+  exit 1
+fi
+
 # ── polygoned — le 4e binaire du workspace (README) ──────────────────────
 PD="$ROOT/target/release/polygoned"
 if [ -x "$PD" ]; then
