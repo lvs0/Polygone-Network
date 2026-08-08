@@ -205,3 +205,39 @@ tag `v*` ?
 credentials). En attendant, le cran suivant qui n'en dépend pas :
 audit des promesses README (règle produit++ — chaque promesse = test CI
 ou commande `polygone *`).
+
+---
+
+## D8 — polygoned doit lire l'ancien format de config (rétro-compat) (tranchée 2026-08-08)
+
+**Déclencheur** : l'itération 16 a corrigé `--gen-config` (format écrit ==
+format lu), mais la config réelle de la machine
+(`~/.config/polygone/daemon.toml`, écrite le 2026-07-20) est dans le
+format **legacy** — `[tier] tier = "Balanced"` encapsulé en table — que
+le parseur actuel rejette. Vérifié 2026-08-08 : `polygoned status` et
+`polygoned --gen-config` échouent tous deux sur cette config
+(`unknown variant 'tier', expected one of 'Eco', 'Balanced', …`).
+L'utilisateur réel ne peut donc pas lancer son daemon sans action manuelle.
+
+**Question** : le daemon doit-il accepter les deux formes de config
+(legacy `[tier] tier = "X"` et actuelle `tier = "X"`) pour ne jamais
+casser un utilisateur existant — ou exiger la régénération ?
+
+**Options** :
+- **(a) Désérialisation rétro-compatible** — accepter `[tier] tier = "X"`
+  ET `tier = "X"` ; la valeur est identique (« Balanced » est un tier
+  valide). Zéro friction utilisateur, robustesse à la frontière (règle
+  CLAUDE.md). Lévy n'a rien à faire.
+- **(b) Migration one-shot** — `--gen-config` détecte l'ancien format et
+  le réécrit ; le parseur reste strict. Plus fragile (état modifié sans
+  demande), erreur si le daemon n'est pas lancé avec la migration.
+- **(c) Régénération exigée** — l'utilisateur perd ses réglages et subit
+  la friction ; c'était l'état « à faire par Lévy » du plan.
+
+**Effet** : (a) = `polygoned status` fonctionne immédiatement sur la
+machine réelle, sans action ni perte ; l'ancien format ne casse plus
+jamais un utilisateur.
+
+**Statut** : ✅ **TRANCHÉE par l'architecte (2026-08-08)** — option (a),
+exécution au cran suivant avec test de round-trip (legacy + actuel).
+Fallback conservé : `polygoned --gen-config` régénère quand même.
