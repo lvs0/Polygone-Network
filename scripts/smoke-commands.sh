@@ -147,6 +147,22 @@ else
   exit 1
 fi
 
+# ── socket honnête — status reflète le VRAI chemin du daemon ────────────
+# Le daemon écrit ~/.polygone/daemon.sock ; l'indicateur doit suivre ce
+# chemin : absent → ❌, présent → ✅ (jamais un chemin mort).
+SO="$TMP/sock"
+mkdir -p "$SO/.polygone"
+if ! HOME="$SO" timeout 15 "$PD" status 2>/dev/null | grep -q "daemon.sock.*❌"; then
+  echo "✖ status ne reflète pas le socket absent (❌ attendu)"
+  exit 1
+fi
+touch "$SO/.polygone/daemon.sock"
+if ! HOME="$SO" timeout 15 "$PD" status 2>/dev/null | grep -q "daemon.sock.*✅"; then
+  echo "✖ status ne reflète pas le socket présent (✅ attendu)"
+  exit 1
+fi
+echo "✓ polygoned status reflète le socket réel (absent → ❌, présent → ✅)"
+
 echo
 echo "═══ VERDICT : les commandes promues tiennent leurs verdicts. ═══"
 exit 0

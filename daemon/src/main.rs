@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use polygoned::{
     create_platform,
-    socket::{ensure_dir, notify_allocation, notify_shrink},
+    socket::{ensure_dir, notify_allocation, notify_shrink, socket_path},
     Allocation, DaemonConfig, GlowUpEngine, SystemSnapshot,
 };
 
@@ -207,7 +207,12 @@ fn handle_command(
                 );
             }
             println!();
-            println!("  Socket      : ~/.polygone/daemon.sock");
+            let sock = socket_path();
+            println!(
+                "  Socket      : {} {}",
+                sock.display(),
+                if sock.exists() { "✅" } else { "❌" }
+            );
             println!();
             Ok(())
         }
@@ -307,7 +312,7 @@ fn run_doctor(platform: &dyn polygoned::Platform) {
         }
     }
 
-    let sock = platform.data_dir().join("ipc").join("polygoned.sock");
+    let sock = socket_path();
     println!(
         "\n  IPC socket: {} {}",
         sock.display(),

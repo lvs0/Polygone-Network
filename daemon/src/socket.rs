@@ -12,7 +12,11 @@ use crate::allocator::Allocation;
 
 static SOCKET_PATH: OnceLock<PathBuf> = OnceLock::new();
 
-fn socket_path() -> PathBuf {
+/// Le chemin réel du socket du daemon (`~/.polygone/daemon.sock`).
+/// Exposé pour que `status`/`doctor` affichent et vérifient LE MÊME
+/// chemin que celui que le daemon écrit — l'indicateur ne doit pas
+/// regarder un chemin mort.
+pub fn socket_path() -> PathBuf {
     SOCKET_PATH
         .get_or_init(|| {
             dirs::home_dir()
