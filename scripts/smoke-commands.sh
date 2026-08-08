@@ -60,6 +60,22 @@ if [ -x "$BIN" ]; then
   fi
 fi
 
+# ── wire.txt — la forme fichier du transport (README quickstart) ────────
+# Le quickstart promet `envoyer … > wire.txt` puis `recevoir wire.txt` :
+# le round-trip FICHIER (pas seulement stdin) doit tenir.
+if [ -x "$BIN" ]; then
+  PK2="$(HOME="$TMP/wire" "$BIN" clef 2>/dev/null | head -1)"
+  if HOME="$TMP/wire" "$BIN" envoyer -d "$PK2" "message fichier wire" 2>/dev/null \
+      >"$TMP/wire.txt" \
+    && HOME="$TMP/wire" "$BIN" recevoir "$TMP/wire.txt" 2>/dev/null \
+      | grep -q "message fichier wire"; then
+    echo "✓ polygone envoyer > wire.txt | recevoir wire.txt (round-trip fichier)"
+  else
+    echo "✖ la forme fichier du quickstart ne tient pas"
+    exit 1
+  fi
+fi
+
 # ── Axiome 5 : la machine est la menace — duress détruit RÉELLEMENT ────────
 # État éphémère complet (4 fichiers) → 0 après `duress --confirmer`.
 DU="$TMP/duress"

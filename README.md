@@ -62,8 +62,8 @@ polygone carte
 
 # Les commandes de transport
 polygone demo            # démo E2E post-quantique complète (60 s)
-polygone envoyer -d <clef> "message"   # chiffrer + fragmenter (ML-KEM + Shamir 4/7)
-polygone recevoir wire.txt             # reconstruire + déchiffrer
+polygone envoyer -d <clef> "message" > wire.txt  # chiffrer + fragmenter, wire sur stdout
+polygone recevoir wire.txt                       # reconstruire + déchiffrer
 
 # Le vrai réseau (plane 2 — relay)
 polygone-relay                          # terminal 1 : le relay

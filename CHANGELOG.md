@@ -14,6 +14,10 @@
   de `recevoir -`) : il n'apparaît jamais dans l'historique shell.
   Recommandé par `docs/kill-switch.md`, désormais réel — round-trip
   prouvé en CI (zéro argument en clair).
+- **Quickstart corrigé** — `envoyer … > wire.txt` : la forme FICHIER du
+  transport (`recevoir wire.txt`) était documentée sans la redirection
+  qui la produit ; round-trip fichier désormais prouvé en CI (16e gate
+  smoke).
 - **`docs/observation-premier-soir.md`** — le carnet d'observation du
   Premier Soir : le modèle complet (identité du soir, grille des 5
   questions, 3 preuves, verdict collectif, résidu social, 4 métriques),
