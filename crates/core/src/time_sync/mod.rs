@@ -37,8 +37,14 @@ mod tests {
         // T1=1000, T2=1005, T3=1010, T4=1015
         // offset = ((1005-1000) + (1010-1015)) / 2 = (5 - 5) / 2 = 0
         // delay = (1015-1000) - (1010-1005) = 15 - 5 = 10
-        let offset = ((1005i64 - 1000) + (1010 - 1015)) / 2;
-        let delay = (1015 - 1000) - (1010 - 1005);
+        // Variables, pas de constantes : la formule est exercée, pas repliée
+        // par le compilateur (clippy::erasing_op).
+        let t1 = 1000i64;
+        let t2 = 1005;
+        let t3 = 1010;
+        let t4 = 1015;
+        let offset = ((t2 - t1) + (t3 - t4)) / 2;
+        let delay = (t4 - t1) - (t3 - t2);
         assert_eq!(offset, 0);
         assert_eq!(delay, 10);
     }

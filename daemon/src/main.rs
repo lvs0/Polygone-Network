@@ -126,7 +126,7 @@ fn main() -> Result<()> {
         log_alloc(&alloc, &snap);
 
         tick_count += 1;
-        if tick_count % 60 == 0 {
+        if tick_count.is_multiple_of(60) {
             log::info!(
                 "polygoned: status | CPU:{:.0}% RAM:{:.1}/{:.1}GB Alloc:{:.1}GB BW:{}Mbps GPU:{}MB tier:{} {}",
                 snap.cpu.usage_percent,

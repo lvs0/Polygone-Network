@@ -98,23 +98,15 @@ pub async fn announce(node_id: &str, relay: &str) -> Result<()> {
         socket.send_to(packet.as_bytes(), ("255.255.255.255", MESH_PORT))?;
 
         // Answer PINGs for up to 500 ms, then announce again.
-        loop {
-            match socket.recv_from(&mut buf) {
-                Ok((n, from)) => {
-                    let line = String::from_utf8_lossy(&buf[..n]);
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    // "POLYGONE v1 PING <port>" — reply straight to the scanner.
-                    if parts.len() >= 4
-                        && parts[0] == "POLYGONE"
-                        && parts[1] == "v1"
-                        && parts[2] == "PING"
-                    {
-                        if let Ok(port) = parts[3].parse::<u16>() {
-                            let _ = socket.send_to(packet.as_bytes(), (from.ip(), port));
-                        }
-                    }
+        while let Ok((n, from)) = socket.recv_from(&mut buf) {
+            let line = String::from_utf8_lossy(&buf[..n]);
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            // "POLYGONE v1 PING <port>" — reply straight to the scanner.
+            if parts.len() >= 4 && parts[0] == "POLYGONE" && parts[1] == "v1" && parts[2] == "PING"
+            {
+                if let Ok(port) = parts[3].parse::<u16>() {
+                    let _ = socket.send_to(packet.as_bytes(), (from.ip(), port));
                 }
-                Err(_) => break, // read timeout — next announce round
             }
         }
     }
@@ -129,10 +121,10 @@ pub fn free_ram_mb() -> Option<u32> {
         let mut avail = 0u64;
         for line in meminfo.lines() {
             if let Some(rest) = line.strip_prefix("MemFree:") {
-                free = rest.trim().split_whitespace().next()?.parse().ok()?;
+                free = rest.split_whitespace().next()?.parse().ok()?;
             }
             if let Some(rest) = line.strip_prefix("MemAvailable:") {
-                avail = rest.trim().split_whitespace().next()?.parse().ok()?;
+                avail = rest.split_whitespace().next()?.parse().ok()?;
             }
         }
         // Prefer MemAvailable (more honest about usable memory).

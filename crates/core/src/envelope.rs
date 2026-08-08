@@ -125,7 +125,7 @@ mod tests {
     fn test_envelope_roundtrip() {
         let from = NodeId::random();
         let to = NodeId::random();
-        let mut e = Envelope::new(EnvelopeKind::HandshakeInit, from.clone(), to.clone());
+        let mut e = Envelope::new(EnvelopeKind::HandshakeInit, from, to);
         e.payload = b"hello".to_vec();
         let json = serde_json::to_string(&e).unwrap();
         let back: Envelope = serde_json::from_str(&json).unwrap();

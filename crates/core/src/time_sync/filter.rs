@@ -32,7 +32,7 @@ pub struct MedianFilter {
 
 impl MedianFilter {
     pub fn new(config: MedianFilterConfig) -> Self {
-        let window_size = if config.window_size % 2 == 0 {
+        let window_size = if config.window_size.is_multiple_of(2) {
             config.window_size + 1
         } else {
             config.window_size
@@ -63,7 +63,7 @@ impl MedianFilter {
         let mut sorted: Vec<i64> = self.samples.iter().copied().collect();
         sorted.sort_unstable();
         let len = sorted.len();
-        if len % 2 == 0 {
+        if len.is_multiple_of(2) {
             // Even number of elements: return the average of the two middle values
             let mid = len / 2;
             Some((sorted[mid - 1] + sorted[mid]) / 2)
@@ -93,6 +93,11 @@ impl MedianFilter {
     /// Number of samples in window
     pub fn len(&self) -> usize {
         self.samples.len()
+    }
+
+    /// Whether the filter holds no samples
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
     }
 
     /// Check if filter has minimum samples
@@ -160,7 +165,7 @@ impl WeightedMedianFilter {
         let half_weight = total_weight / 2.0;
 
         let mut cum_weight = 0.0;
-        for (_i, sample) in sorted.iter().enumerate() {
+        for sample in sorted.iter() {
             cum_weight += sample.weight;
             if cum_weight >= half_weight {
                 // Confidence based on weight concentration around median
@@ -182,6 +187,11 @@ impl WeightedMedianFilter {
 
     pub fn len(&self) -> usize {
         self.samples.len()
+    }
+
+    /// Whether the filter holds no samples
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
     }
 
     pub fn clear(&mut self) {

@@ -73,7 +73,7 @@ impl GpuAllocation {
 pub fn allocate(ratio: Option<f32>) -> GpuAllocation {
     let ratio = ratio.unwrap_or(0.5).clamp(0.0, 1.0);
     let output = if let Ok(out) = Command::new("nvidia-smi")
-        .args(&[
+        .args([
             "--query-gpu=memory.total,memory.used",
             "--format=csv,noheader,nounits",
         ])

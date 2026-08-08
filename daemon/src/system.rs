@@ -145,8 +145,8 @@ impl SystemSnapshot {
                     power_watts: g.power_watts,
                 })
                 .collect(),
-            timestamp: timestamp,
-            user_active: user_active,
+            timestamp,
+            user_active,
         }
     }
 }

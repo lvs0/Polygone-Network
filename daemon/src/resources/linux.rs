@@ -13,6 +13,12 @@ pub struct LinuxPlatform {
     cgroups_v2: bool,
 }
 
+impl Default for LinuxPlatform {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LinuxPlatform {
     pub fn new() -> Self {
         let cgroups_v2 = std::path::PathBuf::from("/sys/fs/cgroup/cgroup.controllers").exists();

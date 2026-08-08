@@ -68,11 +68,7 @@ fn http_request(method: &str, path: &str, body: Option<&str>) -> Result<(u16, St
 fn decode_chunked(body: &str) -> String {
     let mut out = String::new();
     let mut rest = body;
-    loop {
-        let (size_line, after_size) = match rest.split_once("\r\n") {
-            Some((s, a)) => (s, a),
-            None => break,
-        };
+    while let Some((size_line, after_size)) = rest.split_once("\r\n") {
         let size = usize::from_str_radix(size_line.trim(), 16).unwrap_or(0);
         if size == 0 {
             break;

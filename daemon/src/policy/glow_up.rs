@@ -89,7 +89,7 @@ pub struct TierPreset {
 }
 
 /// All four named presets
-pub const TIER_PRESETS: [(&'static str, TierPreset); 4] = [
+pub const TIER_PRESETS: [(&str, TierPreset); 4] = [
     (
         "eco",
         TierPreset {
@@ -317,7 +317,7 @@ impl GlowUpEngine {
         let constrained = self.apply_constraints(ideal, snap);
         let smoothed = self.smooth_transition(constrained);
 
-        self.current = smoothed.clone();
+        self.current = smoothed;
         self.history.push(&smoothed);
         Ok(smoothed)
     }
@@ -370,7 +370,7 @@ impl GlowUpEngine {
 
     fn smooth_transition(&self, target: Allocation) -> Allocation {
         let behavior = &self.config.behavior;
-        let mut result = target.clone();
+        let mut result = target;
         let current = &self.current;
 
         // RAM: grow fast, shrink slow + hysteresis

@@ -73,7 +73,7 @@ impl Monitor {
     pub fn new(interface: Option<&str>) -> Self {
         let iface = interface
             .map(String::from)
-            .or_else(|| detect_primary_interface())
+            .or_else(detect_primary_interface)
             .unwrap_or_else(|| "lo".to_string());
 
         log::info!("bandwidth: monitoring interface {}", iface);
@@ -208,7 +208,7 @@ fn detect_primary_interface() -> Option<String> {
         }
     }
     // Pick the interface with the most received traffic — most likely the active one
-    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    candidates.sort_by_key(|(_, rx)| std::cmp::Reverse(*rx));
     log::debug!("bandwidth: detected interfaces: {:?}", candidates);
     candidates.into_iter().next().map(|(n, _)| n)
 }

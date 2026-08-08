@@ -106,9 +106,11 @@ mod tests {
 
     #[test]
     fn score_is_percentage() {
-        let mut r = Reputation::default();
-        r.ok = 3;
-        r.fail = 1;
+        let r = Reputation {
+            ok: 3,
+            fail: 1,
+            ..Default::default()
+        };
         assert_eq!(r.score(), 75);
     }
 

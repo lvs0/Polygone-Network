@@ -175,19 +175,14 @@ pub struct PlatformCaps {
 }
 
 /// CPU affinity mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum CpuAffinityMode {
+    #[default]
     Auto,
     Spread,
     Compact,
     Performance,
     Off,
-}
-
-impl Default for CpuAffinityMode {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl std::fmt::Display for CpuAffinityMode {

@@ -62,7 +62,7 @@ impl TimeOffset {
         self.0
     }
     pub fn abs(&self) -> u64 {
-        self.0.abs() as u64
+        self.0.unsigned_abs()
     }
     pub fn is_within(&self, tolerance_ms: u64) -> bool {
         self.abs() <= tolerance_ms

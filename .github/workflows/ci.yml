@@ -36,7 +36,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
       - name: Run clippy
-        run: cargo clippy --all --all-targets -- -D warnings -A clippy::all
+        run: cargo clippy --all --all-targets -- -D warnings
 
   # ── Build ──────────────────────────────────────────────────────────────────────
   build:
@@ -70,10 +70,8 @@ jobs:
       - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Run workspace tests (no external network)
+      - name: Run workspace tests (no external network, mode parallèle)
         run: cargo test --workspace
-        env:
-          RUST_TEST_THREADS: 1
 
   # ── Crypto Self-Test ────────────────────────────────────────────────────────────
   crypto-selftest:
@@ -114,7 +112,10 @@ jobs:
       - name: Licence unique (AGPL-3.0)
         run: |
           grep -q 'license = "AGPL-3.0-or-later"' Cargo.toml || { echo "✖ Cargo.toml a changé de licence"; exit 1; }
-          grep -ri 'MIT License' README.md PHILOSOPHY.md LEGAL.md STAGING.md 2>/dev/null && { echo "✖ MIT traîne dans les docs"; exit 1; } || true
+          if grep -ri 'MIT License' README.md PHILOSOPHY.md LEGAL.md STAGING.md 2>/dev/null; then
+            echo "✖ MIT traîne dans les docs"
+            exit 1
+          fi
 
   # ── Zero-log prouvable ──────────────────────────────────────────────────────────
   # « L'information n'existe pas » devient un artefact rejouable : une session
