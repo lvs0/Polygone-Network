@@ -11,8 +11,8 @@
 |---|---|---|
 | `~/.polygone/identity.json` | Identité : pseudo + clés ML-KEM-1024 + ML-DSA-65 | `polygone` (premier lancement), chmod 600 |
 | `~/.config/polygone/daemon.toml` | Allocation de ressources (polygoned) | `polygoned` ou l'utilisateur |
-| `~/.config/polygone/config.json` | Langue, mode nœud, pseudo (legacy v1) | v1 |
-| `~/.config/polygone/services.json` | État des 8 services (legacy v1) | v1 |
+| `~/.config/polygone/config.json` | Restes v1 — **inertes** : aucun code ne les lit (vérifié 2026-08-08) | v1 |
+| `~/.config/polygone/services.json` | Restes v1 — **inertes** : aucun code ne les lit (vérifié 2026-08-08) | v1 |
 
 ## 2. `~/.polygone/identity.json`
 
@@ -36,21 +36,35 @@
 
 ## 3. `~/.config/polygone/daemon.toml`
 
-Configuration du daemon d'allocation (`polygoned`), inspirée de systemd :
+Configuration du daemon d'allocation (`polygoned`), écrite par
+`polygoned --gen-config` (le daemon lit aussi le format legacy
+`[tier] tier = "…"` des versions antérieures) :
 
 ```toml
-[tier]
-tier = "Balanced"          # Balanced | Power | Eco
+tier = "Balanced"          # Eco | Balanced | Performance | Max | Custom
+cpu_affinity_mode = "Auto"
+memory_limit_enabled = true
+bandwidth_shaping = true
+gpu_allocation_enabled = true
+service_integration = true
+
+[behavior]
+grow_step_pct = 10
+shrink_step_pct = 5
+shrink_hysteresis_ticks = 5
+throttle_on_user_activity = true
+tick_interval_secs = 5
 
 [safety]
 min_free_ram_gb = 4.0
 min_free_cpu_cores = 1
+min_free_vram_mb = 512
 max_cpu_percent = 85
-
-[behavior]
-tick_interval_secs = 5
-throttle_on_user_activity = true
 ```
+
+Les champs absents d'une config partielle retombent sur les defaults
+produit (planchers de sécurité réels, toggles activés) — jamais des zéros
+silencieux.
 
 ## 4. Variables d'environnement
 
@@ -73,6 +87,13 @@ throttle_on_user_activity = true
 - **Zéro secret dans le code** : les clés vont dans `~/.polygone/`, jamais
   dans le dépôt.
 - **Privacy-by-default** : une seule commande génère tout ce qu'il faut.
+
+## 7. Fichiers legacy v1 inertes
+
+`~/.config/polygone/config.json` et `services.json` sont des restes de la
+v1. **Aucun code du workspace ne les lit** (vérifié 2026-08-08) — ils
+peuvent être supprimés sans risque ; le daemon actuel n'utilise que
+`daemon.toml`.
 
 ---
 
