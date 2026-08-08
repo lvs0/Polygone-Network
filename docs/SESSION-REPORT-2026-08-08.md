@@ -2,7 +2,7 @@
 
 > *Session autonome (loop /loop 30m, ultracode). L'architecte a travaillé
 > comme Lévy : exigence produit++, zéro compromis sur la promesse centrale.
-> 17 commits produits, chaque cran vérifié avant commit. Source de vérité
+> 18 commits produits, chaque cran vérifié avant commit. Source de vérité
 > pour la reprise et pour les décisions.*
 
 ---
@@ -69,7 +69,7 @@ La passe systématique des phases du plan a révélé 5 corrections réelles :
 | Docs | Phases 0-6 vérifiées ligne à ligne ; zéro compteur périmé |
 | Graphe | built-from == HEAD, 0 nœud mort |
 | Config machine | `polygoned status` fonctionne sur la vraie config |
-| Commits du loop | **17** (7 fixes/tests, 10 docs) |
+| Commits du loop | **18** (8 fixes/tests, 10 docs) |
 
 **Promesse centrale** : « Le message meurt. Regarde. » — prouvée par
 `polygone premier-soir` (5 min), `polygone verite` (« rien »), `polygone
@@ -113,6 +113,6 @@ polygoned status                # la vraie config, lisible
 
 ---
 
-*17 commits · 16 itérations · 4 décisions consignées (D8 exécutée, D9,
+*18 commits · 17 itérations · 4 décisions consignées (D8 exécutée, D9,
 D7 clarifiée et prête, D6 rappelée). « L'information n'existe pas. Elle
 traverse. » — le projet attend son premier témoin.*
