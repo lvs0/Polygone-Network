@@ -70,12 +70,25 @@ pub struct ResourceLimits {
 }
 
 /// Safety floors — minimum free resources the system must retain
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SafetyMargins {
     pub min_free_ram_gb: f32,
     pub min_free_cpu_cores: usize,
     pub min_free_vram_mb: u32,
     pub max_cpu_percent: u8,
+}
+
+impl Default for SafetyMargins {
+    /// Les garde-fous PRODUIT (pas des zéros) : une config partielle ou
+    /// legacy ne doit jamais lever les planchers de sécurité.
+    fn default() -> Self {
+        SafetyMargins {
+            min_free_ram_gb: 4.0,
+            min_free_cpu_cores: 1,
+            min_free_vram_mb: 512,
+            max_cpu_percent: 85,
+        }
+    }
 }
 
 /// A named tier preset
@@ -154,19 +167,94 @@ impl Default for BehaviorConfig {
     }
 }
 
+/// Désérialise `tier` en acceptant les DEUX formes historiques :
+/// - forme actuelle (scalaire) : `tier = "Balanced"`
+/// - forme legacy (table) : `[tier] tier = "Balanced"` — écrite par les
+///   versions antérieures (dont l'ancien `--gen-config` qui produisait
+///   `[tier] name = "…"`).
+///
+/// D8 : un daemon doit lire la config d'une version précédente, pas exiger
+/// la régénération (zéro friction, robustesse à la frontière).
+fn deserialize_tier<'de, D>(deserializer: D) -> Result<AllocationTier, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct TierVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for TierVisitor {
+        type Value = AllocationTier;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "a tier name (\"Balanced\", \"Eco\", …) or a legacy `[tier]` table"
+            )
+        }
+
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            v.parse().map_err(E::custom)
+        }
+
+        fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+            v.parse().map_err(E::custom)
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(
+            self,
+            mut map: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut value: Option<String> = None;
+            while let Some(key) = map.next_key::<String>()? {
+                match key.as_str() {
+                    "tier" | "name" => value = Some(map.next_value()?),
+                    _ => {
+                        map.next_value::<serde::de::IgnoredAny>()?;
+                    }
+                }
+            }
+            let Some(value) = value else {
+                return Err(serde::de::Error::custom("missing `tier` in [tier] table"));
+            };
+            value.parse().map_err(serde::de::Error::custom)
+        }
+    }
+
+    deserializer.deserialize_any(TierVisitor)
+}
+
 /// Daemon configuration — tier, limits, safety, behaviour
+///
+/// Rétro-compat D8 : les champs absents du format legacy (écrit par les
+/// versions antérieures) se replient sur les defaults PRODUIT — jamais
+/// des zéros — pour qu'une config partielle ne lève ni les garde-fous
+/// de sécurité ni les fonctionnalités.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
+    #[serde(deserialize_with = "deserialize_tier")]
     pub tier: AllocationTier,
     pub custom_limits: Option<ResourceLimits>,
+    #[serde(default)]
     pub behavior: BehaviorConfig,
+    #[serde(default)]
     pub safety: SafetyMargins,
     /// Platform-specific feature toggles
+    #[serde(default)]
     pub cpu_affinity_mode: CpuAffinityMode,
+    #[serde(default = "default_true")]
     pub memory_limit_enabled: bool,
+    #[serde(default = "default_true")]
     pub bandwidth_shaping: bool,
+    #[serde(default = "default_true")]
     pub gpu_allocation_enabled: bool,
+    #[serde(default = "default_true")]
     pub service_integration: bool,
+}
+
+/// Les toggles produit sont ACTIVÉS par défaut (une config legacy qui ne
+/// les mentionne pas ne doit pas désactiver silencieusement des
+/// fonctionnalités).
+fn default_true() -> bool {
+    true
 }
 
 impl Default for DaemonConfig {
@@ -175,12 +263,7 @@ impl Default for DaemonConfig {
             tier: AllocationTier::Balanced,
             custom_limits: None,
             behavior: BehaviorConfig::default(),
-            safety: SafetyMargins {
-                min_free_ram_gb: 4.0,
-                min_free_cpu_cores: 1,
-                min_free_vram_mb: 512,
-                max_cpu_percent: 85,
-            },
+            safety: SafetyMargins::default(),
             cpu_affinity_mode: CpuAffinityMode::Auto,
             memory_limit_enabled: true,
             bandwidth_shaping: true,
@@ -505,5 +588,99 @@ mod tests {
         };
         let safe = config.apply_safety(limits, &snap);
         assert!(safe.max_cpu_percent <= 85);
+    }
+
+    // ── D8 : rétro-compat des formats de config ──────────────────────────
+
+    #[test]
+    fn test_config_current_format_roundtrip() {
+        // Format actuel (écrit par --gen-config depuis it.16) : tier scalaire.
+        let toml_str = r#"
+tier = "Balanced"
+cpu_affinity_mode = "Auto"
+memory_limit_enabled = true
+bandwidth_shaping = true
+gpu_allocation_enabled = true
+service_integration = true
+
+[behavior]
+grow_step_pct = 10
+shrink_step_pct = 5
+shrink_hysteresis_ticks = 5
+throttle_on_user_activity = true
+tick_interval_secs = 5
+
+[safety]
+min_free_ram_gb = 4.0
+min_free_cpu_cores = 1
+min_free_vram_mb = 512
+max_cpu_percent = 85
+"#;
+        let config: DaemonConfig = toml::from_str(toml_str).expect("format actuel lisible");
+        assert_eq!(config.tier, AllocationTier::Balanced);
+        assert_eq!(config.safety.min_free_ram_gb, 4.0);
+
+        // Round-trip : ce que serde écrit doit se relire tel quel.
+        let written = toml::to_string_pretty(&config).unwrap();
+        let reread: DaemonConfig = toml::from_str(&written).unwrap();
+        assert_eq!(reread.tier, config.tier);
+        assert_eq!(reread.safety.max_cpu_percent, config.safety.max_cpu_percent);
+        assert_eq!(reread.behavior.tick_interval_secs, 5);
+    }
+
+    #[test]
+    fn test_config_legacy_tier_table() {
+        // Format legacy (config réelle écrite le 2026-07-20) : `[tier]`
+        // est une TABLE, et une section `[platform]` inconnue est ignorée.
+        let toml_str = r#"
+[tier]
+tier = "Balanced"
+
+[safety]
+min_free_ram_gb = 4.0
+min_free_cpu_cores = 1
+min_free_vram_mb = 512
+max_cpu_percent = 85
+
+[behavior]
+grow_step_pct = 10
+shrink_step_pct = 5
+shrink_hysteresis_ticks = 5
+throttle_on_user_activity = true
+tick_interval_secs = 5
+
+[platform]
+mode = "linux"
+"#;
+        let config: DaemonConfig =
+            toml::from_str(toml_str).expect("config legacy (table [tier]) lisible");
+        assert_eq!(config.tier, AllocationTier::Balanced);
+        // Champs absents du format legacy → defaults, jamais d'erreur.
+        assert_eq!(config.cpu_affinity_mode, CpuAffinityMode::Auto);
+        assert!(config.memory_limit_enabled);
+        assert!(config.service_integration);
+    }
+
+    #[test]
+    fn test_config_legacy_name_key() {
+        // L'ancien --gen-config cassé écrivait `[tier] name = "…"`.
+        let toml_str = r#"
+[tier]
+name = "Performance"
+"#;
+        let config: DaemonConfig =
+            toml::from_str(toml_str).expect("forme legacy [tier] name lisible");
+        assert_eq!(config.tier, AllocationTier::Performance);
+        assert!(config.service_integration); // default
+    }
+
+    #[test]
+    fn test_config_minimal_defaults() {
+        // Même une config réduite à `tier = "Eco"` doit charger.
+        let config: DaemonConfig =
+            toml::from_str("tier = \"Eco\"").expect("config minimale lisible");
+        assert_eq!(config.tier, AllocationTier::Eco);
+        assert_eq!(config.behavior.tick_interval_secs, 5); // default
+        assert_eq!(config.safety.max_cpu_percent, 85); // default
     }
 }
