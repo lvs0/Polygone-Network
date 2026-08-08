@@ -33,7 +33,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.command.is_some() && matches!(args.command, Some(Commands::Info)) {
-        println!("Polygone Relay v0.1.0");
+        println!("Polygone Relay v{}", env!("CARGO_PKG_VERSION"));
         println!("AGPL-3.0 — https://github.com/lvs0/Polygone-Network");
         println!("Role: stateless, blind forwarder");
         println!("Transport: TCP (tokio)");
@@ -43,7 +43,10 @@ fn main() -> Result<()> {
     let level = if args.quiet { "warn" } else { "info" };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
 
-    log::info!("polygone-relay v0.1.0 — starting (blind mode)");
+    log::info!(
+        "polygone-relay v{} — starting (blind mode)",
+        env!("CARGO_PKG_VERSION")
+    );
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;

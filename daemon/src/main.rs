@@ -1,4 +1,4 @@
-//! polygoned v0.3 — Cross-platform resource allocation daemon for Polygone P2P
+//! polygoned — Cross-platform resource allocation daemon for Polygone P2P
 //!
 //! "On voit rien. Et c'est comme ça que ça devrait être."
 //! Lightweight, invisible, gives maximum resources to the network.
@@ -84,7 +84,8 @@ fn main() -> Result<()> {
     .ok();
 
     log::info!(
-        "polygoned v0.3.0 — starting on {} (dry_run={})",
+        "polygoned v{} — starting on {} (dry_run={})",
+        env!("CARGO_PKG_VERSION"),
         platform.name(),
         args.dry_run
     );
@@ -166,7 +167,7 @@ fn handle_command(
             let limits = config.effective_limits(&snap);
             let safe_limits = config.apply_safety(limits, &snap);
 
-            println!("\n  ⬡ polygoned v0.3.0 — Status");
+            println!("\n  ⬡ polygoned v{} — Status", env!("CARGO_PKG_VERSION"));
             println!("  ──────────────────────────────────────────");
             println!("  Platform    : {}", platform.name());
             println!("  Tier        : {}", config.tier);
@@ -348,53 +349,19 @@ fn generate_config_file(config: &DaemonConfig, platform: &dyn polygoned::Platfor
     let path = platform.config_dir().join("daemon.toml");
     std::fs::create_dir_all(platform.config_dir())?;
 
-    let content = format!(
-        r#"# polygoned config — {}
-# Place at {}
-
-[tier]
-name = "{}"
-
-[safety]
-min_free_ram_gb = {:.1}
-min_free_cpu_cores = {}
-min_free_vram_mb = {}
-max_cpu_percent = {:.0}
-
-[behavior]
-tick_interval_secs = {}
-grow_step_pct = {}
-shrink_step_pct = {}
-throttle_on_user_activity = {}
-shrink_hysteresis_ticks = {}
-
-[platform]
-cpu_affinity_mode = "{}"
-memory_limit_enabled = {}
-bandwidth_shaping = {}
-gpu_allocation_enabled = {}
-service_integration = {}
-"#,
+    // Sérialisé par serde : le format écrit == le format relu par
+    // `toml::from_str`. (Bug corrigé : l'ancienne écriture manuelle
+    // produisait `[tier] name = …` que le parseur ne pouvait pas relire —
+    // `polygoned status` échouait sur la config que le daemon venait
+    // d'écrire, et sur toute config d'une version précédente.)
+    let content = toml::to_string_pretty(config)?;
+    let header = format!(
+        "# polygoned config — {}\n# Place at {}\n\n",
         chrono_lite(),
-        path.display(),
-        config.tier,
-        config.safety.min_free_ram_gb,
-        config.safety.min_free_cpu_cores,
-        config.safety.min_free_vram_mb,
-        config.safety.max_cpu_percent,
-        config.behavior.tick_interval_secs,
-        config.behavior.grow_step_pct,
-        config.behavior.shrink_step_pct,
-        config.behavior.throttle_on_user_activity,
-        config.behavior.shrink_hysteresis_ticks,
-        config.cpu_affinity_mode,
-        config.memory_limit_enabled,
-        config.bandwidth_shaping,
-        config.gpu_allocation_enabled,
-        config.service_integration,
+        path.display()
     );
 
-    std::fs::write(&path, content)?;
+    std::fs::write(&path, format!("{header}{content}"))?;
     println!("Config written to {}", path.display());
     Ok(())
 }

@@ -32,7 +32,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "polygone",
-    version = "2.0.0-rc2",
+    version = env!("CARGO_PKG_VERSION"),
     about = "⬡ POLYGONE — \"On voit rien. Et c'est comme ça que ça devrait être.\"",
     long_about = concat!(
         "Post-quantum ephemeral transit network.\n\n",
