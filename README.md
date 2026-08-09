@@ -102,3 +102,8 @@ Voir [`CONTRIBUTING.md`](./CONTRIBUTING.md) et [`LEGAL.md`](./LEGAL.md).
 ---
 
 *AGPL-3.0 · v2.0.0-rc2 · 109 tests · Posture « honesty-first ».*
+
+
+---
+
+**Soutenir** — [`payrequest.me/lvs0`](https://payrequest.me/lvs0)
