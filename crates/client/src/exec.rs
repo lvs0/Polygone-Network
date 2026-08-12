@@ -287,6 +287,22 @@ fn run_with_timeout(
 
 #[cfg(test)]
 mod tests {
+    /// Vérifie si systemd-run --user est disponible et fonctionnel.
+    /// Retourne false en CI (GitHub Actions) où systemd n'a pas de session utilisateur.
+    fn systemd_run_available() -> bool {
+        // Vérifier que systemd-run existe
+        let Ok(output) = std::process::Command::new("systemd-run")
+            .args(["--user", "--wait", "--pipe", "-q", "--unit=test-polygone-check",
+                   "echo", "test"])
+            .output()
+        else {
+            return false;
+        };
+
+        // Vérifier que la commande a réussi ET produit une sortie
+        output.status.success() && !output.stdout.is_empty()
+    }
+
     use super::*;
 
     /// The production guard `ACTIVE_EXEC` caps concurrent exec at
@@ -316,6 +332,10 @@ mod tests {
 
     #[test]
     fn sandbox_runs_simple_command() {
+        if !systemd_run_available() {
+            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+            return;
+        }
         let _g = exec_test_guards();
 
         let out = run_sandboxed("echo hello-res", 64, 50, Duration::from_secs(10));
@@ -356,6 +376,10 @@ mod tests {
 
     #[test]
     fn sandbox_blocks_privilege_escalation() {
+        if !systemd_run_available() {
+            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+            return;
+        }
         let _g = exec_test_guards();
         // NoNewPrivileges=yes — setuid/sudo must fail inside the sandbox.
         let out = run_sandboxed("id -u", 64, 50, Duration::from_secs(10));
