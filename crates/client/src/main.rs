@@ -14,6 +14,7 @@
 mod demo;
 mod duress;
 mod exec;
+mod hide;
 mod identity;
 mod mesh;
 mod msg;
@@ -97,6 +98,10 @@ enum Commands {
         /// Act as a RES ghost node — grant compute requests
         #[arg(long)]
         compute: bool,
+        /// Act as a Polygone Hide exit node — open real connections for
+        /// tunnel requests (HIDE-SPEC.md Phase 1)
+        #[arg(long)]
+        hide: bool,
     },
     /// Scan the LAN for announcing Polygone nodes (mesh, Phase 4)
     Voisins {
@@ -155,6 +160,22 @@ enum Commands {
         /// Explicit confirmation that the destruction is intended
         #[arg(long)]
         confirmer: bool,
+    },
+    /// Polygone Hide — SOCKS5 proxy through the blind relay (HIDE-SPEC.md)
+    Hide {
+        /// Relay address
+        #[arg(long, default_value = "127.0.0.1:7000")]
+        via: String,
+        /// The exit node (node_id) that opens the real connection
+        #[arg(long)]
+        sortie: String,
+        /// ML-KEM public key of the exit node (hex) — the destination is
+        /// encrypted with it, the relay never sees it
+        #[arg(long, short = 'd')]
+        dest: String,
+        /// SOCKS5 listen address
+        #[arg(long, default_value = hide::DEFAULT_LISTEN)]
+        ecoute: String,
     },
 }
 
@@ -344,6 +365,7 @@ async fn main() -> Result<()> {
             relay,
             annoncer,
             compute,
+            hide,
         }) => {
             // Optionally announce on the LAN so peers can find us without a
             // hardcoded address (Phase 4 mesh).
@@ -353,6 +375,9 @@ async fn main() -> Result<()> {
                 tokio::spawn(async move {
                     let _ = mesh::announce(&node, &relay).await;
                 });
+            }
+            if hide {
+                return hide::exit_listen(&relay, &identity).await;
             }
             net::receive_network(&relay, &identity, compute).await?;
         }
@@ -558,6 +583,14 @@ async fn main() -> Result<()> {
         },
         Some(Commands::Duress { .. }) => {
             unreachable!("handled before identity load")
+        }
+        Some(Commands::Hide {
+            via,
+            sortie,
+            dest,
+            ecoute,
+        }) => {
+            hide::serve(&via, &sortie, &dest, &ecoute, identity).await?;
         }
     }
     Ok(())

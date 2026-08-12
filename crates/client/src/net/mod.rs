@@ -65,40 +65,40 @@ pub fn save_peers(peers: &HashMap<String, String>) {
 
 /// A network envelope, as JSON on the wire.
 #[derive(serde::Serialize, serde::Deserialize)]
-struct NetEnvelope {
-    kind: String,
-    from: String,
-    to: String,
-    session: String,
+pub(crate) struct NetEnvelope {
+    pub(crate) kind: String,
+    pub(crate) from: String,
+    pub(crate) to: String,
+    pub(crate) session: String,
     /// Vestigial : numéro de fragment informatif, JAMAIS validé à la
     /// réception. L'anti-replay réel est l'horodatage signé ±300 s +
     /// le cache des sessions complétées (README, testé) — plus fort
     /// qu'un seq strict, qui resterait rejouable dans la fenêtre.
-    seq: u64,
+    pub(crate) seq: u64,
     #[serde(rename = "type")]
-    typ: String,
-    idx: u8,
-    threshold: u8,
-    total: u8,
-    payload: Vec<u8>,
+    pub(crate) typ: String,
+    pub(crate) idx: u8,
+    pub(crate) threshold: u8,
+    pub(crate) total: u8,
+    pub(crate) payload: Vec<u8>,
     /// Present only on the KEM envelope: ML-DSA-65 signature over the
     /// canonical message. "C'est bien Alice" — verified by the receiver
     /// before decrypt.
     #[serde(default)]
-    sig: Option<Vec<u8>>,
+    pub(crate) sig: Option<Vec<u8>>,
     /// Present only on the KEM envelope: sender's ML-DSA-65 public key (hex).
     #[serde(default)]
-    signer: Option<String>,
+    pub(crate) signer: Option<String>,
     /// Present only on the KEM envelope of a file transfer: the file name
     /// encrypted with the session key (`symmetric::encrypt` output). The
     /// relay sees only opaque bytes — the name is out-of-band.
     #[serde(default)]
-    name_ct: Option<Vec<u8>>,
+    pub(crate) name_ct: Option<Vec<u8>>,
     /// Present only on the KEM envelope: sender clock, unix seconds. Bound
     /// into the signature (freshness) — a captured session cannot be
     /// replayed outside the ± window.
     #[serde(default)]
-    ts: Option<u64>,
+    pub(crate) ts: Option<u64>,
 }
 
 /// The node id of an identity: first 16 hex chars of the KEM public key.
@@ -149,7 +149,7 @@ pub fn canonical_bytes(
 }
 
 /// Random session id (hex), from the OS CSPRNG.
-fn session_id() -> String {
+pub(crate) fn session_id() -> String {
     use rand::RngCore;
     let mut b = [0u8; 8];
     rand::rngs::OsRng.fill_bytes(&mut b);
@@ -187,6 +187,10 @@ async fn connect(relay: &str, identity: &LocalIdentity) -> Result<TcpStream> {
         );
     }
     Ok(stream)
+}
+
+pub(crate) async fn connect_relay(relay: &str, identity: &LocalIdentity) -> Result<TcpStream> {
+    connect(relay, identity).await
 }
 
 /// Send a message (or a file, when `name` is set) to a peer through the
@@ -556,7 +560,7 @@ fn grant_for(req: &NetEnvelope, identity: &LocalIdentity) -> NetEnvelope {
 /// Verify an authenticated RES request (signed like a message).
 /// The ghost only executes requests from provable senders: freshness,
 /// signature, and the trust anchor are all enforced.
-fn verify_req(env: &NetEnvelope, known_peers: &mut HashMap<String, String>, now_secs: u64) -> bool {
+pub(crate) fn verify_req(env: &NetEnvelope, known_peers: &mut HashMap<String, String>, now_secs: u64) -> bool {
     let (sig, signer, ts) = match (&env.sig, &env.signer, env.ts) {
         (Some(s), Some(pk_hex), Some(t)) if t > 0 => (s.clone(), pk_hex.clone(), t),
         _ => return false,
@@ -1029,6 +1033,208 @@ fn sanitize_name(name: &str) -> String {
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "fichier".to_string())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Polygone Hide — SOCKS5 proxy through the blind relay (HIDE-SPEC.md Phase 1).
+//
+// The `hide` service reuses the existing transport (NDJSON envelopes routed by
+// the blind relay on `to`) with a dedicated envelope type `stream`:
+//
+//   client (SOCKS5 127.0.0.1:9050)          relay             exit node
+//      │  CONNECT host:port                      │                 │
+//      │  req (KEM_CT + AES-GCM{host,port})      │                 │  decapsulate →
+//      │  ──────────────────────────────────────►│  route on `to`  │  TcpStream::connect
+//      │  grant (AES-GCM{ok})                    │                 │
+//      │  ◄──────────────────────────────────────│  ◄──────────────│
+//      │  stream (AES-GCM{octets})               │                 │  application data
+//      │  ◄─────────────────────────────────────►│  ◄─────────────►│
+//
+// The relay only reads kind/to/session — the payload is opaque bytes. The
+// exit node sees the real destination (like a Tor exit, documented). The
+// content is end-to-end encrypted with the ML-KEM session key.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Max application bytes carried by one `stream` envelope. Bounded: the relay
+/// caps a line at 64 KiB (MAX_LINE), and a GCM ciphertext adds an auth tag.
+pub const STREAM_CHUNK: usize = 16 * 1024;
+
+/// Build a `stream` envelope carrying `payload` (already encrypted bytes).
+pub fn stream_envelope(session: &str, from: &str, to: &str, payload: &[u8]) -> NetEnvelope {
+    NetEnvelope {
+        kind: "fragment".into(),
+        from: from.to_string(),
+        to: to.to_string(),
+        session: session.to_string(),
+        seq: 0,
+        typ: "stream".into(),
+        idx: 0,
+        threshold: 0,
+        total: 0,
+        payload: payload.to_vec(),
+        sig: None,
+        signer: None,
+        name_ct: None,
+        ts: None,
+    }
+}
+
+/// Build a `grant` envelope — the exit node's encrypted answer to a hide
+/// `req`. Only the requester (who holds the session key) can decrypt it;
+/// the relay sees opaque bytes and cannot forge it.
+pub fn grant_envelope(session: &str, from: &str, to: &str, payload: &[u8]) -> NetEnvelope {
+    NetEnvelope {
+        kind: "fragment".into(),
+        from: from.to_string(),
+        to: to.to_string(),
+        session: session.to_string(),
+        seq: 0,
+        typ: "grant".into(),
+        idx: 0,
+        threshold: 0,
+        total: 0,
+        payload: payload.to_vec(),
+        sig: None,
+        signer: None,
+        name_ct: None,
+        ts: None,
+    }
+}
+
+/// Serialize an envelope to the NDJSON wire line (helper used by hide tasks).
+pub fn envelope_line(env: &NetEnvelope) -> Result<String> {
+    Ok(format!("{}\n", serde_json::to_string(env)?))
+}
+
+/// The channel a hide client opens to an exit node. After `hide_establish`
+/// succeeds, the caller owns the split relay stream and the session key —
+/// `reader` carries the exit node's replies (grant + stream envelopes),
+/// `writer` carries our stream envelopes toward the exit node.
+pub struct HideChannel {
+    /// The relay-side session id (routing + correlation).
+    pub session: String,
+    /// The AES-GCM session key derived from the ML-KEM shared secret.
+    pub key: symmetric::SessionKey,
+    /// Reads envelopes coming back from the exit node (grant + stream).
+    pub reader: tokio::io::BufReader<tokio::net::tcp::OwnedReadHalf>,
+    /// Writes our stream envelopes toward the exit node.
+    pub writer: tokio::net::tcp::OwnedWriteHalf,
+}
+
+/// Open a hide tunnel to `exit_node` through the relay: send the encrypted
+/// CONNECT request (`{"action":"hide","host":...,"port":...}`), wait for the
+/// signed grant, and return the split channel. Fail-closed on any mismatch.
+pub async fn hide_establish(
+    relay: &str,
+    exit_node: &str,
+    exit_pk: &kem::KemPublicKey,
+    identity: &LocalIdentity,
+    host: &str,
+    port: u16,
+    timeout: std::time::Duration,
+) -> Result<HideChannel> {
+    let mut stream = connect(relay, identity).await?;
+    let from = node_id(identity);
+    let session = session_id();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // Encrypt the destination: KEM encapsulate → session key → AES-GCM.
+    // The relay sees only `kem_ct` + ciphertext bytes — never host/port.
+    let (kem_ct, shared) = kem::encapsulate(exit_pk)?;
+    let key = symmetric::SessionKey::derive_from_secret(&shared);
+    let body = serde_json::json!({"action": "hide", "host": host, "port": port})
+        .to_string()
+        .into_bytes();
+    let ct = symmetric::encrypt(&body, &key)?;
+    let mut payload = Vec::with_capacity(kem_ct.as_bytes().len() + ct.len());
+    payload.extend_from_slice(kem_ct.as_bytes());
+    payload.extend_from_slice(&ct);
+
+    // The request is signed (like RES requests): the exit node verifies who
+    // asks for a tunnel before opening a connection on its behalf.
+    let req_sig = identity.sign_signer()?.sign(&canonical_bytes(
+        &session,
+        &from,
+        exit_node,
+        ts,
+        &[],
+        &payload,
+    ));
+    let req = NetEnvelope {
+        kind: "fragment".into(),
+        from: from.clone(),
+        to: exit_node.to_string(),
+        session: session.clone(),
+        seq: 0,
+        typ: "req".into(),
+        idx: 0,
+        threshold: 0,
+        total: 0,
+        payload,
+        sig: Some(req_sig.as_bytes().to_vec()),
+        signer: Some(identity.sign_pk_hex.clone()),
+        name_ct: None,
+        ts: Some(ts),
+    };
+    stream
+        .write_all(format!("{}\n", serde_json::to_string(&req)?).as_bytes())
+        .await?;
+    stream.flush().await?;
+
+    // Wait for the grant on the same connection. A grant is only accepted if
+    // it answers OUR request: addressed to us, same session, from the exit
+    // node, and its payload decrypts with our session key.
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        line.clear();
+        let n = tokio::time::timeout(timeout, reader.read_line(&mut line))
+            .await
+            .unwrap_or(Ok(0))?;
+        if n == 0 {
+            break;
+        }
+        let env: NetEnvelope = match serde_json::from_str(line.trim()) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        if env.typ == "grant" && env.session == session && env.to == from {
+            let ok = symmetric::decrypt(&env.payload, &key)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                .and_then(|v| v.get("ok").and_then(|o| o.as_bool()))
+                .unwrap_or(false);
+            if !ok {
+                anyhow::bail!("exit node a refusé la connexion hide");
+            }
+            let (r, w) = reader.into_inner().into_split();
+            return Ok(HideChannel {
+                session,
+                key,
+                reader: BufReader::new(r),
+                writer: w,
+            });
+        }
+    }
+    anyhow::bail!("aucun grant reçu — le nœud de sortie est-il en `ecouter --hide` ?")
+}
+
+/// Decrypt a `stream` envelope payload. Returns `Ok(None)` for an empty
+/// payload = end-of-stream marker (peer closed its side).
+pub fn hide_decrypt_chunk(payload: &[u8], key: &symmetric::SessionKey) -> Result<Option<Vec<u8>>> {
+    if payload.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(symmetric::decrypt(payload, key)?))
+}
+
+/// Encrypt application bytes into a `stream` envelope payload.
+pub fn hide_encrypt_chunk(chunk: &[u8], key: &symmetric::SessionKey) -> Result<Vec<u8>> {
+    Ok(symmetric::encrypt(chunk, key)?)
 }
 
 #[cfg(test)]
