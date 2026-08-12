@@ -1134,7 +1134,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "polygone-client"
-version = "2.0.0-rc2"
+version = "1.0.0-rc2"
 dependencies = [
  "anyhow",
  "clap",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "polygone-core"
-version = "2.0.0-rc2"
+version = "1.0.0-rc2"
 dependencies = [
  "aes-gcm",
  "blake3",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "polygone-relay"
-version = "2.0.0-rc2"
+version = "1.0.0-rc2"
 dependencies = [
  "anyhow",
  "clap",
@@ -1188,7 +1188,7 @@ dependencies = [
 
 [[package]]
 name = "polygoned"
-version = "2.0.0-rc2"
+version = "1.0.0-rc2"
 dependencies = [
  "anyhow",
  "chrono",
