@@ -51,3 +51,5 @@ NIGHT-REPORT.md
 .env
 .env.local
 .env.*
+# Exception : archive documentée (time_sync, décision D9)
+!archive/2026-08-time_sync/
