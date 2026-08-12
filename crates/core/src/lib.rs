@@ -7,7 +7,6 @@ pub mod envelope;
 pub mod error;
 pub mod identity;
 pub mod sign;
-pub mod time_sync;
 
 pub use crypto::SharedSecret;
 pub use envelope::{Envelope, EnvelopeKind, Fragment, FRAGMENT_SHARES, FRAGMENT_THRESHOLD};

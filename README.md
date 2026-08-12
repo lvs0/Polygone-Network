@@ -5,7 +5,7 @@
 Un message est chiffré (ML-KEM-1024 + AES-256-GCM), découpé en fragments (Shamir 4-of-7), routé par un relais qui ne voit que du routage, puis reconstruit et déchiffré par le destinataire. **Rien n'est persisté :** le relais ne stocke rien, les fragments meurent.
 
 Crypto : ML-KEM-1024 (FIPS 203) · ML-DSA-65 (FIPS 204) · AES-256-GCM · BLAKE3 · Shamir 4-of-7.
-Version : **v2.0.0-rc2** · Licence : **AGPL-3.0** · Pas de compte, pas de télémétrie.
+Version : **v1.0.0-rc2** · Licence : **AGPL-3.0** · Pas de compte, pas de télémétrie.
 
 ---
 

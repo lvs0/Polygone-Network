@@ -22,7 +22,7 @@ Refonte complète du TUI de `Menu + Dashboard + Favoris + Settings` vers **2 ong
 **Avant fin S1** (29 juin → 6 juillet 2026).
 
 ### Statut
-🟡 **PENDING**.
+✅ **TRANCHÉE le 2026-08-12** — **GO 2-tabs** (Jobs + Musk). La TUI reste à 2 commandes de premier niveau (`envoyer` / `quitter`), tout le reste derrière `:`. Risque sur-simplification documenté dans PHILOSOPHY.md Axiome 2.
 
 ---
 
@@ -120,7 +120,7 @@ Envoyer 3 lettres ouvertes aux régulateurs sur la posture privacy de Polygone.
 - Socrate T2 → « la transparence structurelle exige que les pouvoirs soient distribués ».
 - Hitchock T2 → « le suspense est meilleur que la promesse ; un sibling sans suspense = app à pre-ship, sans attente ». OK en pratique un sibling *peut* avoir du suspense si on documente clairement ce qui arrive après.
 
-**Statut** : ⏳ PENDING. Lévy à trancher avant de lancer Polygone-Protocols.
+**Statut** : ✅ **TRANCHÉE le 2026-08-12** — **GO** avec 1 protocole-pilote = Petals distribué. Création de `/home/l-vs/Projets/polygone-protocols/` (sibling, lowercase). Spec Wozniak-lisible (<30 min), LEGAL-check, threat model. Pas de code au MVP.
 
 ---
 
@@ -225,10 +225,7 @@ rougir au premier push.
 **Effet** : PUSH = la Phase 3.1 se termine vraiment (« CI jamais passée »
 → « CI verte ») ; le Premier Soir peut distribuer via GitHub Releases.
 
-**Statut** : 🟡 **PENDING — décision de Lévy** (action publique +
-credentials). En attendant, le cran suivant qui n'en dépend pas :
-audit des promesses README (règle produit++ — chaque promesse = test CI
-ou commande `polygone *`).
+**Statut** : ✅ **TRANCHÉE le 2026-08-12** — **GO push main**. Token GitHub (`lvs0`) disponible dans `~/.git-credentials`. Push fast-forward propre (+38 commits) prévu aujourd'hui. Première CI publique attendue verte (113 tests, 0 secrets requis).
 
 ---
 
@@ -297,7 +294,4 @@ synchronisation inter-nœuds) ou l'archiver ?
 **Effet** : archiver = core allégé (~1 kLOC de moins), une décision
 claire ; câbler = un pas vers le rêve « organisme » de Lévy.
 
-**Statut** : 🟡 **PENDING — décision de Lévy** (direction produit :
-le sync inter-nœuds est-il dans le périmètre avant la sortie ?).
-Recommandation de l'architecte : **archiver**, ré-introduire avec le
-feature. En attendant : aucun cran ne dépend de cette décision.
+**Statut** : ✅ **TRANCHÉE le 2026-08-12** — **ARCHIVER** (recommandation architecte adoptée). `time_sync/` (1 019 LOC, 0 consommateur) → `archive/2026-08-time_sync/`. Ré-introduire avec la feature « sync inter-nœuds » (Phase 8+). Code mort = surface d'attaque + coût maintenance.

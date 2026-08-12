@@ -3,7 +3,7 @@
 > *For contributors. Read [`ECOSYSTEM.md`](./ECOSYSTEM.md) first to
 > understand what we are building. This document is about how.*
 >
-> **Status 2026-08-07** : this document describes the **real** v2 workspace
+> **Status 2026-08-07** : this document describes the **real** workspace
 > (4 crates). The previous `src/` monolith (libp2p, HTTP relay, 4-tab TUI)
 > was archived to `archive/2026-07-src/` — it is not built, not tested, not
 > the product. The code is the source of truth; this document follows it.

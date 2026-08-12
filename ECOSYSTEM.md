@@ -48,7 +48,7 @@ exactly one of these:
 
 ---
 
-## 2. The service registry (v2.0.0-rc2)
+## 2. The service registry (1.0.0-rc2)
 
 The real product is 5 live services + 3 parked. "Live" means the code
 exists, compiles, and is tested in the workspace.

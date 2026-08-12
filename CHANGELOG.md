@@ -1,5 +1,16 @@
 # CHANGELOG — Polygone
 
+## [1.0.0-rc2] — 2026-08-12 — branding unifié, décisions tranchées
+
+### Changed
+- **Version alignée sur SPEC 1.0.0** : `2.0.0-rc2` → `1.0.0-rc2` (Cargo.toml, README, docs). La notion « V2 » est retirée du branding visible — le code est le produit, pas le numéro.
+- **Décisions D1/D2/D4/D7/D9 tranchées** (voir DECISIONS.md).
+- **Archivage `time_sync/`** (1 019 LOC, 0 consommateur) → `archive/2026-08-time_sync/`.
+
+---
+
+# CHANGELOG — Polygone
+
 > *Style : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).*
 > *Semver : voir `Cargo.toml`.*
 > *Dernier format : 2026-08-08.*

@@ -8,7 +8,7 @@
 
 ## Vue d'ensemble
 
-| Service | Statut | Livré en v2.0.0-rc2 ? |
+| Service | Statut | Livré en 1.0.0-rc2 ? |
 |---------|--------|----------------------|
 | **msg**    | 🟢 Live | ✅ messages E2E via relay aveugle (4/7) |
 | **drive**  | 🟢 Live | ✅ fichiers E2E via relay aveugle (4/7) |
@@ -26,7 +26,7 @@
 ## Service : `compute` (Polygone Compute)
 
 **Concept.** Lend/borrow compute pour distributed work. Idle detection → allocation → exécution sandboxée.
-**Statut v2.0.0-rc2 : 🟢 PROTOCOLE + EXÉCUTION LIVE (shell sandbox + WASM).**
+**Statut 1.0.0-rc2 : 🟢 PROTOCOLE + EXÉCUTION LIVE (shell sandbox + WASM).**
 - Visibilité : `polygone compute` — RAM libre locale + nœuds fantômes du LAN.
 - Prêt : `polygone compute --emprunter <node> --via <relay>` → le fantôme
   (`ecouter --compute`) répond par un grant via le relay aveugle.
@@ -68,7 +68,7 @@ dans `polygoned` (policy GlowUp).
 ## Service : `brain` (Polygone Brain)
 
 **Concept.** Local LLM gateway (Notch / Ollama / llama.cpp / Petals).
-**Statut v2.0.0-rc2 : 🟢 LIVRÉ.** `polygone petals status/models/ask` +
+**Statut 1.0.0-rc2 : 🟢 LIVRÉ.** `polygone petals status/models/ask` +
 `polygone` TUI `:ia <question>` — IA locale via Ollama (défaut
 127.0.0.1:11434), client HTTP minimal sans dépendance, zéro cloud.
 **Ré-introduction de la *distribution*.** Le sharding distribué reste sous
