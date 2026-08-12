@@ -560,7 +560,11 @@ fn grant_for(req: &NetEnvelope, identity: &LocalIdentity) -> NetEnvelope {
 /// Verify an authenticated RES request (signed like a message).
 /// The ghost only executes requests from provable senders: freshness,
 /// signature, and the trust anchor are all enforced.
-pub(crate) fn verify_req(env: &NetEnvelope, known_peers: &mut HashMap<String, String>, now_secs: u64) -> bool {
+pub(crate) fn verify_req(
+    env: &NetEnvelope,
+    known_peers: &mut HashMap<String, String>,
+    now_secs: u64,
+) -> bool {
     let (sig, signer, ts) = match (&env.sig, &env.signer, env.ts) {
         (Some(s), Some(pk_hex), Some(t)) if t > 0 => (s.clone(), pk_hex.clone(), t),
         _ => return false,

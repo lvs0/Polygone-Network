@@ -68,10 +68,7 @@ pub fn parse_socks5_connect(buf: &[u8]) -> Result<Socks5Connect> {
             if buf.len() < 10 {
                 anyhow::bail!("adresse IPv4 tronquée");
             }
-            let host = format!(
-                "{}.{}.{}.{}",
-                buf[4], buf[5], buf[6], buf[7]
-            );
+            let host = format!("{}.{}.{}.{}", buf[4], buf[5], buf[6], buf[7]);
             let port = u16::from_be_bytes([buf[8], buf[9]]);
             Ok(Socks5Connect { host, port })
         }
@@ -183,8 +180,8 @@ pub async fn serve(
         let exit_pk = exit_pk.clone();
         let identity = identity.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_socks_connection(sock, &relay, &exit_node, &exit_pk, &identity)
-                .await
+            if let Err(e) =
+                handle_socks_connection(sock, &relay, &exit_node, &exit_pk, &identity).await
             {
                 println!("  ✖ hide : {e}");
             }
@@ -435,12 +432,20 @@ pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
             {
                 Ok(Ok(t)) => t,
                 _ => {
-                    println!("  ✖ hide : connexion impossible vers {host}:{port} (depuis {})", env.from);
+                    println!(
+                        "  ✖ hide : connexion impossible vers {host}:{port} (depuis {})",
+                        env.from
+                    );
                     let grant_payload = match symmetric::encrypt(br#"{"ok":false}"#, &key) {
                         Ok(p) => p,
                         Err(_) => continue,
                     };
-                    let grant = net::grant_envelope(&env.session, &net::node_id(identity), &env.from, &grant_payload);
+                    let grant = net::grant_envelope(
+                        &env.session,
+                        &net::node_id(identity),
+                        &env.from,
+                        &grant_payload,
+                    );
                     if let Ok(line) = net::envelope_line(&grant) {
                         let mut w = writer.lock().await;
                         let _ = w.write_all(line.as_bytes()).await;
@@ -455,7 +460,12 @@ pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
                 Ok(p) => p,
                 Err(_) => continue,
             };
-            let grant = net::grant_envelope(&env.session, &net::node_id(identity), &env.from, &grant_payload);
+            let grant = net::grant_envelope(
+                &env.session,
+                &net::node_id(identity),
+                &env.from,
+                &grant_payload,
+            );
             let line = net::envelope_line(&grant)?;
             {
                 let mut w = writer.lock().await;

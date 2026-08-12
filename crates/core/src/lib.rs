@@ -16,4 +16,3 @@ pub use sign::{
     KeyPair, PublicKey, SecretKey, Signature, Signer, Verifier, PUBLIC_KEY_SIZE, SECRET_KEY_SIZE,
     SIGNATURE_SIZE,
 };
-

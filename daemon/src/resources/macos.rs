@@ -289,7 +289,7 @@ impl Platform for MacOSPlatform {
             .join("Library/LaunchAgents")
             .join(format!("{}.plist", config.name));
         std::fs::create_dir_all(path.parent().unwrap())?;
-        std::fs::write(path, plist)?;
+        std::fs::write(&path, plist)?;
         Command::new("launchctl")
             .args(["load", "-w", &path.to_string_lossy()])
             .status()?;
