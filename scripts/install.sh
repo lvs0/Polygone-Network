@@ -1,181 +1,179 @@
 #!/usr/bin/env bash
-# ═══════════════════════════════════════════════════════════════════════════
-#  POLYGONE — installateur autonome (SPEC §5 "Genius")
+# ═══════════════════════════════════════════════════════════════
+# Polygone — One-Click Installer
+# ═══════════════════════════════════════════════════════════════
+# curl -fsSL https://polygone.network/install.sh | bash
 #
-#  Usage:  curl -fsSL https://github.com/lvs0/Polygone-Network/releases/latest/download/install.sh | bash
-#  (ou:    bash scripts/install.sh   depuis le repo)
+# Détection automatique : Linux/macOS/Windows (WSL), architecture,
+# dépendances, installation binaire ou compilation from source.
 #
-#  Ce que ça fait :
-#    1. Détecte OS + architecture
-#    2. Cherche un binaire précompilé (GitHub release) puis fallback build cargo
-#    3. Installe `polygone`, `polygone-relay`, `polygone-client`, `polygoned`
-#       dans ~/.local/bin (ou /usr/local/bin si root)
-#    4. Génère votre identité au premier lancement (aucune inscription)
-#
-#  « On voit rien. Et c'est comme ça que ça devrait être. »
-# ═══════════════════════════════════════════════════════════════════════════
+# Basé sur les patterns de : rustup, Homebrew, Deno, Bun.
+# ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
-# ── Couleurs (best-effort) ────────────────────────────────────────────────────
-if [ -t 1 ]; then
-  BOLD=$'\033[1m'; AMBER=$'\033[33m'; GREEN=$'\033[32m'; CYAN=$'\033[36m'; RED=$'\033[31m'; RESET=$'\033[0m'
-else
-  BOLD=""; AMBER=""; GREEN=""; CYAN=""; RED=""; RESET=""
-fi
+# Couleurs
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+AMBER='\033[0;33m'
+NC='\033[0m' # No Color
 
-log()  { printf '%s\n' "${GREEN}✓${RESET} $*"; }
-info() { printf '%s\n' "${CYAN}›${RESET} $*"; }
-warn() { printf '%s\n' "${AMBER}⚠${RESET} $*"; }
-die()  { printf '%s\n' "${RED}✖${RESET} $*" >&2; exit 1; }
+log_info() { echo -e "${GREEN}▸${NC} $1"; }
+log_warn() { echo -e "${AMBER}⚠${NC} $1"; }
+log_error() { echo -e "${RED}✗${NC} $1" >&2; }
 
-VERSION="${POLYGONE_VERSION:-}"
-REPO="lvs0/Polygone-Network"
-
-# Détermine la version : variable d'env > tag git local > constante de fallback.
-if [ -z "$VERSION" ]; then
-  VERSION="$(git -C "$(dirname "$0")/.." describe --tags --abbrev=0 2>/dev/null || true)"
-fi
-[ -z "$VERSION" ] && VERSION="v2.0.0-rc2"
-INSTALL_DIR="${POLYGONE_INSTALL_DIR:-}"
-TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
-
-# ── Bannière ──────────────────────────────────────────────────────────────────
-printf '%s\n' \
-  "${BOLD}${AMBER}╔══════════════════════════════════════════════════╗${RESET}" \
-  "${BOLD}${AMBER}║      ⬡  P O L Y G O N E   $VERSION        ║${RESET}" \
-  "${BOLD}${AMBER}║   L'information n'existe pas. Elle traverse.    ║${RESET}" \
-  "${BOLD}${AMBER}╚══════════════════════════════════════════════════╝${RESET}"
-
-# ── 1. Détection plateforme ──────────────────────────────────────────────────
-OS="$(uname -s)"
-ARCH="$(uname -m)"
-case "$OS" in
-  Linux)  TARGET_OS="linux" ;;
-  Darwin) TARGET_OS="macos" ;;
-  *)      die "OS non supporté : $OS (Linux/macOS seulement pour l'instant)" ;;
-esac
-case "$ARCH" in
-  x86_64|amd64) TARGET_ARCH="x86_64" ;;
-  aarch64|arm64) TARGET_ARCH="aarch64" ;;
-  *) die "Architecture non supportée : $ARCH" ;;
-esac
-info "Plateforme : $TARGET_OS/$TARGET_ARCH"
-
-# ── 2. Répertoire d'installation ──────────────────────────────────────────────
-if [ -z "$INSTALL_DIR" ]; then
-  if [ "$(id -u)" = "0" ]; then
-    INSTALL_DIR="/usr/local/bin"
-  else
-    INSTALL_DIR="$HOME/.local/bin"
-  fi
-fi
-mkdir -p "$INSTALL_DIR"
-info "Installation dans : $INSTALL_DIR"
-
-# ── 3. Binaire ────────────────────────────────────────────────────────────────
-install_prebuilt() {
-  local url="https://github.com/$REPO/releases/download/$VERSION/polygone-$TARGET_OS-$TARGET_ARCH.tar.gz"
-  local sum_url="https://github.com/$REPO/releases/download/$VERSION/SHA256SUMS"
-  info "Téléchargement du binaire précompilé…"
-  if curl -fsSL --max-time 60 "$url" -o "$TMP_DIR/polygone.tar.gz" 2>/dev/null; then
-    # Vérification d'intégrité : checksum SHA256 publié avec la release.
-    local expected=""
-    if curl -fsSL --max-time 30 "$sum_url" -o "$TMP_DIR/SHA256SUMS" 2>/dev/null; then
-      expected="$(awk -v f="polygone-$TARGET_OS-$TARGET_ARCH.tar.gz" '$2==f || $2=="*"f {print $1; exit}' "$TMP_DIR/SHA256SUMS")"
-    fi
-    if [ -n "$expected" ]; then
-      local actual
-      actual="$(sha256sum "$TMP_DIR/polygone.tar.gz" | awk '{print $1}')"
-      if [ "$actual" != "$expected" ]; then
-        die "Checksum invalide — binaire corrompu ou release compromise. Ne pas installer."
-      fi
-      info "Checksum SHA256 vérifié ✓"
-    else
-      warn "Pas de SHA256SUMS pour $VERSION — installation sans vérification (à la responsabilité de l'utilisateur)."
-    fi
-    tar -xzf "$TMP_DIR/polygone.tar.gz" -C "$TMP_DIR"
-    return 0
-  fi
-  return 1
+# Détection OS
+detect_os() {
+    case "$(uname -s)" in
+        Linux*)     echo "linux";;
+        Darwin*)    echo "macos";;
+        CYGWIN*|MINGW*|MSYS*) echo "windows";;
+        *)          echo "unknown";;
+    esac
 }
 
-install_from_source() {
-  local repo_dir="$TMP_DIR/polygone-src"
-  local local_repo
-  local_repo="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)" || true
-
-  info "Pas de release précompilée — build depuis les sources (nécessite cargo)…"
-  command -v cargo >/dev/null 2>&1 || die \
-    "cargo introuvable. Installez Rust (https://rustup.rs) puis relancez, ou attendez une release."
-
-  local build_dir
-  if [ -n "$local_repo" ] && [ -f "$local_repo/Cargo.toml" ]; then
-    build_dir="$local_repo"          # on est DANS le repo : on build le code local
-    info "Build depuis le repo local : $build_dir"
-  else
-    build_dir="$repo_dir"
-    git clone --depth 1 "https://github.com/$REPO" "$build_dir" \
-      || die "Impossible de récupérer les sources."
-  fi
-
-  ( cd "$build_dir" && cargo build --release -p polygone-client -p polygone-relay -p polygoned )
-
-  mkdir -p "$TMP_DIR/bin"
-  local missing=0 b
-  for b in polygone polygone-client polygone-relay polygoned; do
-    if [ -f "$build_dir/target/release/$b" ]; then
-      cp "$build_dir/target/release/$b" "$TMP_DIR/bin/"
-    else
-      warn "binaire '$b' absent du build (dépôt à jour ?)"
-      missing=1
-    fi
-  done
-  [ "$missing" = "0" ] \
-    || die "Binaires incomplets — le dépôt source est en retard sur le code attendu. Poussez le dernier commit puis relancez."
+# Détection architecture
+detect_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64)   echo "x86_64";;
+        aarch64|arm64)  echo "aarch64";;
+        armv7l)         echo "armv7";;
+        *)              echo "unknown";;
+    esac
 }
 
-# ── 3. Binaire ────────────────────────────────────────────────────────────────
-BIN="polygone"
-TARGET_BIN="$INSTALL_DIR/$BIN"
+# Vérifier dépendances
+check_deps() {
+    local missing=()
+    for cmd in curl git; do
+        if ! command -v "$cmd" &> /dev/null; then
+            missing+=("$cmd")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        log_error "Dépendances manquantes : ${missing[*]}"
+        log_info "Installez-les d'abord (ex: sudo apt install curl git)"
+        exit 1
+    fi
+}
 
-if install_prebuilt; then
-  mkdir -p "$TMP_DIR/bin"
-  cp "$TMP_DIR/polygone" "$TMP_DIR/polygone-relay" "$TMP_DIR/polygone-client" \
-     "$TMP_DIR/polygoned" "$TMP_DIR/bin/" 2>/dev/null \
-    || { warn "release incomplète — build source à la place"; install_from_source; }
-else
-  install_from_source
-fi
+# Installation binaire (si release disponible)
+install_binary() {
+    local os=$1 arch=$2
+    local version="1.0.0-rc2"
+    local url="https://github.com/lvs0/Polygone-Network/releases/download/v${version}/polygone-${os}-${arch}"
 
-cp "$TMP_DIR/bin/polygone" "$TMP_DIR/bin/polygone-relay" "$TMP_DIR/bin/polygone-client" \
-   "$TMP_DIR/bin/polygoned" "$INSTALL_DIR/" 2>/dev/null \
-  || die "Échec de copie des binaires vers $INSTALL_DIR"
+    log_info "Tentative d'installation binaire v${version}..."
 
-chmod +x "$INSTALL_DIR/polygone" "$INSTALL_DIR/polygone-relay" "$INSTALL_DIR/polygone-client" "$INSTALL_DIR/polygoned" 2>/dev/null || true
-log "Binaires installés : $INSTALL_DIR"
+    if curl -fsSL "$url" -o /tmp/polygone 2>/dev/null; then
+        chmod +x /tmp/polygone
+        sudo mv /tmp/polygone /usr/local/bin/polygone
+        log_info "✓ Binaire installé : /usr/local/bin/polygone"
+        return 0
+    else
+        log_warn "Binaire non disponible pour ${os}-${arch}, compilation..."
+        return 1
+    fi
+}
 
-# ── 4. PATH ───────────────────────────────────────────────────────────────────
-case ":$PATH:" in
-  *":$INSTALL_DIR:"*) ;;
-  *)
-    warn "$INSTALL_DIR n'est pas dans votre PATH."
-    info "Ajoutez cette ligne à votre ~/.bashrc (ou ~/.zshrc) :"
-    printf '    %s\n' "export PATH=\"\$HOME/.local/bin:\$PATH\""
-    ;;
-esac
+# Installation from source
+install_source() {
+    log_info "Compilation from source..."
 
-# ── 5. Premier lancement ─────────────────────────────────────────────────────
-printf '\n%s\n' "${BOLD}${GREEN}Polygone est prêt.${RESET}"
-printf '%s\n' \
-  "" \
-  "  ${BOLD}polygone${RESET}              → la TUI (:envoyer / :quitter)" \
-  "  ${BOLD}polygone demo${RESET}         → démo E2E post-quantique (60 s)" \
-  "  ${BOLD}polygone clef${RESET}         → votre clef publique (à partager)" \
-  "  ${BOLD}polygone envoyer${RESET}      → chiffrer + fragmenter un message" \
-  "  ${BOLD}polygone recevoir${RESET}     → reconstruire + déchiffrer (4/7)" \
-  "" \
-  "  Identité générée au premier lancement — aucune inscription, aucune télémétrie." \
-  "  L'information n'existe pas. Elle traverse."
+    # Vérifier Rust
+    if ! command -v cargo &> /dev/null; then
+        log_warn "Rust non détecté, installation via rustup..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env"
+    fi
 
-exit 0
+    # Clone et build
+    local tmp_dir=$(mktemp -d)
+    git clone --depth 1 https://github.com/lvs0/Polygone-Network.git "$tmp_dir"
+    cd "$tmp_dir"
+
+    log_info "Build release (peut prendre 5-10 min)..."
+    cargo build --release --workspace
+
+    # Install
+    sudo cp target/release/polygone /usr/local/bin/
+    sudo cp target/release/polygone-relay /usr/local/bin/ 2>/dev/null || true
+    sudo cp target/release/polygoned /usr/local/bin/ 2>/dev/null || true
+
+    log_info "✓ Binaires installés depuis source"
+    rm -rf "$tmp_dir"
+}
+
+# Configuration initiale
+setup_config() {
+    local config_dir="$HOME/.config/polygone"
+    mkdir -p "$config_dir"
+
+    if [ ! -f "$config_dir/config.toml" ]; then
+        cat > "$config_dir/config.toml" <<EOF
+# Polygone configuration
+# Voir docs/config.md pour toutes les options
+
+[identity]
+# Pseudo affiché dans la TUI (généré automatiquement si vide)
+pseudo = ""
+
+[network]
+# Port d'écoute relay (défaut : 7000)
+relay_port = 7000
+
+[daemon]
+# Activer le daemon au démarrage (défaut : false)
+autostart = false
+EOF
+        log_info "✓ Config créée : $config_dir/config.toml"
+    fi
+}
+
+# Message de bienvenue
+welcome() {
+    cat <<'EOF'
+
+╔══════════════════════════════════════════════════════════════╗
+║                    ⬡ Polygone installé !                     ║
+╚══════════════════════════════════════════════════════════════╝
+
+Commandes disponibles :
+  polygone              # TUI (Envoyer / Quitter)
+  polygone premier-soir # Scénario guidé E2E (5 min)
+  polygone verite       # Forensique locale
+  polygone --help       # Toutes les commandes
+
+Documentation : https://github.com/lvs0/Polygone-Network
+Support : https://payrequest.me/lvs0
+
+« L'information n'existe pas. Elle traverse. »
+
+EOF
+}
+
+# Main
+main() {
+    log_info "Détection du système..."
+
+    local os=$(detect_os)
+    local arch=$(detect_arch)
+
+    log_info "OS : $os | Arch : $arch"
+
+    if [ "$os" = "unknown" ] || [ "$arch" = "unknown" ]; then
+        log_error "Système non supporté"
+        exit 1
+    fi
+
+    check_deps
+
+    # Essayer binaire d'abord, fallback sur source
+    if ! install_binary "$os" "$arch"; then
+        install_source
+    fi
+
+    setup_config
+    welcome
+}
+
+main "$@"

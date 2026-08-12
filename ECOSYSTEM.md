@@ -60,7 +60,8 @@ exists, compiles, and is tested in the workspace.
 | `brain` | Polygone Brain | IA locale (`polygone petals` → Ollama, zéro cloud) | 🟢 **Live** |
 | `mesh` | Polygone Mesh | Découverte LAN + envoi zéro-config (UDP 7642) | 🟢 **Live** |
 | `compute` | Polygone Compute | Lend/borrow compute : visibilité + grant + exécution sandboxée (shell + WASM) | 🟢 **Live (MVP)** |
-| `hide` | Polygone Hide | Proxy SOCKS5/HTTPS anonymisant à travers le mesh | ⚪ Staging |
+| `hide` | Polygone Hide | Proxy SOCKS5/HTTPS anonymisant à travers le relay | 🟢 **Live (MVP)** |
+| `ghost` | Ghost Node | Nœud permanent (heartbeat + inbox) — deployment Docker/Render | 🟢 **Live (MVP)** |
 | `petals-distribué` | Distributed LLM | Shards d'inférence sur les pairs | ⚪ Staging |
 | `shell` | Polygone Shell | Shell sécurisé peer-to-peer | ⚪ Staging |
 
@@ -160,6 +161,22 @@ Trois commandes transforment la promesse centrale en expérience exécutable
 `polygone compute --emprunter <node> --via <relay>` → grant du nœud
 fantôme (`ecouter --compute`) → `--executer <tâche>` (shell sandboxé
 `systemd-run --user`) ou `:wasm <fichier>` (wasmi/WASI).
+
+### Ghost Node — déploiement permanent
+
+Un **Ghost Node** est un nœud Polygone qui tourne en permanence sur un
+serveur gratuit (Render, Railway, Fly.io) pour maintenir la présence
+réseau et recevoir des messages quand votre machine locale est éteinte.
+
+- **Heartbeat réel** : annonce au bootstrap toutes les 120 s (pas de
+  faux trafic — l'anti-veille découle de l'activité réelle)
+- **Inbox persistante** : messages reçus même si votre machine est off
+- **Docker** : `docker build -f docs/deployment/Dockerfile -t polygone-ghost .`
+- **Render** : free tier, variables d'environnement `ZAB_ALIAS`,
+  `ZAB_PUB_ADDR`, `BOOTSTRAP`
+
+Voir [`docs/deployment/README.md`](./docs/deployment/README.md) pour
+le guide complet.
 
 **Sandbox durcie (Phase 2, 2026-08-07) :** `ProtectHome=yes`,
 `InaccessiblePaths=~/.polygone` (l'identité est **illisible** depuis la
