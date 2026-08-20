@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⬡ Polygone — Réseau de transit éphémère post-quantique</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0a0f;
+    --bg2: #12121a;
+    --border: #1e1e2e;
+    --text: #cdd6f4;
+    --dim: #6c7086;
+    --accent: #cba6f7;
+    --accent2: #f38ba8;
+    --green: #a6e3a1;
+    --code-bg: #11111b;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  .container { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    padding: 4rem 0 3rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero h1 { font-size: 2.5rem; font-weight: 700; color: var(--accent); }
+  .hero h1 span { color: var(--accent2); }
+  .hero .tagline { font-size: 1.1rem; color: var(--dim); margin-top: 0.5rem; }
+  .hero .version {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.25rem 0.75rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: var(--green);
+  }
+  .hero .badges { margin-top: 1.5rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
+  .badge {
+    padding: 0.2rem 0.6rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--dim);
+  }
+  .badge.live { color: var(--green); border-color: var(--green); }
+
+  /* Sections */
+  section { padding: 3rem 0; border-bottom: 1px solid var(--border); }
+  section h2 {
+    font-size: 1.4rem;
+    color: var(--accent);
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  section h2::before { content: '▸'; color: var(--accent2); font-size: 0.9rem; }
+
+  /* Diagram */
+  .flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    flex-wrap: wrap;
+    margin: 1rem 0;
+  }
+  .flow .step {
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--dim);
+    max-width: 100px;
+  }
+  .flow .step strong { display: block; color: var(--accent); font-size: 0.95rem; margin-bottom: 0.3rem; }
+  .flow .arrow { color: var(--accent2); font-size: 1.5rem; font-weight: 700; }
+
+  /* Code */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.7;
+    margin: 0.5rem 0 1.5rem;
+  }
+  code { font-family: inherit; }
+  .comment { color: var(--dim); }
+
+  /* Services grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.25rem;
+  }
+  .card h3 { font-size: 0.95rem; color: var(--accent); margin-bottom: 0.5rem; }
+  .card p { font-size: 0.8rem; color: var(--dim); line-height: 1.5; }
+  .card .status { display: inline-block; margin-top: 0.5rem; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.7rem; }
+  .card .status.live { background: rgba(166,227,161,0.1); color: var(--green); }
+  .card .status.staging { background: rgba(203,166,247,0.1); color: var(--accent); }
+
+  /* Features */
+  .features { list-style: none; }
+  .features li { padding: 0.4rem 0; font-size: 0.9rem; display: flex; align-items: baseline; gap: 0.5rem; }
+  .features li::before { content: '✓'; color: var(--green); font-weight: 700; }
+
+  /* CTA */
+  .cta {
+    text-align: center;
+    padding: 3rem 0 2rem;
+  }
+  .btn {
+    display: inline-block;
+    padding: 0.7rem 1.5rem;
+    background: var(--accent);
+    color: var(--bg);
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn.ghost {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 2rem;
+    font-size: 0.75rem;
+    color: var(--dim);
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  /* Mobile */
+  @media (max-width: 600px) {
+    .hero h1 { font-size: 1.6rem; }
+    .flow { flex-direction: column; gap: 0.5rem; }
+    .flow .arrow { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Hero -->
+  <header class="hero">
+    <h1>⬡ <span>Polygone</span></h1>
+    <p class="tagline">Un réseau de transit éphémère post-quantique, écrit en Rust.</p>
+    <div class="version">v2.0.0 — stable</div>
+    <div class="badges">
+      <span class="badge live">AGPL-3.0</span>
+      <span class="badge">ML-KEM-1024</span>
+      <span class="badge">ML-DSA-65</span>
+      <span class="badge">AES-256-GCM</span>
+      <span class="badge">Shamir 4-of-7</span>
+      <span class="badge live">162 tests</span>
+    </div>
+  </header>
+
+  <!-- What -->
+  <section id="what">
+    <h2>Comment ça marche</h2>
+    <div class="flow">
+      <div class="step"><strong>Chiffrer</strong>ML‑KEM‑1024<br>+ AES‑256‑GCM</div>
+      <div class="arrow">→</div>
+      <div class="step"><strong>Fragmenter</strong>Shamir<br>4‑of‑7</div>
+      <div class="arrow">→</div>
+      <div class="step"><strong>Router</strong>Relay aveugle<br>stateless</div>
+      <div class="arrow">→</div>
+      <div class="step"><strong>Reconstruire</strong>4/7 fragments<br>+ déchiffrer</div>
+    </div>
+    <p style="color: var(--dim); font-size: 0.85rem; text-align: center; margin-top: 1rem;">
+      Le relay ne voit rien, ne stocke rien, ne log rien. Chaque fragment meurt après le transit.
+    </p>
+  </section>
+
+  <!-- Install -->
+  <section id="install">
+    <h2>Installer</h2>
+    <pre><span class="comment"># One-liner</span>
+curl -fsSL https://github.com/lvs0/Polygone-Network/releases/latest/install.sh | bash
+
+<span class="comment"># Ou depuis le code</span>
+git clone https://github.com/lvs0/Polygone-Network.git
+cd Polygone-Network
+cargo build --workspace --release</pre>
+  </section>
+
+  <!-- Quick demo -->
+  <section id="demo">
+    <h2>Démo en 60 secondes</h2>
+    <pre><span class="comment"># La démo complète E2E — chiffre, fragmente, route, déchiffre</span>
+polygone demo
+
+<span class="comment"># Le scénario guidé : message éphémère, vérification, mort</span>
+polygone premier-soir
+
+<span class="comment"># Vérifier l'absence : ce que ce nœud garde de toi</span>
+polygone verite
+
+<span class="comment"># Envoyer/recevoir sans réseau (local)</span>
+polygone envoyer -d &lt;clef&gt; "message" &gt; wire.txt
+polygone recevoir wire.txt</pre>
+  </section>
+
+  <!-- Services -->
+  <section id="services">
+    <h2>Services</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>📨 msg</h3>
+        <p>Messages chiffrés de bout en bout via le relay aveugle. Fragmentation 4-of-7, nonce frais par message.</p>
+        <span class="status live">🟢 live</span>
+      </div>
+      <div class="card">
+        <h3>📁 drive</h3>
+        <p>Fichiers E2E. Même pipeline : chiffrer → fragmenter → router → reconstruire. Zéro persistence.</p>
+        <span class="status live">🟢 live</span>
+      </div>
+      <div class="card">
+        <h3>🧠 brain</h3>
+        <p>IA locale via Ollama. <code>polygone petals ask --model phi4-mini "ta question"</code>. Zéro cloud.</p>
+        <span class="status live">🟢 live</span>
+      </div>
+      <div class="card">
+        <h3>🕸️ mesh</h3>
+        <p>Découverte LAN automatique. <code>polygone annoncer</code> + <code>polygone voisins</code>.</p>
+        <span class="status live">🟢 live</span>
+      </div>
+      <div class="card">
+        <h3>⚡ compute</h3>
+        <p>Exécution sandboxée à distance (shell systemd + WASM). Emprunte des cycles CPU fantômes.</p>
+        <span class="status live">🟢 live</span>
+      </div>
+      <div class="card">
+        <h3>🕶️ hide</h3>
+        <p>Tunnel SOCKS5 à travers le relay aveugle. Navigation anonyme post-quantique.</p>
+        <span class="status staging">⚪ staging</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Crypto -->
+  <section id="crypto">
+    <h2>Cryptographie</h2>
+    <ul class="features">
+      <li>ML‑KEM‑1024 (FIPS 203) — encapsulation de clé post‑quantique</li>
+      <li>ML‑DSA‑65 (FIPS 204) — signature post‑quantique par message</li>
+      <li>AES‑256‑GCM — chiffrement symétrique avec nonce frais</li>
+      <li>BLAKE3 — hachage rapide, intègre résistant</li>
+      <li>Shamir 4‑of‑7 — aucun nœud ne voit le message en entier</li>
+      <li>Horodatage ±300 s — protection anti‑rejeu</li>
+      <li>Zeroize — effacement mémoire après chaque opération</li>
+    </ul>
+  </section>
+
+  <!-- Philosophy -->
+  <section id="philosophy">
+    <h2>Philosophie</h2>
+    <ul class="features">
+      <li>Pas de compte. Pas de télémétrie. Pas de cloud sync.</li>
+      <li>Le relay ne sait pas qui parle à qui. Il voit des fragments, pas des messages.</li>
+      <li>Rien n'est persisté. Chaque fragment meurt après le transit.</li>
+      <li>AGPL‑3.0 : toute redistribution doit publier le code source.</li>
+      <li>Post‑quantique aujourd'hui, pas demain.</li>
+      <li>Honesty‑first : le threat model dit ce qui est protégé, et ce qui ne l'est pas.</li>
+    </ul>
+  </section>
+
+  <!-- CTA -->
+  <div class="cta">
+    <a href="https://github.com/lvs0/Polygone-Network" class="btn">⬡ Voir sur GitHub</a>
+    <a href="https://github.com/lvs0/Polygone-Network/releases/tag/v2.0.0" class="btn ghost" style="margin-left: 0.5rem;">📦 v2.0.0 Release</a>
+    <p style="margin-top: 1.5rem; font-size: 0.8rem; color: var(--dim);">
+      Contact : <a href="https://github.com/lvs0">github.com/lvs0</a> &middot;
+      Soutenir : <a href="https://payrequest.me/lvs0">payrequest.me/lvs0</a>
+    </p>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <p>⬡ Polygone v2.0.0 — AGPL-3.0 — Pas de compte, pas de télémétrie — Posture « honesty-first »</p>
+    <p style="margin-top: 0.5rem;">
+      ML‑KEM‑1024 &middot; ML‑DSA‑65 &middot; AES‑256‑GCM &middot; BLAKE3 &middot; Shamir 4‑of‑7 &middot; 162 tests
+    </p>
+  </footer>
+
+</div>
+
+</body>
+</html>
