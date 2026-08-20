@@ -5,7 +5,7 @@
 Un message est chiffré (ML-KEM-1024 + AES-256-GCM), découpé en fragments (Shamir 4-of-7), routé par un relais qui ne voit que du routage, puis reconstruit et déchiffré par le destinataire. **Rien n'est persisté :** le relais ne stocke rien, les fragments meurent.
 
 Crypto : ML-KEM-1024 (FIPS 203) · ML-DSA-65 (FIPS 204) · AES-256-GCM · BLAKE3 · Shamir 4-of-7.
-Version : **v1.0.0-rc2** · Licence : **AGPL-3.0** · Pas de compte, pas de télémétrie.
+Version : **v2.0.0** · Licence : **AGPL-3.0** · Pas de compte, pas de télémétrie.
 
 ---
 
@@ -71,7 +71,7 @@ Chaque message est signé ML-DSA-65 et horodaté (±300 s) : le rejeu est imposs
 
 ## Ce que ça ne fait pas
 
-| Pas dans v2.0.0-rc2 | Raison |
+| Pas dans v2.0.0 | Raison |
 |---|---|
 | Interface web | La TUI suffit |
 | Compte / cloud sync | Confidentialité par défaut |
@@ -80,7 +80,7 @@ Chaque message est signé ML-DSA-65 et horodaté (±300 s) : le rejeu est imposs
 
 ## État
 
-- `cargo test --workspace` → **109 tests verts** (produit 47, core 34, relay 7, daemon 21)
+- `cargo test --workspace` → **162 tests verts** (produit 52, core 52, daemon 26, relay 7, alloc 25)
 - Crypto (core) → réelle et testée : ML-KEM-1024, ML-DSA-65, AES-256-GCM, BLAKE3, Shamir 4-of-7
 - Services live : messages, fichiers, IA locale, mesh LAN, compute sandboxé, `verite`, `premier-soir`
 - En cours : `hide` (tunnel), `petals` distribué, `shell` — voir [`STAGING.md`](./STAGING.md)
@@ -101,7 +101,7 @@ Voir [`CONTRIBUTING.md`](./CONTRIBUTING.md) et [`LEGAL.md`](./LEGAL.md).
 
 ---
 
-*AGPL-3.0 · v2.0.0-rc2 · 109 tests · Posture « honesty-first ».*
+*AGPL-3.0 · v2.0.0 · 162 tests · Posture « honesty-first ».*
 
 
 ---
