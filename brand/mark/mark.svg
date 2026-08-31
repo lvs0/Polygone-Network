@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Polygone mark">
+  <title>Polygone</title>
+  <desc>Hexagonal mark. Cyber-slate field, cyber-amber stroke. One point-of-aperture per side, suggesting transit through the perimeter without storage.</desc>
+  <!-- Slate field, no gradient. Material at rest. -->
+  <rect width="64" height="64" fill="#0f172a"/>
+  <!-- Hexagon: outer 6 vertices, regular. Center (32, 32), circumradius 24. -->
+  <!-- Vertices (clockwise from top): (32,8) (52.78,20) (52.78,44) (32,56) (11.22,44) (11.22,20) -->
+  <!-- Stroke-only. The matter is the absence inside, not the shape itself. -->
+  <polygon points="32,8 52.78,20 52.78,44 32,56 11.22,44 11.22,20"
+           fill="none" stroke="#f59e0b" stroke-width="2" stroke-linejoin="miter"/>
+  <!-- Six apertures: one tick per side, slightly inside the stroke. -->
+  <!-- These are the six "edges" of the information transit graph. -->
+  <!-- Stroke 2.5 + length 8 so the ticks stay visible at 32px and in social thumbnails. -->
+  <g fill="#f59e0b">
+    <!-- top-mid -->
+    <rect x="30.75" y="12" width="2.5" height="8"/>
+    <!-- top-right -->
+    <rect x="45" y="20.25" width="8" height="2.5"/>
+    <!-- bottom-right -->
+    <rect x="45" y="41.25" width="8" height="2.5"/>
+    <!-- bottom-mid -->
+    <rect x="30.75" y="44" width="2.5" height="8"/>
+    <!-- bottom-left -->
+    <rect x="11" y="41.25" width="8" height="2.5"/>
+    <!-- top-left -->
+    <rect x="11" y="20.25" width="8" height="2.5"/>
+  </g>
+  <!-- Central pip: a single point. The information is the transit, not the centre. -->
+  <circle cx="32" cy="32" r="1.5" fill="#f59e0b"/>
+</svg>

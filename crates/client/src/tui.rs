@@ -68,11 +68,12 @@ pub fn parse_command(input: &str) -> Command {
 }
 
 /// Render the home screen to a string. Pure — no terminal I/O.
+/// Axiome 2: seulement 2 commandes visibles (envoyer, quitter).
 pub fn render_home(identity: &LocalIdentity, uptime_secs: u64, note: &str) -> String {
     let uptime = format_uptime(uptime_secs);
     let mut s = String::new();
     s.push_str("  ╔══════════════════════════════════════════════════════════╗\n");
-    s.push_str("  ║             ⬡  P O L Y G O N E   v2.0.0-rc2           ║\n");
+    s.push_str("  ║             ⬡  P O L Y G O N E   v2.0.0              ║\n");
     s.push_str("  ║   L'information n'existe pas. Elle traverse.            ║\n");
     s.push_str("  ╚══════════════════════════════════════════════════════════╝\n\n");
     s.push_str(&format!("  Identité   : {}\n", identity.pseudo));
@@ -91,14 +92,31 @@ pub fn render_home(identity: &LocalIdentity, uptime_secs: u64, note: &str) -> St
         s.push_str(note);
         s.push_str("\n\n");
     }
-    s.push_str("  Tapez  « : »  pour commander.   (:aide pour la liste)\n");
+    s.push_str("  COMMANDES :  :envoyer  — chiffrer + fragmenter un message\n");
+    s.push_str("               :quitter  — sortir proprement\n");
+    s.push_str("  Tapez  « :aide »  pour la liste complète.\n");
     s
 }
 
-/// Render the help screen.
+/// Render the help screen (Axiome 2: 2 commands visible, rest hidden behind :aide).
 pub fn render_help() -> String {
     let mut s = String::new();
     s.push_str("  ⬡ POLYGONE — aide\n\n");
+    s.push_str("  COMMANDES PRINCIPALES (visibles) :\n");
+    s.push_str("    :envoyer            chiffrer + fragmenter un message\n");
+    s.push_str("                      (sans argument : destinataire fictif)\n");
+    s.push_str("    :quitter            sortir proprement\n\n");
+    s.push_str("  COMMANDES AVANCÉES (tape :aide pour la liste complète) :\n");
+    s.push_str("    :recevoir, :ia, :voisins, :compute, :executer, :wasm,\n");
+    s.push_str("    :demo, :clef, :statut\n\n");
+    s.push_str("  Échap annule. Chaque commande se tape après « : ».\n");
+    s
+}
+
+/// Render the FULL help screen (all commands).
+pub fn render_help_full() -> String {
+    let mut s = String::new();
+    s.push_str("  ⬡ POLYGONE — aide complète\n\n");
     s.push_str("  :envoyer            chiffrer + fragmenter un message\n");
     s.push_str("                      (sans argument : destinataire fictif)\n");
     s.push_str("  :recevoir           reconstruire + déchiffrer (4/7)\n");

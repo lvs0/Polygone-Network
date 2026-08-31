@@ -5,12 +5,15 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use serde::Serialize;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use polygoned::{
     create_platform,
-    socket::{ensure_dir, notify_allocation, notify_shrink, socket_path},
+    socket::{notify_allocation, notify_shrink, socket_path},
     Allocation, DaemonConfig, GlowUpEngine, SystemSnapshot,
 };
 
@@ -35,6 +38,10 @@ struct Args {
 
     #[arg(long, help = "Tier: eco, balanced, performance, max")]
     tier: Option<String>,
+
+    /// Expose a JSON /status endpoint on this address (e.g. 127.0.0.1:9100).
+    #[arg(long, value_name = "ADDR")]
+    expose: Option<SocketAddr>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -90,10 +97,29 @@ fn main() -> Result<()> {
         args.dry_run
     );
 
-    ensure_dir()?;
 
     // Initialize glow-up engine
+    let started_at_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+
     let mut engine = GlowUpEngine::new(config, platform);
+
+    // Shared live-status for --expose HTTP endpoint, if enabled
+    let status_state: Arc<std::sync::Mutex<DaemonStatus>> =
+        Arc::new(std::sync::Mutex::new(DaemonStatus {
+            version: env!("CARGO_PKG_VERSION"),
+            tier: engine.config.tier.as_str(),
+            started_at_secs: started_at_secs,
+            current_alloc: AllocationView::from(&engine.current),
+        }));
+
+    // Start HTTP status server if requested
+    if let Some(addr) = args.expose {
+        let state = Arc::clone(&status_state);
+        std::thread::spawn(move || run_status_http(addr, state));
+        log::info!("polygoned: HTTP /status exposed on http://{}", addr);
+    }
 
     let tick = Duration::from_secs(engine.config.behavior.tick_interval_secs);
     let mut tick_count = 0u64;
@@ -125,6 +151,11 @@ fn main() -> Result<()> {
 
         // Log
         log_alloc(&alloc, &snap);
+
+        // Refresh live status for --expose
+        if let Ok(mut st) = status_state.lock() {
+            st.current_alloc = AllocationView::from(&alloc);
+        }
 
         tick_count += 1;
         if tick_count.is_multiple_of(60) {
@@ -395,4 +426,100 @@ fn chrono_lite() -> String {
     let m = (s / 60) % 60;
     let sec = s % 60;
     format!("{:02}:{:02}:{:02}", h, m, sec)
+}
+
+/// Serializable view of `Allocation` for the /status endpoint.
+#[derive(Debug, Clone, Serialize)]
+struct AllocationView {
+    ram_bytes: u64,
+    ram_gb: f64,
+    bandwidth_mbps: u32,
+    shrinking: bool,
+    shrink_streak: u32,
+    free_mem_avg_bytes: u64,
+}
+
+impl From<&Allocation> for AllocationView {
+    fn from(a: &Allocation) -> Self {
+        AllocationView {
+            ram_bytes: a.ram_bytes,
+            ram_gb: a.ram_bytes as f64 / 1_073_741_824.0,
+            bandwidth_mbps: a.bandwidth_mbps,
+            shrinking: a.shrinking,
+            shrink_streak: a.shrink_streak,
+            free_mem_avg_bytes: a.free_mem_avg_bytes,
+        }
+    }
+}
+
+/// Live status snapshot served by `--expose` HTTP endpoint.
+#[derive(Debug, Clone, Serialize)]
+struct DaemonStatus {
+    version: &'static str,
+    tier: &'static str,
+    started_at_secs: u64,
+    current_alloc: AllocationView,
+}
+
+/// Minimal HTTP server returning JSON status. No external deps.
+fn run_status_http(addr: SocketAddr, state: Arc<std::sync::Mutex<DaemonStatus>>) {
+    use std::io::Read;
+    use std::net::{TcpListener, TcpStream};
+
+    let listener = match TcpListener::bind(addr) {
+        Ok(l) => l,
+        Err(e) => {
+            log::error!("polygoned: cannot bind status endpoint {}: {}", addr, e);
+            return;
+        }
+    };
+    listener.set_nonblocking(false).ok();
+    log::info!("polygoned: status endpoint listening on http://{}", addr);
+
+    for stream in listener.incoming() {
+        let mut stream @ TcpStream { .. } = match stream {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let state = Arc::clone(&state);
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 1024];
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let n = match stream.read(&mut buf) {
+                Ok(n) if n > 0 => n,
+                _ => return,
+            };
+            let req = String::from_utf8_lossy(&buf[..n]);
+            let method = req.lines().next().unwrap_or("");
+            let path = method.split_whitespace().nth(1).unwrap_or("/");
+
+            let resp = if path == "/status" || path == "/health" {
+                let body = {
+                    let st = state.lock().unwrap();
+                    serde_json::to_string(&*st).unwrap_or_else(|_| "{\"error\":\"serialize\"}".to_string())
+                };
+                format!(
+                    "HTTP/1.1 200 OK\r\n\
+                     Content-Type: application/json\r\n\
+                     Content-Length: {}\r\n\
+                     Access-Control-Allow-Origin: *\r\n\
+                     Connection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+            } else {
+                let body = "{\"error\":\"not_found\"}";
+                format!(
+                    "HTTP/1.1 404 Not Found\r\n\
+                     Content-Type: application/json\r\n\
+                     Content-Length: {}\r\n\
+                     Connection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+            };
+            use std::io::Write;
+            let _ = stream.write_all(resp.as_bytes());
+        });
+    }
 }

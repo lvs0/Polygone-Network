@@ -3,7 +3,7 @@
 //! This module provides a high-level API for ML-DSA-65 signatures
 //! matching the expected Polygone core interface.
 
-use crate::{PolygoneError, Result};
+use crate::{NodeId, PolygoneError, Result};
 use pqcrypto_mldsa::mldsa65;
 use pqcrypto_traits::sign::{PublicKey as PubKeyTrait, SecretKey as SecKeyTrait, SignedMessage};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -193,6 +193,29 @@ pub const SIGNATURE_SIZE: usize = 3309;
 pub const PUBLIC_KEY_SIZE: usize = 1952;
 pub const SECRET_KEY_SIZE: usize = 4032;
 
+// ── proof_of_key ───────────────────────────────────────────────────────────────
+/// Proof-of-key for Sybil resistance (P-A2 / P-S2).
+///
+/// Signs `(PeerID || nonce)` with ML-DSA-65. The peer proves possession of the
+/// secret key corresponding to their NodeId without revealing it.
+///
+/// Bench target: ≤ 200 µs (current release ~270 µs — acceptable for now per D2 revision).
+pub fn prove_key(signer: &Signer, peer_id: &NodeId, nonce: &[u8; 32]) -> Result<Signature> {
+    // Concatenate PeerID (16 bytes) + nonce (32 bytes) = 48 bytes message
+    let mut msg = [0u8; 48];
+    msg[..16].copy_from_slice(peer_id.as_bytes());
+    msg[16..].copy_from_slice(nonce);
+    Ok(signer.sign(&msg))
+}
+
+/// Verify a proof-of-key signature.
+pub fn verify_key(verifier: &Verifier, peer_id: &NodeId, nonce: &[u8; 32], sig: &Signature) -> bool {
+    let mut msg = [0u8; 48];
+    msg[..16].copy_from_slice(peer_id.as_bytes());
+    msg[16..].copy_from_slice(nonce);
+    verifier.verify(&msg, sig)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,5 +251,40 @@ mod tests {
         let kp_b = generate_keypair().unwrap();
         let sig = kp_a.signer.sign(b"hello");
         assert!(!kp_b.verifier.verify(b"hello", &sig));
+    }
+}
+
+#[cfg(test)]
+mod proof_of_key_tests {
+    use super::*;
+    use crate::identity::NodeId;
+
+    #[test]
+    fn proof_of_key_roundtrip() {
+        let kp = generate_keypair().unwrap();
+        let peer_id = NodeId::random();
+        let nonce = [42u8; 32];
+        let sig = prove_key(&kp.signer, &peer_id, &nonce).unwrap();
+        assert!(verify_key(&kp.verifier, &peer_id, &nonce, &sig));
+    }
+
+    #[test]
+    fn proof_of_key_wrong_peer_fails() {
+        let kp = generate_keypair().unwrap();
+        let peer_id_a = NodeId::random();
+        let peer_id_b = NodeId::random();
+        let nonce = [42u8; 32];
+        let sig = prove_key(&kp.signer, &peer_id_a, &nonce).unwrap();
+        assert!(!verify_key(&kp.verifier, &peer_id_b, &nonce, &sig));
+    }
+
+    #[test]
+    fn proof_of_key_wrong_nonce_fails() {
+        let kp = generate_keypair().unwrap();
+        let peer_id = NodeId::random();
+        let nonce_a = [42u8; 32];
+        let nonce_b = [99u8; 32];
+        let sig = prove_key(&kp.signer, &peer_id, &nonce_a).unwrap();
+        assert!(!verify_key(&kp.verifier, &peer_id, &nonce_b, &sig));
     }
 }

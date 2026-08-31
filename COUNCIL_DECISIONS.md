@@ -1,9 +1,15 @@
 # ⚠️ Conseil v1 gelé — voir COUNCIL_V2_RECONSIDERED.md (10 perspectives : 5 sages × 2 fenêtres de connaissance).
 # Ce document est conservé comme trace historique de la méthodologie v1 (22 décisions fusion
+nées) et reste valide techniquement, mais a été remplacé par la méthodologie v2 (séparation stricte par sage × fenêtre de connaissance) révélée par Lévy dans `~/Par contre tu dois faire.md`.
 
-ées) et reste valide techniquement, mais a été remplacé par la méthodologie v2 (séparation stricte par sage × fenêtre de connaissance) révélée par Lévy dans `~/Par contre tu dois faire.md`.
-#
+---
+### 🏷️ **BANDEAU V2 — Ce document = trace v1**
+> **Conseil V2 actif** : `COUNCIL_V2_RECONSIDERED.md` (10 perspectives × 2 fenêtres = 20 voix).
+> **Décisions V2 prises** : D1 (GO 2-tabs), D2 (ML-DSA-65 gardé), D4 (GO sibling + Petals), D5 (relay assumé), D6 (Axiome 4 garde), D7 (GO push main), D8 (rétro-compat config), D9 (archive time_sync).
+> **Décisions V2 pending** : D3 (lettre État).
+> **Lévy décide** : ce document reste la référence technique validée ; V2 en ajoute, ne retranche pas.
 
+---
 # COUNCIL_DECISIONS.md — Les 9 décisions du Conseil des Sages
 
 > *Synthèse publique des recommandations issues du Conseil des Sages 2026-06-29 (3 comités, ~30 voix).*
@@ -87,7 +93,7 @@
 ### P-S5 — `LEGAL.md` + kill-switch runbook + 24 h de gèle subpoena
 - **Voix** : Shayne Coplan · Expert privacy
 - **Acceptance** : posture légale complète + Kafka + counter.
-- **Statut** : ✅ **livré v0.2** (cf. `LEGAL.md` + `docs/kill-switch.md`).
+| **Statut** : ✅ **livré v0.2** (cf. `LEGAL.md` + `docs/kill-switch.md`). | **v2 : Renouvelé** — `LEGAL.md` étendu, kill-switch runbook 24h intégré, posture honesty-first renforcée. |
 
 ### P-S6 — Disclosure responsable (`security.txt` RFC 9116)
 - **Voix** : Expert privacy

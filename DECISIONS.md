@@ -4,6 +4,13 @@
 > *Ce document liste explicitement les 3 décisions qui bloquent le calendrier.*
 
 ---
+### 🏷️ **BANDEAU V2 — Ce document = trace v1**
+> **Conseil V2 actif** : `COUNCIL_V2_RECONSIDERED.md` (10 perspectives × 2 fenêtres = 20 voix).
+> **Décisions V2 prises** : D1 (GO 2-tabs), D2 (ML-DSA-65 gardé), D4 (GO sibling + Petals), D5 (relay assumé), D6 (Axiome 4 garde), D7 (GO push main), D8 (rétro-compat config), D9 (archive time_sync).
+> **Décisions V2 pending** : D3 (lettre État).
+> **Lévy décide** : ce document reste la référence technique validée ; V2 en ajoute, ne retranche pas.
+
+---
 
 ## D1 — Refonte TUI 2 onglets (P-V1)
 
@@ -55,13 +62,7 @@ total   : ~270–344 µs (selon charge) — gate 200 µs NON atteint
 capacity: ~2900 handshakes/sec/cœur
 ```
 
-**Lecture honnête** : le gate ≤ 200 µs est dépassé d'environ 1,4–1,7× sur ce
-matériel. La capacité résultante (~2900 auths/sec/cœur) reste largement
-suffisante pour des sessions éphémères — ce n'est pas un bloqueur produit.
-L'option « retour à ML-DSA-87 » du D2 n'améliore PAS la perf (clé 3840 B,
-signature 5667 B, plus lent) ; elle aggraverait le gate. Recommandation :
-garder ML-DSA-65 et réviser la cible à ≤ 400 µs, ou valider empiriquement
-~2900/sec comme suffisant. Décision finale : à Lévy.
+**Lecture honnête** : le gate ≤ 200 µs est dépassé d'environ 1,4–1,7× sur ce matériel. La capacité résultante (~2900 auths/sec/cœur) reste largement suffisante pour des sessions éphémères — ce n'est pas un bloqueur produit. L'option « retour à ML-DSA-87 » du D2 n'améliore PAS la perf (clé 3840 B, signature 5667 B, plus lent) ; elle aggraverait le gate. Recommandation : garder ML-DSA-65 et réviser la cible à ≤ 400 µs, ou valider empiriquement ~2900/sec comme suffisant. Décision finale : à Lévy.
 
 ---
 
@@ -126,11 +127,7 @@ Envoyer 3 lettres ouvertes aux régulateurs sur la posture privacy de Polygone.
 
 ## D5 — Topologie v2.0.0-final : relay public assumé (tranchée 2026-08-07)
 
-**Déclencheur** : le produit++ a vérifié dans le code que la promesse
-« le relay ne voit rien » était fausse au niveau métadonnées (il route
-sur `to`, voit from/to/session/tailles, et recevait même les noms de
-fichiers). Le slogan ne pouvait pas rester l'étendard d'une promesse
-que le code ne tient pas.
+**Déclencheur** : le produit++ a vérifié dans le code que la promesse « le relay ne voit rien » était fausse au niveau métadonnées (il route sur `to`, voit from/to/session/tailles, et recevait même les noms de fichiers). Le slogan ne pouvait pas rester l'étendard d'une promesse que le code ne tient pas.
 
 **Décision proposée** :
 | Champ | Valeur |
@@ -143,12 +140,9 @@ que le code ne tient pas.
 | **Risque** | Un opérateur de relay corrèle qui parle à qui. Mitigation : pseudonymes de session, hors-bande, et `known_peers` (Phase 4 contacts) pour l'authenticité. |
 
 **Justification** :
-- Le contenu est illisible sans la clé ML-KEM (IND-CCA2) — la promesse
-  centrale tient.
-- Les métadonnées sont le prix du routage ; les réduire (noms hors-bande)
-  et les documenter est plus honnête que de les nier.
-- C'est la première décision binaire du document qui est **réellement
-  exécutée dans le code** le jour même.
+- Le contenu est illisible sans la clé ML-KEM (IND-CCA2) — la promesse centrale tient.
+- Les métadonnées sont le prix du routage ; les réduire (noms hors-bande) et les documenter est plus honnête que de les nier.
+- C'est la première décision binaire du document qui est **réellement exécutée dans le code** le jour même.
 
 **Statut** : ✅ **TRANCHÉE le 2026-08-07** — exécutée en Phase 1 du plan produit++.
 
@@ -156,11 +150,7 @@ que le code ne tient pas.
 
 ## D6 — Garde Axiome 4 : le produit, pas la rigueur (tranchée 2026-08-08)
 
-**Déclencheur** : en rendant la CI honnête (cran Phase 3.1, commit
-`a6ea4e4`), le gate « `wc -l crates/client/src/*.rs` ≤ 5000 » était
-**ROUGE** (5 560 lignes) — jamais exécuté depuis sa création (« les 51
-commits post-rc2 n'ont jamais vu la CI »). Dont 1 012 lignes de tests
-réseau dans `net.rs`.
+**Déclencheur** : en rendant la CI honnête (cran Phase 3.1, commit `a6ea4e4`), le gate « `wc -l crates/client/src/*.rs` ≤ 5000 » était **ROUGE** (5 560 lignes) — jamais exécuté depuis sa création (« les 51 commits post-rc2 n'ont jamais vu la CI »). Dont 1 012 lignes de tests réseau dans `net.rs`.
 
 **Décision proposée** :
 | Champ | Valeur |
@@ -171,59 +161,27 @@ réseau dans `net.rs`.
 | **Risque** | Le glob ne mesure plus les sous-modules (`net/mod.rs` invisible). Accepté : 11 fichiers top-level restent mesurés et le contraste « pas 11 000 » tient. |
 | **Acceptance** | (1) `wc -l crates/client/src/*.rs \| tail -1` → 3 519 ≤ 5000 ; (2) `cargo test --workspace` 108/108 en parallèle ; (3) `clippy --all --all-targets -- -D warnings` → exit 0. |
 
-**Statut** : ✅ **TRANCHÉE le 2026-08-08** — exécutée dans le commit
-`a6ea4e4` (Phase 3.1).
+**Statut** : ✅ **TRANCHÉE le 2026-08-08** — exécutée dans le commit `a6ea4e4` (Phase 3.1).
 
 ---
 
 ## D7 — Pousser main sur GitHub pour la première CI réelle (Lévy-blocking)
 
-**Déclencheur** : la Phase 3.1 est exécutée — tous les gates de la CI
-sont prouvés verts localement (clippy `-D warnings` exit 0, tests
-parallèles 108/108, self-test crypto 7/7, axiomes, forensic zero-log
-exit 0). Le repo a `origin = https://github.com/lvs0/Polygone-Network.git`
-mais **aucun upstream** : `main` n'a jamais été poussé ; la CI n'a jamais
-tourné sur les 53 commits post-rc2.
+**Déclencheur** : la Phase 3.1 est exécutée — tous les gates de la CI sont prouvés verts localement (clippy `-D warnings` exit 0, tests parallèles 108/108, self-test crypto 7/7, axiomes, forensic zero-log exit 0). Le repo a `origin = https://github.com/lvs0/Polygone-Network.git` mais **aucun upstream** : `main` n'a jamais été poussé ; la CI n'a jamais tourné sur les 53 commits post-rc2.
 
 **MISE À JOUR (2026-08-08, NO-PROGRESS CHECK — la réalité du remote)** :
-le remote N'EST PAS vide. `git ls-remote` public + `git cat-file`
-révèlent : `main` distant = `09be6e05` (« chore: remove unused wasmi
-imports in exec.rs ») — un commit **v1 qui est un ANCÊTRE du HEAD
-local**. Le local est **38 commits en avance** ; un `git push origin
-main` normal ferait un **FAST-FORWARD propre** : aucune perte, aucun
-force-push, l'histoire v1 reste dans le graphe (le local la contient
-déjà : v1.0.0 → legacy archivé → rewrite v2). Les tags distants
-v0.1.0/v0.2.0/v1.0.0 restent ; les 2 PR fermées d'avril 2026
-(« analyser-tous-les-fichiers-repo », « produit-grand-public-final »)
-sont de l'historique v1. **La formulation « jamais poussé / aucun
-upstream » était inexacte** : le v2 n'a jamais été poussé, mais le
-remote porte le commit v1 partagé. D7 se réduit donc à une action
-simple + une décision d'exposition, pas une stratégie de convergence.
+le remote N'EST PAS vide. `git ls-remote` public + `git cat-file` révèlent : `main` distant = `09be6e05` (« chore: remove unused wasmi imports in exec.rs ») — un commit **v1 qui est un ANCÊTRE du HEAD local**. Le local est **38 commits en avance** ; un `git push origin main` normal ferait un **FAST-FORWARD propre** : aucune perte, aucun force-push, l'histoire v1 reste dans le graphe (le local la contient déjà : v1.0.0 → legacy archivé → rewrite v2). Les tags distants v0.1.0/v0.2.0/v1.0.0 restent ; les 2 PR fermées d'avril 2026 (« analyser-tous-les-fichiers-repo », « produit-grand-public-final ») sont de l'historique v1. **La formulation « jamais poussé / aucun upstream » était inexacte** : le v2 n'a jamais été poussé, mais le remote porte le commit v1 partagé. D7 se réduit donc à une action simple + une décision d'exposition, pas une stratégie de convergence.
 
-**Question** : Pousser `main` (fast-forward, 38 commits) maintenant —
-oui, quand, avec quels credentials (HTTPS : un token est-il configuré) ?
-Ou attendre un tag `v*` ?
+**Question** : Pousser `main` (fast-forward, 38 commits) maintenant — oui, quand, avec quels credentials (HTTPS : un token est-il configuré) ? Ou attendre un tag `v*` ?
 
-**Préparation push COMPLÈTE (2026-08-08)** : toutes les inconnues
-techniques sont levées — `cargo clean` + `cargo build --release
---all-targets` from zéro (6 min 22 s, simulation du runner CI vierge) :
-**vert** ; smoke 15/15 sur les binaires frais : **vert** ;
-`cargo test --workspace` (mode parallèle CI) : **113 uniques verts** ;
-workflows self-contained (aucun `secrets.*` requis, GITHUB_TOKEN auto).
-**Il ne reste que la décision de Lévy + le token.** La CI ne devrait pas
-rougir au premier push.
+**Préparation push COMPLÈTE (2026-08-08)** : toutes les inconnues techniques sont levées — `cargo clean` + `cargo build --release --all-targets` from zéro (6 min 22 s, simulation du runner CI vierge) : **vert** ; smoke 15/15 sur les binaires frais : **vert** ; `cargo test --workspace` (mode parallèle CI) : **113 uniques verts** ; workflows self-contained (aucun `secrets.*` requis, GITHUB_TOKEN auto). **Il ne reste que la décision de Lévy + le token.** La CI ne devrait pas rougir au premier push.
 
 **Options** :
-- **PUSH maintenant** — la première CI réelle prouve le vert en public.
-  Risque : un échec CI runner malgré les vérifications locales (environnement
-  différent), exposition publique du code (AGPL, assumé).
-- **PUSH au tag** — la première CI est déclenchée par un tag `v*`
-  (release.yml inclus), plus solennel ; l'attente retarde la première preuve.
-- **Ne pas pousser** — le dépôt reste local ; aucune CI, aucune
-  visibilité ; contredit la promesse « open source ».
+- **PUSH maintenant** — la première CI réelle prouve le vert en public. Risque : un échec CI runner malgré les vérifications locales (environnement différent), exposition publique du code (AGPL, assumé).
+- **PUSH au tag** — la première CI est déclenchée par un tag `v*` (release.yml inclus), plus solennel ; l'attente retarde la première preuve.
+- **Ne pas pousser** — le dépôt reste local ; aucune CI, aucune visibilité ; contredit la promesse « open source ».
 
-**Effet** : PUSH = la Phase 3.1 se termine vraiment (« CI jamais passée »
-→ « CI verte ») ; le Premier Soir peut distribuer via GitHub Releases.
+**Effet** : PUSH = la Phase 3.1 se termine vraiment (« CI jamais passée » → « CI verte ») ; le Premier Soir peut distribuer via GitHub Releases.
 
 **Statut** : ✅ **TRANCHÉE le 2026-08-12** — **GO push main**. Token GitHub (`lvs0`) disponible dans `~/.git-credentials`. Push fast-forward propre (+38 commits) prévu aujourd'hui. Première CI publique attendue verte (113 tests, 0 secrets requis).
 
@@ -231,67 +189,32 @@ rougir au premier push.
 
 ## D8 — polygoned doit lire l'ancien format de config (rétro-compat) (tranchée 2026-08-08)
 
-**Déclencheur** : l'itération 16 a corrigé `--gen-config` (format écrit ==
-format lu), mais la config réelle de la machine
-(`~/.config/polygone/daemon.toml`, écrite le 2026-07-20) est dans le
-format **legacy** — `[tier] tier = "Balanced"` encapsulé en table — que
-le parseur actuel rejette. Vérifié 2026-08-08 : `polygoned status` et
-`polygoned --gen-config` échouent tous deux sur cette config
-(`unknown variant 'tier', expected one of 'Eco', 'Balanced', …`).
-L'utilisateur réel ne peut donc pas lancer son daemon sans action manuelle.
+**Déclencheur** : l'itération 16 a corrigé `--gen-config` (format écrit == format lu), mais la config réelle de la machine (`~/.config/polygone/daemon.toml`, écrite le 2026-07-20) est dans le format **legacy** — `[tier] tier = "Balanced"` encapsulé en table — que le parseur actuel rejette. Vérifié 2026-08-08 : `polygoned status` et `polygoned --gen-config` échouent tous deux sur cette config (`unknown variant 'tier', expected one of 'Eco', 'Balanced', …`). L'utilisateur réel ne peut donc pas lancer son daemon sans action manuelle.
 
-**Question** : le daemon doit-il accepter les deux formes de config
-(legacy `[tier] tier = "X"` et actuelle `tier = "X"`) pour ne jamais
-casser un utilisateur existant — ou exiger la régénération ?
+**Question** : le daemon doit-il accepter les deux formes de config (legacy `[tier] tier = "X"` et actuelle `tier = "X"`) pour ne jamais casser un utilisateur existant — ou exiger la régénération ?
 
 **Options** :
-- **(a) Désérialisation rétro-compatible** — accepter `[tier] tier = "X"`
-  ET `tier = "X"` ; la valeur est identique (« Balanced » est un tier
-  valide). Zéro friction utilisateur, robustesse à la frontière (règle
-  CLAUDE.md). Lévy n'a rien à faire.
-- **(b) Migration one-shot** — `--gen-config` détecte l'ancien format et
-  le réécrit ; le parseur reste strict. Plus fragile (état modifié sans
-  demande), erreur si le daemon n'est pas lancé avec la migration.
-- **(c) Régénération exigée** — l'utilisateur perd ses réglages et subit
-  la friction ; c'était l'état « à faire par Lévy » du plan.
+- **(a) Désérialisation rétro-compatible** — accepter `[tier] tier = "X"` ET `tier = "X"` ; la valeur est identique (« Balanced » est un tier valide). Zéro friction utilisateur, robustesse à la frontière (règle CLAUDE.md). Lévy n'a rien à faire.
+- **(b) Migration one-shot** — `--gen-config` détecte l'ancien format et le réécrit ; le parseur reste strict. Plus fragile (état modifié sans demande), erreur si le daemon n'est pas lancé avec la migration.
+- **(c) Régénération exigée** — l'utilisateur perd ses réglages et subit la friction ; c'était l'état « à faire par Lévy » du plan.
 
-**Effet** : (a) = `polygoned status` fonctionne immédiatement sur la
-machine réelle, sans action ni perte ; l'ancien format ne casse plus
-jamais un utilisateur.
+**Effet** : (a) = `polygoned status` fonctionne immédiatement sur la machine réelle, sans action ni perte ; l'ancien format ne casse plus jamais un utilisateur.
 
-**Statut** : ✅ **TRANCHÉE par l'architecte (2026-08-08)** — option (a),
-exécution au cran suivant avec test de round-trip (legacy + actuel).
-Fallback conservé : `polygoned --gen-config` régénère quand même.
-**Exécutée** : commit `e10c22e` — `polygoned status` lit la vraie config
-legacy (exit 0, avant : TOML parse error) ; 4 tests de forme ajoutés ;
-113 tests workspace verts. Gate CI durable (smoke) au cran suivant.
+**Statut** : ✅ **TRANCHÉE par l'architecte (2026-08-08)** — option (a), exécution au cran suivant avec test de round-trip (legacy + actuel). Fallback conservé : `polygoned --gen-config` régénère quand même. **Exécutée** : commit `e10c22e` — `polygoned status` lit la vraie config legacy (exit 0, avant : TOML parse error) ; 4 tests de forme ajoutés ; 113 tests workspace verts. Gate CI durable (smoke) au cran suivant.
 
 ---
 
 ## D9 — time_sync : câbler ou archiver (Lévy-blocking)
 
-**Déclencheur** : ARCHITECTURE.md (§11) suit « `time_sync` engine with no
-consumers — Decision: wire or archive ». Vérifié 2026-08-08 : `crates/
-core/src/time_sync/` = 1 019 LOC (engine, filter, protocol, types),
-re-exporté par lib.rs, **zéro consommateur** (aucun import dans daemon
-ni client) — du code vivant mais mort dans le crate crypto.
+**Déclencheur** : ARCHITECTURE.md (§11) suit « `time_sync` engine with no consumers — Decision: wire or archive ». Vérifié 2026-08-08 : `crates/core/src/time_sync/` = 1 019 LOC (engine, filter, protocol, types), re-exporté par lib.rs, **zéro consommateur** (aucun import dans daemon ni client) — du code vivant mais mort dans le crate crypto.
 
-**Question** : câbler `time_sync` (feature « synchronisation d'horloge
-entre nœuds » — en lien avec la demande récurrente de Lévy sur la
-synchronisation inter-nœuds) ou l'archiver ?
+**Question** : câbler `time_sync` (feature « synchronisation d'horloge entre nœuds » — en lien avec la demande récurrente de Lévy sur la synchronisation inter-nœuds) ou l'archiver ?
 
 **Options** :
-- **Câbler maintenant** — feature complète (protocole, intégration
-  réseau, tests) ; aucun consommateur ne la demande encore ; le réseau
-  n'en a pas besoin pour la promesse centrale (la mort du message).
-- **Archiver** (recommandé) — le code reste dans git (rien n'est
-  perdu) ; du code mort dans le crate crypto = surface d'attaque + coût
-  de maintenance pour zéro bénéfice. Ré-introduire au moment du feature
-  « sync inter-nœuds », avec une vraie décision de protocole.
-- **Laisser tel quel** — documenté dans ARCHITECTURE.md, mais laisse
-  une ambiguïté permanente.
+- **Câbler maintenant** — feature complète (protocole, intégration réseau, tests) ; aucun consommateur ne la demande encore ; le réseau n'en a pas besoin pour la promesse centrale (la mort du message).
+- **Archiver** (recommandé) — le code reste dans git (rien n'est perdu) ; du code mort dans le crate crypto = surface d'attaque + coût de maintenance pour zéro bénéfice. Ré-introduire au moment du feature « sync inter-nœuds », avec une vraie décision de protocole.
+- **Laisser tel quel** — documenté dans ARCHITECTURE.md, mais laisse une ambiguïté permanente.
 
-**Effet** : archiver = core allégé (~1 kLOC de moins), une décision
-claire ; câbler = un pas vers le rêve « organisme » de Lévy.
+**Effet** : archiver = core allégé (~1 kLOC de moins), une décision claire ; câbler = un pas vers le rêve « organisme » de Lévy.
 
 **Statut** : ✅ **TRANCHÉE le 2026-08-12** — **ARCHIVER** (recommandation architecte adoptée). `time_sync/` (1 019 LOC, 0 consommateur) → `archive/2026-08-time_sync/`. Ré-introduire avec la feature « sync inter-nœuds » (Phase 8+). Code mort = surface d'attaque + coût maintenance.
