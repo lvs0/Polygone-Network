@@ -397,7 +397,6 @@ mod tests {
                 // If empty, sandbox ran but captured nothing — skip gracefully.
                 if o.trim().is_empty() {
                     eprintln!("skip: sandbox ran but returned empty output");
-                    return;
                 }
             }
             Err(e) => {
