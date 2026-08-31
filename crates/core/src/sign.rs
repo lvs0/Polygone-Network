@@ -209,7 +209,12 @@ pub fn prove_key(signer: &Signer, peer_id: &NodeId, nonce: &[u8; 32]) -> Result<
 }
 
 /// Verify a proof-of-key signature.
-pub fn verify_key(verifier: &Verifier, peer_id: &NodeId, nonce: &[u8; 32], sig: &Signature) -> bool {
+pub fn verify_key(
+    verifier: &Verifier,
+    peer_id: &NodeId,
+    nonce: &[u8; 32],
+    sig: &Signature,
+) -> bool {
     let mut msg = [0u8; 48];
     msg[..16].copy_from_slice(peer_id.as_bytes());
     msg[16..].copy_from_slice(nonce);

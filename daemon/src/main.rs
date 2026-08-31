@@ -97,7 +97,6 @@ fn main() -> Result<()> {
         args.dry_run
     );
 
-
     // Initialize glow-up engine
     let started_at_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -496,7 +495,8 @@ fn run_status_http(addr: SocketAddr, state: Arc<std::sync::Mutex<DaemonStatus>>)
             let resp = if path == "/status" || path == "/health" {
                 let body = {
                     let st = state.lock().unwrap();
-                    serde_json::to_string(&*st).unwrap_or_else(|_| "{\"error\":\"serialize\"}".to_string())
+                    serde_json::to_string(&*st)
+                        .unwrap_or_else(|_| "{\"error\":\"serialize\"}".to_string())
                 };
                 format!(
                     "HTTP/1.1 200 OK\r\n\

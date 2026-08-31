@@ -292,8 +292,15 @@ mod tests {
     fn systemd_run_available() -> bool {
         // Vérifier que systemd-run existe
         let Ok(output) = std::process::Command::new("systemd-run")
-            .args(["--user", "--wait", "--pipe", "-q", "--unit=test-polygone-check",
-                   "echo", "test"])
+            .args([
+                "--user",
+                "--wait",
+                "--pipe",
+                "-q",
+                "--unit=test-polygone-check",
+                "echo",
+                "test",
+            ])
             .output()
         else {
             return false;
