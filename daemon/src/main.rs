@@ -110,7 +110,7 @@ fn main() -> Result<()> {
         Arc::new(std::sync::Mutex::new(DaemonStatus {
             version: env!("CARGO_PKG_VERSION"),
             tier: engine.config.tier.as_str(),
-            started_at_secs: started_at_secs,
+            started_at_secs,
             current_alloc: AllocationView::from(&engine.current),
         }));
 
