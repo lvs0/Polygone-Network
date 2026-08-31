@@ -161,7 +161,7 @@ tick_interval_secs = 5
 [platform]
 mode = "linux"
 TOML
-if HOME="$LEGACY" timeout 15 "$PD" status >"$TMP/legacy.stdout" 2>"$TMP/legacy.log"; then
+if HOME="$LEGACY" XDG_CONFIG_HOME="$LEGACY/.config" timeout 15 "$PD" status >"$TMP/legacy.stdout" 2>"$TMP/legacy.log"; then
   if grep -qi "tier.*performance" "$TMP/legacy.stdout"; then
     echo "✓ polygoned lit la config legacy ([tier] en table) → tier Performance"
   else
