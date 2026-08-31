@@ -161,8 +161,7 @@ tick_interval_secs = 5
 [platform]
 mode = "linux"
 TOML
-if HOME="$LEGACY" timeout 15 "$PD" status 2>"$TMP/legacy.log" \
-    | grep -qi "tier.*performance"; then
+if HOME="$LEGACY" timeout 15 "$PD" status 2>&1 | grep -qi "tier.*performance"; then
   echo "✓ polygoned lit la config legacy ([tier] en table) → tier Performance"
 else
   echo "✖ la config legacy ne charge pas, ou son tier est perdu (default)"
