@@ -108,24 +108,11 @@ setup_config() {
     local config_dir="$HOME/.config/polygone"
     mkdir -p "$config_dir"
 
-    if [ ! -f "$config_dir/config.toml" ]; then
-        cat > "$config_dir/config.toml" <<EOF
-# Polygone configuration
-# Voir docs/config.md pour toutes les options
-
-[identity]
-# Pseudo affiché dans la TUI (généré automatiquement si vide)
-pseudo = ""
-
-[network]
-# Port d'écoute relay (défaut : 7000)
-relay_port = 7000
-
-[daemon]
-# Activer le daemon au démarrage (défaut : false)
-autostart = false
+    if [ ! -f "$config_dir/daemon.toml" ]; then
+        cat > "$config_dir/daemon.toml" <<'EOF'
+tier = "Balanced"
 EOF
-        log_info "✓ Config créée : $config_dir/config.toml"
+        log_info "✓ Config créée : $config_dir/daemon.toml"
     fi
 }
 
