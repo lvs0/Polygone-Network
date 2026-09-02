@@ -6,6 +6,7 @@ pub mod crypto;
 pub mod envelope;
 pub mod error;
 pub mod identity;
+pub mod receipt;
 pub mod sign;
 
 pub use crypto::SharedSecret;

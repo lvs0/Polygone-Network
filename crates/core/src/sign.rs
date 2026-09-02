@@ -57,6 +57,11 @@ impl PublicKey {
             hex::decode(s.trim()).map_err(|e| PolygoneError::Serde(format!("hex decode: {e}")))?;
         Self::from_bytes(&bytes)
     }
+
+    /// Inner public key for core-internal low-level verify paths.
+    pub(crate) fn inner(&self) -> &mldsa65::PublicKey {
+        &self.0
+    }
 }
 
 /// ML-DSA-65 secret key (4032 bytes, sensitive).
@@ -86,6 +91,11 @@ impl SecretKey {
         let bytes =
             hex::decode(s.trim()).map_err(|e| PolygoneError::Serde(format!("hex decode: {e}")))?;
         Self::from_bytes(&bytes)
+    }
+
+    /// Inner secret key for core-internal low-level sign/verify paths.
+    pub(crate) fn inner(&self) -> &mldsa65::SecretKey {
+        &self.0
     }
 }
 
