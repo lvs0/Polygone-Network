@@ -59,13 +59,29 @@ check_deps() {
 # Installation binaire (si release disponible)
 install_binary() {
     local os=$1 arch=$2
-    local version="1.0.0-rc2"
+    local version="2.0.0"
     local url="https://github.com/lvs0/Polygone-Network/releases/download/v${version}/polygone-${os}-${arch}"
+    local sha_url="${url}.sha256"
 
     log_info "Tentative d'installation binaire v${version}..."
 
     if curl -fsSL "$url" -o /tmp/polygone 2>/dev/null; then
         chmod +x /tmp/polygone
+        
+        # Verify SHA256 if available
+        if curl -fsSL "$sha_url" -o /tmp/polygone.sha256 2>/dev/null; then
+            local expected=$(cat /tmp/polygone.sha256 | awk '{print $1}')
+            local actual=$(sha256sum /tmp/polygone | awk '{print $1}')
+            if [ "$expected" = "$actual" ]; then
+                log_info "✓ Signature SHA256 vérifiée"
+            else
+                log_error "Signature SHA256 invalide"
+                rm -f /tmp/polygone /tmp/polygone.sha256
+                return 1
+            fi
+            rm -f /tmp/polygone.sha256
+        fi
+        
         sudo mv /tmp/polygone /usr/local/bin/polygone
         log_info "✓ Binaire installé : /usr/local/bin/polygone"
         return 0
