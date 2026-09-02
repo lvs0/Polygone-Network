@@ -115,6 +115,21 @@ Mode duress (Axiome 5) : détruit l'identité + les fichiers reçus.
 `--confirmer` requis — irréversible. L'identité se régénère au
 prochain lancement.
 
+### `polygone hide [--via <relay>] [--sortie <node>] [--dest <clef>] [--ecoute <addr>]`
+Proxy SOCKS5 local (défaut 127.0.0.1:9050) qui route le trafic TCP
+à travers le relay aveugle vers un nœud de sortie Polygone.
+- `--via <relay:port>` : relay aveugle (défaut 127.0.0.1:7000).
+- `--sortie <node_id>` : identifiant du nœud de sortie (16 hex).
+- `--dest <clef>` : clé publique ML-KEM-1024 du nœud de sortie (hex).
+- `--ecoute <addr>` : adresse d'écoute SOCKS5 (défaut 127.0.0.1:9050).
+
+Le nœud de sortie se lance avec `polygone ecouter --hide`.
+
+**Honnêteté** : le relay ne voit que métadonnées + tailles (chiffré E2E).
+Le nœud de sortie voit la destination réelle (comme un exit Tor).
+Single hop MVP — relay + exit node ensemble peuvent corréler.
+Pas de padding, pas de multi-hop — documenté, pas promis.
+
 ## Variables d'environnement
 
 | Variable | Effet |

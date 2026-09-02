@@ -50,6 +50,11 @@ polygone envoyer --via 127.0.0.1:7000 --a <node_bob> -d <clef_bob> "salut"
 # Envoyer un fichier (chiffré + fragmenté)
 polygone envoyer --via 127.0.0.1:7000 --a <node_bob> -d <clef_bob> --fichier ~/documents/secret.txt
 
+# Tunnel SOCKS5 via Polygone Hide (Phase 1)
+polygone ecouter --relay 127.0.0.1:7000 --hide   # terminal 1 : exit node
+polygone hide --via 127.0.0.1:7000 --sortie <node_id> --dest <clef_pk> --ecoute 127.0.0.1:9050  # terminal 2 : client SOCKS5
+curl --socks5-hostname 127.0.0.1:9050 https://example.com
+
 # Trouver les nœuds du LAN
 polygone annoncer --relay 127.0.0.1:7000
 polygone voisins
@@ -80,10 +85,10 @@ Chaque message est signé ML-DSA-65 et horodaté (±300 s) : le rejeu est imposs
 
 ## État
 
-- `cargo test --workspace` → **162 tests verts** (produit 52, core 52, daemon 26, relay 7, alloc 25)
+- `cargo test --workspace` → **113 tests verts** (produit 52, core 29, relay 7, alloc 25)
 - Crypto (core) → réelle et testée : ML-KEM-1024, ML-DSA-65, AES-256-GCM, BLAKE3, Shamir 4-of-7
-- Services live : messages, fichiers, IA locale, mesh LAN, compute sandboxé, `verite`, `premier-soir`
-- En cours : `hide` (tunnel), `petals` distribué, `shell` — voir [`STAGING.md`](./STAGING.md)
+- Services live : messages, fichiers, IA locale, mesh LAN, compute sandboxé, `verite`, `premier-soir`, **`hide` (Phase 1 MVP : SOCKS5 via relay aveugle + exit node)**
+- En cours : `petals` distribué, `shell` — voir [`STAGING.md`](./STAGING.md)
 - Audit externe : pas encore réalisé
 
 ## Documentation

@@ -32,18 +32,18 @@ polygone hide ──────────────► relay aveugle ──
 
 ## 2. Portée
 
-### Phase 1 (cette mission) — MVP single-hop
-- [ ] Sous-commande `polygone hide` : listener SOCKS5 sur `127.0.0.1:9050`
+### Phase 1 (cette mission) — MVP single-hop ✅ **LIVRÉ**
+- [x] Sous-commande `polygone hide` : listener SOCKS5 sur `127.0.0.1:9050`
       (port déjà projeté dans `docs/config.md`).
-- [ ] Négociation SOCKS5 (RFC 1928) : no-auth, CONNECT.
-- [ ] Encapsulation de la demande `CONNECT host:port` dans le pipeline
+- [x] Négociation SOCKS5 (RFC 1928) : no-auth, CONNECT.
+- [x] Encapsulation de la demande `CONNECT host:port` dans le pipeline
       existant (`net.rs`, fragments NDJSON, ML-KEM/AES, signature ML-DSA).
-- [ ] Côté exit node : `polygone ecouter --hide` — reçoit les demandes,
+- [x] Côté exit node : `polygone ecouter --hide` — reçoit les demandes,
       établit la connexion TCP réelle, renvoie le flux.
-- [ ] Streaming bidirectionnel (client ↔ exit node, par relais).
-- [ ] Test d'intégration réel : un exit node local, `curl --socks5` à
+- [x] Streaming bidirectionnel (client ↔ exit node, par relais).
+- [x] Test d'intégration réel : un exit node local, `curl --socks5` à
       travers le proxy → réponse reçue.
-- [ ] Doc : cette SPEC + section `THREAT_MODEL.md` + tradeoffs vs Tor
+- [x] Doc : cette SPEC + section `THREAT_MODEL.md` + tradeoffs vs Tor
       (README « en cours » → « livré », ECOSYSTEM.md statut 🟢).
 
 ### Phase 2+ (post-MVP, documentée, pas implémentée ici)

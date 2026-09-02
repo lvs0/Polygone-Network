@@ -1,0 +1,422 @@
+{
+  "version": 1,
+  "layers": [],
+  "updatedAt": "2026-09-01T22:43:03.453Z",
+  "servers": {
+    "semantica": {
+      "definitionHash": "1817be1c580f14627b73fb4ba76dcda3a1294ca40e05631173f2bed02519418c",
+      "transport": "stdio",
+      "description": null,
+      "fetchedAt": "2026-09-01T22:43:03.303Z",
+      "stale": false,
+      "tools": [
+        {
+          "name": "extract_entities",
+          "description": "Extract named entities (people, places, organisations, concepts) from text.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Input text to process"
+              }
+            },
+            "required": [
+              "text"
+            ]
+          }
+        },
+        {
+          "name": "extract_relations",
+          "description": "Extract relations and (subject, predicate, object) triplets from text.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Input text to process"
+              }
+            },
+            "required": [
+              "text"
+            ]
+          }
+        },
+        {
+          "name": "extract_all",
+          "description": "Run the full Semantica extraction pipeline: NER, coreference resolution, relation extraction, event detection, and triplet generation.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Input text to process"
+              },
+              "include_events": {
+                "type": "boolean",
+                "description": "Also extract events (default: true)"
+              },
+              "include_triplets": {
+                "type": "boolean",
+                "description": "Also extract (subject, predicate, object) triplets (default: true)"
+              }
+            },
+            "required": [
+              "text"
+            ]
+          }
+        },
+        {
+          "name": "record_decision",
+          "description": "Record a decision with full context, causal links, and metadata into the Semantica knowledge graph.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "category": {
+                "type": "string",
+                "description": "Decision category, e.g. 'loan_approval', 'deployment'"
+              },
+              "scenario": {
+                "type": "string",
+                "description": "Natural-language description of the situation"
+              },
+              "reasoning": {
+                "type": "string",
+                "description": "Explanation of why this decision was made"
+              },
+              "outcome": {
+                "type": "string",
+                "description": "Decision result, e.g. 'approved', 'rejected', 'deferred'"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Confidence score between 0 and 1"
+              },
+              "decision_maker": {
+                "type": "string",
+                "description": "Who or what made the decision (default: mcp_client)"
+              },
+              "valid_from": {
+                "type": "string",
+                "description": "ISO 8601 validity start date (optional)"
+              },
+              "valid_until": {
+                "type": "string",
+                "description": "ISO 8601 validity end date (optional)"
+              }
+            },
+            "required": [
+              "category",
+              "scenario",
+              "reasoning",
+              "outcome",
+              "confidence"
+            ]
+          }
+        },
+        {
+          "name": "query_decisions",
+          "description": "Query recorded decisions by natural language, category, or outcome filter.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Natural language query (optional)"
+              },
+              "category": {
+                "type": "string",
+                "description": "Filter by exact category (optional)"
+              },
+              "outcome": {
+                "type": "string",
+                "description": "Filter by outcome value (optional)"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "description": "Maximum number of results (default: 10)"
+              }
+            }
+          }
+        },
+        {
+          "name": "find_precedents",
+          "description": "Find past decisions similar to a given scenario using hybrid similarity search.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "scenario": {
+                "type": "string",
+                "description": "Scenario description to find similar past decisions for"
+              },
+              "max_results": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50,
+                "description": "Maximum number of precedents to return (default: 5)"
+              }
+            },
+            "required": [
+              "scenario"
+            ]
+          }
+        },
+        {
+          "name": "get_causal_chain",
+          "description": "Trace the causal chain upstream or downstream from a recorded decision.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "decision_id": {
+                "type": "string",
+                "description": "ID of the decision to trace"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "upstream",
+                  "downstream",
+                  "both"
+                ],
+                "description": "Trace direction (default: downstream)"
+              },
+              "max_depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20,
+                "description": "Maximum chain depth (default: 5)"
+              }
+            },
+            "required": [
+              "decision_id"
+            ]
+          }
+        },
+        {
+          "name": "analyze_decision_impact",
+          "description": "Analyse the downstream impact and influence of a decision across the knowledge graph.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "decision_id": {
+                "type": "string",
+                "description": "ID of the decision to analyse"
+              }
+            },
+            "required": [
+              "decision_id"
+            ]
+          }
+        },
+        {
+          "name": "add_entity",
+          "description": "Add a node or entity (person, place, concept, organisation) to the knowledge graph.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique node identifier"
+              },
+              "label": {
+                "type": "string",
+                "description": "Human-readable label (defaults to id)"
+              },
+              "type": {
+                "type": "string",
+                "description": "Node type, e.g. 'Person', 'Organisation', 'Concept'"
+              },
+              "metadata": {
+                "type": "object",
+                "description": "Additional key-value properties"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "name": "add_relationship",
+          "description": "Add a directed relationship (edge) between two entities in the knowledge graph.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "description": "Source node ID"
+              },
+              "target": {
+                "type": "string",
+                "description": "Target node ID"
+              },
+              "type": {
+                "type": "string",
+                "description": "Relationship type, e.g. 'WORKS_AT', 'CAUSED_BY'"
+              },
+              "metadata": {
+                "type": "object",
+                "description": "Additional edge properties"
+              }
+            },
+            "required": [
+              "source",
+              "target"
+            ]
+          }
+        },
+        {
+          "name": "search_graph",
+          "description": "Search nodes in the knowledge graph by label or ID substring.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Search term or phrase"
+              },
+              "node_type": {
+                "type": "string",
+                "description": "Filter by node type (optional)"
+              },
+              "limit": {
+                "type": "integer",
+                "description": "Max results (default: 20)"
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        {
+          "name": "get_graph_summary",
+          "description": "Return a high-level summary of the knowledge graph: node count, edge count, decision count, node type breakdown.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "get_graph_analytics",
+          "description": "Compute PageRank centrality, betweenness centrality, degree centrality, and community detection over the knowledge graph.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "metrics": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "pagerank",
+                    "betweenness",
+                    "communities",
+                    "degree",
+                    "all"
+                  ]
+                },
+                "description": "Analytics to compute (default: ['all'])"
+              },
+              "top_n": {
+                "type": "integer",
+                "description": "Top N nodes to return per metric (default: 10)"
+              }
+            }
+          }
+        },
+        {
+          "name": "run_reasoning",
+          "description": "Run forward-chaining IF/THEN rules over a set of facts to derive new facts. E.g. facts=['Person(John)'], rules=['IF Person(?x) THEN Mortal(?x)'] → derives 'Mortal(John)'.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "facts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Fact strings, e.g. ['Person(John)', 'Employee(John)']"
+              },
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "IF/THEN rule strings, e.g. ['IF Employee(?x) THEN Worker(?x)']"
+              }
+            },
+            "required": [
+              "facts",
+              "rules"
+            ]
+          }
+        },
+        {
+          "name": "abductive_reasoning",
+          "description": "Generate plausible hypotheses that best explain a set of observed facts.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "observations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Observed facts to explain"
+              },
+              "max_hypotheses": {
+                "type": "integer",
+                "description": "Max hypotheses to generate (default: 5)"
+              }
+            },
+            "required": [
+              "observations"
+            ]
+          }
+        },
+        {
+          "name": "export_graph",
+          "description": "Export the Semantica knowledge graph to JSON, CSV, GraphML, Parquet, Turtle (RDF), N-Triples, RDF/XML, or JSON-LD.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "format": {
+                "type": "string",
+                "enum": [
+                  "turtle",
+                  "ttl",
+                  "nt",
+                  "xml",
+                  "json-ld",
+                  "json",
+                  "csv"
+                ],
+                "description": "Export format (default: json-ld)"
+              }
+            }
+          }
+        },
+        {
+          "name": "get_provenance",
+          "description": "Retrieve the provenance and audit history for a specific node in the knowledge graph.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "entity_id": {
+                "type": "string",
+                "description": "Entity or node ID to get provenance for"
+              }
+            },
+            "required": [
+              "entity_id"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

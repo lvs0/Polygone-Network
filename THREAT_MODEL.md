@@ -90,5 +90,41 @@
 
 ---
 
+## Polygone Hide — Threat Model (Phase 1 MVP)
+
+> *Documenté par honnêteté : ce service existe, il fonctionne, mais il n'est **pas Tor**.*
+
+### Adversaire type (Hide)
+- FAI / admin réseau curieux (métadonnées de connexion)
+- Proxy/VPN tiers qui log
+- Exit node malveillant (voir plus bas)
+
+### Ce que Hide protège (MVP single-hop)
+- **Contenu du flux** : chiffré ML-KEM-1024 + AES-256-GCM, relay aveugle (même pipeline que `msg`/`drive`, testé).
+- **Destination réelle** vis-à-vis du relay : encryptée dans l'enveloppe KEM (le relay ne voit que `to`/`session`/tailles).
+- **IP source** vis-à-vis de la destination finale : masquée par l'exit node.
+
+### Ce que Hide NE protège PAS (désigné noir sur blanc)
+- **Corrélation relay + exit node** : ensemble, ils voient source + destination + timings (single-hop).
+- **Exit node** : voit la destination réelle (comme un exit Tor) — **documenté**, pas caché.
+- **Fingerprinting trafic** : pas de padding au MVP, tailles/timings observables.
+- **Fuites DNS** : DNS résolu côté client, pas via le tunnel (Phase 2+).
+- **Audit externe** : pas encore réalisé (condition STAGING.md) — **restera en attente**, mentionné dans le README.
+
+### Tradeoff vs Tor (honnête)
+
+| Propriété | Tor | Polygone Hide (MVP) |
+|-----------|-----|---------------------|
+| Multi-hop | 3 hops (guard/middle/exit) | **1 hop** (relay + exit) |
+| Directory auth | Centralisée | **Mesh + relay** (pas d'autorité) |
+| Contenu visible par relay | Non (chiffré par hop) | **Non (E2E ML-KEM/AES)** |
+| Destination visible par exit | Oui | **Oui** |
+| Padding / fingerprinting | Oui (cells fixes) | **Non (MVP)** |
+| Audit externe | Oui (multiples) | **Non (attendu Phase 2+)** |
+
+**Usage recommandé** : cas quotidiens (commodity) — contourner un FAI curieux, un Wi-Fi partagé, un proxy d'entreprise. **Pas** pour menaces étatiques actives sans Phase 2+ + audit.
+
+---
+
 *Stub honnête Honoré Conseil des Sages. Mise à jour S2.*
 *AGPL-3.0 · Pas de token · Pas de télémétrie.*

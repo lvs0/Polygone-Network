@@ -5,11 +5,7 @@ edition.workspace = true
 license.workspace = true
 description = "Polygone client — user-side P2P node, listens to polygoned"
 
-[[bin]]
-name = "polygone-client"
-path = "src/main.rs"
-
-# The product command: `polygone` = the unified user-facing binary (D1 TUI + CLI).
+# Product command: `polygone` is the unified user-facing binary (D1 TUI + CLI).
 [[bin]]
 name = "polygone"
 path = "src/main.rs"

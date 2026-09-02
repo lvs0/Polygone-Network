@@ -323,13 +323,10 @@ pub struct AllocationHistory {
     /// RAM allocations in bytes
     pub ram_allocations: VecDeque<u64>,
     /// CPU core allocations
-    #[allow(dead_code)]
     pub cpu_allocations: VecDeque<usize>,
     /// Bandwidth allocations in Mbps
-    #[allow(dead_code)]
     pub bw_allocations: VecDeque<u32>,
     /// GPU allocations in MB
-    #[allow(dead_code)]
     pub gpu_allocations: VecDeque<u32>,
     max_len: usize,
 }

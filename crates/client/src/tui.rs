@@ -114,6 +114,7 @@ pub fn render_help() -> String {
 }
 
 /// Render the FULL help screen (all commands).
+/// Public API surface; available for programmatic use.
 #[allow(dead_code)]
 pub fn render_help_full() -> String {
     let mut s = String::new();

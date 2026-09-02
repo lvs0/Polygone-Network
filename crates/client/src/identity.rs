@@ -89,7 +89,8 @@ impl LocalIdentity {
     }
 
     /// Parse the KEM public key back from hex (what you share).
-    #[allow(dead_code)] // part of the public API surface; exercised in tests
+    /// Public API surface; used by downstream crates and tests.
+    #[allow(dead_code)]
     pub fn kem_public_key(&self) -> anyhow::Result<kem::KemPublicKey> {
         Ok(kem::KemPublicKey::from_hex(&self.kem_pk_hex)?)
     }

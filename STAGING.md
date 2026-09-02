@@ -15,8 +15,8 @@
 | **brain**  | 🟢 Live | ✅ IA locale (`polygone petals` → Ollama, zéro cloud) |
 | **mesh**   | 🟢 Live | ✅ découverte LAN (`voisins`/`annoncer`, Phase 4) |
 | `compute`  | 🟢 Live (MVP) | ✅ visibilité + prêt + exécution sandboxée — WASM/reputation en Phase 8 |
-| `hide`     | ⚪ Staging | ❌ |
-| `petals`   | ⚪ Staging | ❌ (distribution *distribuée* — le local est livré sous `brain`) |
+| `hide`     | 🟢 Live (Phase 1 MVP) | ✅ SOCKS5 proxy via relay aveugle + exit node (single-hop, doc honnête) |
+| `petals`   | ⚪ Staging | ❌ (distribution distribuée — le local est livré sous `brain`) |
 | `shell`    | ⚪ Staging | ❌ |
 
 **3 livrés + 1 protocole live · 3 archivés** (la coupe 75% tient, +2 ramenés en isolation).
@@ -52,8 +52,24 @@ dans `polygoned` (policy GlowUp).
 ## Service : `hide` (Polygone Hide)
 
 **Concept.** SOCKS5 + HTTPS proxy à travers le mesh. Multi-hop routing.
-**Pourquoi parked.** Tor existe. Polygone-hide doit prouver un *plus*. Pas d'audit Tor-level disponible. Multihop introduit du délai non maîtrisé.
-**Ré-introduction Phase 8+.** 1 audit externe minimum (Trail of Bits) + traffic fingerprinting resistance + doc honnête vs Tor tradeoffs.
+**Statut 1.0.0-rc2 : 🟢 LIVE (Phase 1 MVP).**
+- Sous-commande `polygone hide` : listener SOCKS5 sur `127.0.0.1:9050`.
+- Négociation SOCKS5 (RFC 1928) : no-auth, CONNECT.
+- Encapsulation de la demande `CONNECT host:port` dans le pipeline
+  existant (`net.rs`, fragments NDJSON, ML-KEM/AES, signature ML-DSA).
+- Côté exit node : `polygone ecouter --hide` — reçoit les demandes,
+  établit la connexion TCP réelle, renvoie le flux.
+- Streaming bidirectionnel (client ↔ exit node, par relais).
+- Test d'intégration réel : `scripts/hide-smoke.sh` — 2 nœuds locaux
+  (exit node + client), `curl --socks5` à travers le proxy → réponse reçue.
+- Doc : `HIDE-SPEC.md` + section `THREAT_MODEL.md` + tradeoffs vs Tor
+  (README « livré », ECOSYSTEM.md statut 🟢).
+
+### Phase 2+ (post-MVP, documentée, pas implémentée ici)
+- Multi-hop (chaînage de nœuds, re-chiffrement par hop).
+- DNS via le tunnel (éviter les fuites DNS).
+- Rotation d'exit nodes + réputation.
+- Fingerprinting resistance (padding, tailles fixes).
 
 ---
 

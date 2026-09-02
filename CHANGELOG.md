@@ -1,5 +1,26 @@
 # CHANGELOG — Polygone
 
+## [Unreleased] — 2026-09-02 — Polygone Hide (Phase 1 MVP) livré
+
+### Added
+- **`polygone hide`** — SOCKS5 listener sur `127.0.0.1:9050`, négociation RFC 1928 (no-auth, CONNECT), encapsulation dans le pipeline crypto existant (ML-KEM-1024 + AES-256-GCM + ML-DSA).
+- **`polygone ecouter --hide`** — exit node : reçoit la demande CONNECT chiffrée, établit la connexion TCP réelle vers la destination, renvoie le flux bidirectionnel via le relay.
+- **Tests d'intégration réels** — `scripts/hide-smoke.sh` : 2 nœuds locaux (exit node + client), `curl --socks5` à travers le proxy → réponse reçue ; audit relay : zéro contenu en clair.
+- **Documentation** — `docs/HIDE-SPEC.md` (spécification complète), `THREAT_MODEL.md` section Hide (tradeoffs vs Tor honnêtes), `STAGING.md` statut 🟢 Live.
+- **README mis à jour** — commande `hide` documentée, exemple `ecouter --hide`, statut Hide 🟢.
+
+### Changed
+- **STAGING.md** : `hide` promu de ⚪ Staging à 🟢 Live (Phase 1 MVP).
+- **THREAT_MODEL.md** : section Hide ajoutée (adversaire type, ce qui est protégé, ce qui ne l'est pas, table tradeoffs vs Tor).
+
+### Verification
+- `cargo test --workspace` → 113 tests verts
+- `cargo clippy --workspace --all-targets -- -D warnings` → 0 warning
+- `./scripts/smoke-commands.sh` → TOUT VERT
+- `./scripts/hide-smoke.sh` → TOUT VERT
+
+---
+
 ## [1.0.0-rc2] — 2026-08-12 — branding unifié, décisions tranchées
 
 ### Changed
