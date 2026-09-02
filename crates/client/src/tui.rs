@@ -84,7 +84,7 @@ pub fn render_home(identity: &LocalIdentity, uptime_secs: u64, note: &str) -> St
     s.push_str("  Statut     : actif · uptime ");
     s.push_str(&uptime);
     s.push_str("\n\n");
-    s.push_str("  Services   : msg ●  drive ●  mesh ○  hide ●  brain ○  petals ○\n");
+    s.push_str("  Services   : msg ●  drive ◐  mesh ◐  hide ●  compute ◐  petals ◐  brain ◐\n");
     s.push_str("  Crypto     : ML-KEM-1024 · ML-DSA-65 · AES-256-GCM · BLAKE3 · Shamir 4/7\n");
     s.push_str("  Fragments  : 7 dispersés · 4 suffisent · 3 ne révèlent rien\n\n");
     if !note.is_empty() {

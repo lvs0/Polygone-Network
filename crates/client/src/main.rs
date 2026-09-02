@@ -12,10 +12,12 @@
 //! « On voit rien. Et c'est comme ça que ça devrait être. »
 
 mod demo;
+mod drive;
 mod duress;
 mod exec;
 mod hide;
 mod identity;
+mod brain;
 mod mesh;
 mod msg;
 mod net;

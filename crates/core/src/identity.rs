@@ -28,6 +28,11 @@ impl NodeId {
     pub fn as_bytes(&self) -> &[u8; 16] {
         &self.0
     }
+
+    /// Parse from raw 16 bytes.
+    pub fn from_bytes(bytes: &[u8; 16]) -> Self {
+        Self(*bytes)
+    }
 }
 
 impl SessionId {
