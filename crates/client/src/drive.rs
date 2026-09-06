@@ -7,6 +7,7 @@ use crate::Result;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct DriveFile {
     pub name: String,
     pub size: u64,
@@ -16,6 +17,7 @@ pub struct DriveFile {
 
 impl DriveFile {
     /// Default received directory.
+    #[allow(dead_code)]
     pub fn received_dir() -> PathBuf {
         std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -25,6 +27,7 @@ impl DriveFile {
     }
 
     /// Save a received file to the received directory.
+    #[allow(dead_code)]
     pub fn save(sender: &NodeId, filename: &str, data: &[u8]) -> Result<Self> {
         let dir = Self::received_dir();
         std::fs::create_dir_all(&dir)?;
@@ -33,12 +36,13 @@ impl DriveFile {
         Ok(Self {
             name: filename.to_string(),
             size: data.len() as u64,
-            sender: sender.clone(),
+            sender: *sender,
             path,
         })
     }
 
     /// List received files.
+    #[allow(dead_code)]
     pub fn list() -> Result<Vec<Self>> {
         let dir = Self::received_dir();
         if !dir.exists() {

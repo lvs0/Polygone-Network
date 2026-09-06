@@ -3,11 +3,11 @@
 use reqwest::Client;
 use crate::types::{
     BackendType, DeviceType, InferenceRequest, InferenceResponse, ChatRequest, ChatResponse,
-    ModelInfo, ModelSource, GenerationConfig, ModelCapabilities,
+    ModelInfo, ModelSource, ModelCapabilities,
 };
 use crate::backends::{BackendInfo, BackendCapabilities, http::create_client, generation_config_to_json};
 use anyhow::Result;
-use futures::{Stream, StreamExt};
+use futures::{Stream, TryStreamExt};
 use std::time::Instant;
 
 /// Ollama backend using HTTP API
@@ -50,7 +50,6 @@ impl OllamaBackend {
                 arr.iter().filter_map(|m| {
                     let name = m.get("name")?.as_str()?.to_string();
                     let size = m.get("size").and_then(|s| s.as_u64());
-                    let modified = m.get("modified_at").and_then(|d| d.as_str());
 
                     Some(ModelInfo {
                         name: name.clone(),
@@ -125,7 +124,6 @@ impl OllamaBackend {
 
     pub async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
         let model = request.model.ok_or_else(|| anyhow::anyhow!("Model required"))?;
-        let start = Instant::now();
 
         let messages: Vec<serde_json::Value> = request.messages.iter().map(|m| {
             serde_json::json!({
@@ -147,7 +145,6 @@ impl OllamaBackend {
             .send()
             .await?;
 
-        let elapsed = start.elapsed().as_millis() as u64;
         let data: serde_json::Value = response.json().await?;
 
         let message = data.get("message").cloned().unwrap_or_default();
@@ -189,13 +186,12 @@ impl OllamaBackend {
             .await?;
 
         let stream = response.bytes_stream();
-        let stream = stream.map(|chunk| {
-            chunk.map_err(anyhow::Error::from).and_then(|bytes| {
+        let stream = stream.map_err(anyhow::Error::from)
+            .try_filter_map(|bytes| async move {
                 let text = String::from_utf8_lossy(&bytes);
                 // Parse SSE format
                 for line in text.lines() {
-                    if line.starts_with("data: ") {
-                        let data = &line[6..];
+                    if let Some(data) = line.strip_prefix("data: ") {
                         if data == "[DONE]" {
                             return Ok(None);
                         }
@@ -207,9 +203,7 @@ impl OllamaBackend {
                     }
                 }
                 Ok(None)
-            })
-        })
-        .filter_map(|r| async move { r.transpose() });
+            });
 
         Ok(Box::new(Box::pin(stream)))
     }

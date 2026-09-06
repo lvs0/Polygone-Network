@@ -358,7 +358,7 @@ impl ModelInfo {
         let ram_gb = params * ram_per_billion + 2.0; // +2GB overhead
 
         // CPU cores: more for larger models, agentic workloads benefit from parallelism
-        let cpu_cores = ((params / 7.0).ceil() as u32).max(1).min(64);
+        let cpu_cores = ((params / 7.0).ceil() as u32).clamp(1, 64);
 
         // GPU VRAM
         let gpu_vram_gb = match device {

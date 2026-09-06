@@ -1,6 +1,6 @@
 //! Benchmarking infrastructure for Petals inference engine
 
-use crate::types::{BackendType, DeviceType, InferenceRequest, ModelInfo};
+use crate::types::{BackendType, DeviceType, InferenceRequest};
 use crate::backends::InferenceBackend;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

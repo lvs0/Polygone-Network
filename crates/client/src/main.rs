@@ -603,7 +603,7 @@ async fn main() -> Result<()> {
                     "id": identity.kem_pk_hex,
                     "node_id": hex::encode(net::node_id(&identity).as_bytes()),
                 });
-                let qr_text = qr_payload.to_string();
+                let _qr_text = qr_payload.to_string();
                 println!("⬡ Pairing — {}", name);
                 println!("  device : {name}");
                 println!(

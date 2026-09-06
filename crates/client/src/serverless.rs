@@ -3,7 +3,6 @@
 //! Request → Shamir 4-of-7 → ≥4 nodes execute → result reassembled.
 
 use polygone_core::NodeId;
-use crate::Result;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -15,6 +14,7 @@ pub struct ServerlessRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ServerlessResult {
     pub request_id: String,
     pub result: Vec<u8>,
@@ -46,6 +46,7 @@ impl ServerlessRequest {
 }
 
 impl ServerlessResult {
+    #[allow(dead_code)]
     pub fn new(request_id: String, result: Vec<u8>, nodes: Vec<NodeId>) -> Self {
         Self {
             request_id,

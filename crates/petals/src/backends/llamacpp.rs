@@ -2,7 +2,7 @@
 
 use crate::types::{
     BackendType, DeviceType, InferenceRequest, InferenceResponse, ChatRequest, ChatResponse,
-    ModelInfo, ModelSource, ModelCapabilities,
+    ModelInfo, ModelSource,
 };
 use crate::backends::{BackendInfo, BackendCapabilities};
 use anyhow::Result;

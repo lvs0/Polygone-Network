@@ -229,7 +229,7 @@ impl PetalsEngine {
         total_ram_gb *= 1.0 + (concurrent * 0.1); // 10% per concurrent request
 
         Ok(ResourceRequest {
-            cpu_cores: max_cpu_cores.max(1) as u32,
+            cpu_cores: max_cpu_cores.max(1),
             ram_gb: total_ram_gb.max(1.0),
             gpu_vram_gb: if gpu_vram_gb > 0.0 { Some(gpu_vram_gb) } else { None },
             concurrent_requests: self.config.max_concurrent_requests as u32,

@@ -11,11 +11,6 @@ description = "Petals — local AI inference engine for agentic workloads on CPU
 name = "polygone_petals"
 path = "src/lib.rs"
 
-[[bench]]
-name = "inference_bench"
-path = "benches/inference_bench.rs"
-harness = false
-
 [dependencies]
 polygone-core = { path = "../core" }
 tokio = { workspace = true, features = ["full", "process", "signal"] }
@@ -47,5 +42,4 @@ bench = ["vllm", "llama-cpp"]
 all-backends = ["ollama", "vllm", "llama-cpp"]
 
 [dev-dependencies]
-criterion = "0.5"
 tokio = { workspace = true, features = ["full", "test-util"] }
