@@ -1,0 +1,51 @@
+[package]
+name = "polygone-petals"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Petals — local AI inference engine for agentic workloads on CPU (vLLM, llama.cpp, Ollama) with benchmarks and daemon integration"
+
+[lib]
+name = "polygone_petals"
+path = "src/lib.rs"
+
+[[bench]]
+name = "inference_bench"
+path = "benches/inference_bench.rs"
+harness = false
+
+[dependencies]
+polygone-core = { path = "../core" }
+tokio = { workspace = true, features = ["full", "process", "signal"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+clap = { workspace = true }
+sysinfo = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], optional = true }
+async-trait = "0.1"
+futures = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+candle-core = { version = "0.8", optional = true }
+candle-nn = { version = "0.8", optional = true }
+candle-transformers = { version = "0.8", optional = true }
+tokenizers = { version = "0.20", optional = true }
+hf-hub = { version = "1.0", optional = true, features = ["default"] }
+gguf = { version = "0.1", optional = true }
+half = { version = "2", optional = true }
+
+[features]
+default = ["ollama"]
+ollama = ["reqwest"]
+vllm = ["reqwest"]
+llama-cpp = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub", "gguf", "half"]
+bench = ["vllm", "llama-cpp"]
+all-backends = ["ollama", "vllm", "llama-cpp"]
+
+[dev-dependencies]
+criterion = "0.5"
+tokio = { workspace = true, features = ["full", "test-util"] }

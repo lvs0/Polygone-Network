@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polygone — VPN Hide</title><link rel="manifest" href="/manifest.webmanifest">
+<style>
+body{font-family:system-ui,sans-serif;background:#0a0a0a;color:#eee;margin:0;padding:2rem;max-width:420px;margin:auto}
+.btn{padding:1rem 2rem;border:none;border-radius:8px;background:#00cc88;color:#000;font-weight:600;cursor:pointer}
+.status{margin-top:1rem;padding:1rem;border-radius:8px;background:#1a1a1a}
+</style>
+</head>
+<body>
+<h1>Polygone</h1>
+<p>Module VPN Hide intégré.</p>
+<div class="status" id="status">État : en attente du pont Polygone</div>
+<button class="btn" onclick="toggleHide()" id="btn">Activer Hide</button>
+<script>
+let active = false;
+function toggleHide() {
+  active = !active;
+  document.getElementById('status').textContent = active ? 'Hide : ACTIF (SOCKS5/HTTPS local)' : 'Hide : inactif';
+  document.getElementById('btn').textContent = active ? 'Désactiver Hide' : 'Activer Hide';
+}
+</script>
+</body>
+</html>

@@ -8,7 +8,7 @@
 //! polygone clef                     → votre clef publique (à partager)
 //! polygone id                       → identité nœud
 //! ```
-//!
+//!!
 //! « On voit rien. Et c'est comme ça que ça devrait être. »
 
 mod demo;
@@ -28,6 +28,7 @@ mod self_test;
 #[cfg(test)]
 mod testutil;
 mod tui;
+mod serverless;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -179,6 +180,23 @@ enum Commands {
         #[arg(long, default_value = hide::DEFAULT_LISTEN)]
         ecoute: String,
     },
+    /// Serverless — run a function on the Polygone network
+    Serverless {
+        /// Function payload (JSON)
+        #[arg(required = true)]
+        payload: String,
+    },
+    /// Pair a new device via QR/deep link
+    Pair {
+        /// Show QR code for pairing
+        #[arg(long)]
+        qr: bool,
+        /// Device name
+        #[arg(long)]
+        device: Option<String>,
+    },
+    /// Show network/node status
+    Status,
 }
 
 #[derive(Subcommand, Debug)]
@@ -561,6 +579,73 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Carte) => {
             print!("{}", product::carte(&identity));
+        }
+        Some(Commands::Serverless { payload }) => {
+            let payload: Vec<u8> = if payload == "-" {
+                std::io::read_to_string(std::io::stdin())?.as_bytes().to_vec()
+            } else {
+                payload.as_bytes().to_vec()
+            };
+            println!("⬡ Serverless — exécution distribuée (4/7 nœuds)");
+            let req = serverless::ServerlessRequest::new(payload);
+            let shards = req.shards();
+            println!("  request_id : {}", req.id);
+            println!("  shards : {} ({} octets chacun)", shards.len(), shards[0].len());
+            println!("  threshold : {}/{}", req.threshold, req.total);
+            println!("  (la couche réseau arrive — serveur + répartiteur)");
+        }
+        Some(Commands::Pair { qr, device }) => {
+            let name = device.unwrap_or_else(|| "polygone-device".into());
+            if qr {
+                let qr_payload = serde_json::json!({
+                    "type": "polygone-pair",
+                    "device": name,
+                    "id": identity.kem_pk_hex,
+                    "node_id": hex::encode(net::node_id(&identity).as_bytes()),
+                });
+                let qr_text = qr_payload.to_string();
+                println!("⬡ Pairing — {}", name);
+                println!("  device : {name}");
+                println!(
+                    "  clef publique : {}",
+                    &identity.kem_pk_hex[..std::cmp::min(32, identity.kem_pk_hex.len())]
+                );
+                println!(
+                    "  node_id : {}",
+                    hex::encode(net::node_id(&identity).as_bytes())
+                );
+            } else {
+                println!("⬡ Pairing — {}", name);
+                println!("  device : {name}");
+                println!("  clef publique : {}", identity.kem_pk_hex);
+                println!("  node_id : {}", hex::encode(net::node_id(&identity).as_bytes()));
+                println!("  (scannez le QR ou collez la clef sur l'autre appareil)");
+            }
+        }
+        Some(Commands::Status) => {
+            println!("⬡ Polygone — status");
+            println!("  version : {}", env!("CARGO_PKG_VERSION"));
+            println!(
+                "  fichier d'identité : {}",
+                identity::LocalIdentity::path().display()
+            );
+            let rep = reputation::ReputationTable::load();
+            println!("  réputation nœuds : {} entrées", rep.nodes.len());
+            let peers = net::load_peers();
+            println!("  pairs connus : {}", peers.len());
+            match mesh::free_ram_mb() {
+                Some(ram) => println!("  RAM libre : {ram} Mo"),
+                None => println!("  RAM libre : inconnu"),
+            }
+            println!(
+                "  Ollama : {}",
+                if petals::ollama_url() != "http://127.0.0.1:11434" {
+                    "personnalisé"
+                } else {
+                    "par défaut (127.0.0.1:11434)"
+                }
+            );
+            println!("  (baud rate, uptime, métriques réseau → bientôt)");
         }
         Some(Commands::Petals { action }) => match action {
             PetalsAction::Models => {

@@ -1,0 +1,24 @@
+[package]
+name = "polygone-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Polygone gateway — HTTP API + static site + pairing"
+
+[[bin]]
+name = "polygone-gateway"
+path = "src/main.rs"
+
+[dependencies]
+polygone-core = { path = "../core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = "0.11"
+hex = "0.4"
+base64 = "0.22"
+qrcode = "0.14"
+image = { version = "0.25", default-features = false, features = ["png"] }
+rand = "0.8"
