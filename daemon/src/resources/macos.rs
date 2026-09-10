@@ -9,6 +9,12 @@ use std::process::Command;
 
 pub struct MacOSPlatform;
 
+impl Default for MacOSPlatform {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MacOSPlatform {
     pub fn new() -> Self {
         Self
