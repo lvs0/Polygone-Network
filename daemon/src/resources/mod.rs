@@ -12,6 +12,9 @@ mod platform_impl;
 #[path = "windows.rs"]
 mod platform_impl;
 
+#[cfg(target_os = "windows")]
+pub use platform_impl::WindowsPlatform;
+#[cfg(not(target_os = "windows"))]
 pub use platform_impl::*;
 
 // ============================================================================
@@ -273,11 +276,9 @@ pub fn create_platform() -> Box<dyn Platform> {
 }
 
 #[cfg(target_os = "windows")]
-compile_error!(
-    "polygoned: Windows n'est pas implémenté — le daemon supporte Linux et \
-     macOS (cf. ARCHITECTURE.md §11). Définir WindowsPlatform dans \
-     resources/windows.rs pour un vrai portage."
-);
+pub fn create_platform() -> Box<dyn Platform> {
+    Box::new(WindowsPlatform::new())
+}
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 compile_error!("Polygone daemon only supports Linux, macOS, and Windows");

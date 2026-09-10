@@ -13,6 +13,7 @@ use tokio::net::UnixStream;
 /// client is a stub that returns "not supported" so the crate still
 /// compiles (the daemon itself refuses to build on Windows).
 pub struct PetalsDaemonClient {
+    #[allow(dead_code)]
     socket_path: String,
     #[cfg(unix)]
     reader: Option<BufReader<tokio::net::unix::OwnedReadHalf>>,
@@ -50,6 +51,7 @@ impl PetalsDaemonClient {
     }
 
     #[cfg(not(unix))]
+    #[allow(dead_code)]
     async fn ensure_connected(&mut self) -> Result<()> {
         anyhow::bail!("Unix sockets not available on this platform");
     }
