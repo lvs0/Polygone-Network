@@ -3,13 +3,20 @@
 use crate::types::ModelRequirements;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
-/// Client for communicating with the Polygone daemon (`polygoned`)
+/// Client for communicating with the Polygone daemon (`polygoned`).
+/// Unix sockets are only available on unix platforms — on Windows the
+/// client is a stub that returns "not supported" so the crate still
+/// compiles (the daemon itself refuses to build on Windows).
 pub struct PetalsDaemonClient {
     socket_path: String,
+    #[cfg(unix)]
     reader: Option<BufReader<tokio::net::unix::OwnedReadHalf>>,
+    #[cfg(unix)]
     writer: Option<tokio::net::unix::OwnedWriteHalf>,
     allocation_id: Option<String>,
 }
@@ -22,13 +29,16 @@ impl PetalsDaemonClient {
 
         Ok(Self {
             socket_path,
+            #[cfg(unix)]
             reader: None,
+            #[cfg(unix)]
             writer: None,
             allocation_id: None,
         })
     }
 
     /// Ensure connection is established
+    #[cfg(unix)]
     async fn ensure_connected(&mut self) -> Result<()> {
         if self.reader.is_none() {
             let stream = UnixStream::connect(&self.socket_path).await?;
@@ -39,7 +49,13 @@ impl PetalsDaemonClient {
         Ok(())
     }
 
+    #[cfg(not(unix))]
+    async fn ensure_connected(&mut self) -> Result<()> {
+        anyhow::bail!("Unix sockets not available on this platform");
+    }
+
     /// Send a request to the daemon
+    #[cfg(unix)]
     async fn send_request(&mut self, request: DaemonRequest) -> Result<DaemonResponse> {
         self.ensure_connected().await?;
 
@@ -55,6 +71,11 @@ impl PetalsDaemonClient {
 
         let response: DaemonResponse = serde_json::from_str(&line)?;
         Ok(response)
+    }
+
+    #[cfg(not(unix))]
+    async fn send_request(&mut self, _request: DaemonRequest) -> Result<DaemonResponse> {
+        anyhow::bail!("Unix sockets not available on this platform")
     }
 
     /// Request resource allocation for Petals models

@@ -5,8 +5,9 @@
 
 use anyhow::{Context, Result};
 use serde::{Serialize, Serializer};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
-use std::{fs, io::Write, path::PathBuf, sync::OnceLock};
+use std::{fs, path::PathBuf, sync::OnceLock};
 
 use crate::allocator::Allocation;
 
@@ -92,16 +93,25 @@ pub fn send(msg: &DaemonMsg) -> Result<()> {
     let json = serde_json::to_string(msg).context("serialize daemon msg")?;
     let line = format!("{}\n", json);
 
-    match UnixStream::connect(&path) {
-        Ok(mut stream) => {
-            stream.write_all(line.as_bytes())?;
-            stream.flush()?;
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        match UnixStream::connect(&path) {
+            Ok(mut stream) => {
+                stream.write_all(line.as_bytes())?;
+                stream.flush()?;
+            }
+            Err(e) => {
+                // Socket exists but node isn't listening — this is fine,
+                // just means the Polygone node hasn't started yet
+                log::debug!("daemon socket unreachable (node not running): {}", e);
+            }
         }
-        Err(e) => {
-            // Socket exists but node isn't listening — this is fine,
-            // just means the Polygone node hasn't started yet
-            log::debug!("daemon socket unreachable (node not running): {}", e);
-        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = line;
+        log::debug!("daemon socket: Unix sockets not available on this platform");
     }
     Ok(())
 }
