@@ -9,6 +9,9 @@
 <meta property="og:image" content="../social/og-card.svg" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:image" content="../social/og-card.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --slate-900: #0f172a;
@@ -18,124 +21,152 @@
     --text-muted: #94a3b8;
     --text: #e2e8f0;
     --amber-500: #f59e0b;
-    --amber-glow: rgba(245, 158, 11, 0.25);
-    --amber-dim: rgba(245, 158, 11, 0.06);
+    --amber-400: #fbbf24;
+    --amber-glow: rgba(245, 158, 11, 0.22);
+    --amber-dim: rgba(245, 158, 11, 0.04);
     --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
     --font-poetic: Georgia, "Times New Roman", serif;
+    /* 8pt scale */
+    --space-1: 8px; --space-2: 16px; --space-3: 24px; --space-4: 32px; --space-5: 48px; --space-6: 64px; --space-7: 80px; --space-8: 120px;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; scrollbar-color: var(--slate-700) var(--slate-900); }
+  ::selection { background: rgba(245,158,11,0.22); color: var(--text); }
+  ::-moz-selection { background: rgba(245,158,11,0.22); color: var(--text); }
+  :focus-visible { outline: 1px solid var(--amber-500); outline-offset: 2px; }
   body {
     background: var(--slate-900);
-    background-image: radial-gradient(circle at 20% 20%, var(--amber-dim) 0%, transparent 50%);
+    background-image: radial-gradient(circle at 20% 50%, var(--amber-dim) 0%, transparent 60%);
     color: var(--text);
     font-family: var(--font-mono);
     font-size: 15px;
     line-height: 1.65;
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    caret-color: var(--amber-500);
+    font-variant-ligatures: common-ligatures;
+    position: relative;
   }
+  /* Grain — matière papier subtile, sans feTurbulence */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    pointer-events: none; opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
+    /* fallback subtle: if filter grain is banned, opacity keeps it invisible — replaced by radial grain anyway */
+  }
+  /* scrollbar WebKit */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--slate-900); }
+  ::-webkit-scrollbar-thumb { background: var(--slate-700); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--slate-500); }
+
   .wrap { max-width: 980px; margin: 0 auto; padding: 0 32px; }
 
   /* ----- Top bar ----- */
   .topbar {
-    padding: 24px 0;
+    padding: 20px 0;
     border-bottom: 1px solid var(--slate-700);
   }
-  .topbar-inner { display: flex; align-items: center; justify-content: space-between; }
+  .topbar-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .brand-mini { display: flex; align-items: center; gap: 12px; }
   .brand-mini .mark { width: 28px; height: 28px; }
   .brand-mini .name {
-    font-size: 14px; font-weight: 600; letter-spacing: 0.14em; color: var(--text);
+    font-size: 13px; font-weight: 600; letter-spacing: 0.14em; color: var(--text);
   }
   .topbar .meta {
-    font-size: 12px; color: var(--text-muted); letter-spacing: 0.10em;
+    font-size: 11px; color: var(--text-muted); letter-spacing: 0.10em;
+    font-variant-numeric: tabular-nums;
   }
   .topbar .meta .live {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-    background: var(--amber-500); margin-right: 6px; vertical-align: middle;
-    box-shadow: 0 0 8px var(--amber-glow);
+    background: var(--amber-500); margin-right: 7px; vertical-align: middle;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.45);
   }
 
   /* ----- Hero ----- */
-  .hero { padding: 120px 0 80px; position: relative; }
+  .hero { padding: 96px 0 64px; position: relative; }
   .hero .mark-large {
-    width: 96px; height: 96px; margin-bottom: 32px;
+    width: 88px; height: 88px; margin-bottom: 32px;
     animation: pulse 4s ease-in-out infinite;
   }
   @keyframes pulse {
-    0%, 100% { filter: drop-shadow(0 0 12px var(--amber-glow)); }
-    50%      { filter: drop-shadow(0 0 4px var(--amber-glow)); }
-  }
-  .hero .eyebrow {
-    font-size: 11px; color: var(--text-muted); letter-spacing: 0.22em;
-    text-transform: uppercase; margin-bottom: 24px;
+    0%, 100% { filter: drop-shadow(0 0 14px var(--amber-glow)); }
+    50%      { filter: drop-shadow(0 0 6px var(--amber-glow)); }
   }
   .hero h1 {
     font-family: var(--font-mono);
-    font-size: 44px; font-weight: 600; letter-spacing: -0.01em;
-    line-height: 1.15; margin-bottom: 28px; max-width: 720px;
+    font-size: clamp(30px, 4.2vw, 42px);
+    font-weight: 600; letter-spacing: -0.025em;
+    line-height: 1.18; margin-bottom: 20px; max-width: 680px;
     color: var(--text);
+    text-wrap: balance;
   }
   .hero .tagline {
     font-family: var(--font-poetic);
-    font-style: italic; font-size: 24px; line-height: 1.4;
-    color: var(--text-muted); max-width: 640px; margin-bottom: 12px;
+    font-style: italic; font-size: clamp(19px, 2.2vw, 23px); line-height: 1.45;
+    color: var(--text-muted); max-width: 600px; margin-bottom: 10px;
+    letter-spacing: -0.01em;
   }
   .hero .footnote {
-    font-size: 12px; color: var(--slate-500); letter-spacing: 0.04em;
-    margin-bottom: 56px; max-width: 640px;
+    font-size: 11.5px; color: var(--slate-500); letter-spacing: 0.03em;
+    margin-bottom: 48px; max-width: 580px; line-height: 1.6;
   }
   .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; }
   .btn {
     display: inline-flex; align-items: center; gap: 8px;
-    padding: 12px 20px; font-family: var(--font-mono); font-size: 13px;
+    padding: 11px 18px; font-family: var(--font-mono); font-size: 12.5px;
     font-weight: 500; letter-spacing: 0.06em; text-decoration: none;
     border-radius: 6px; border: 1px solid var(--slate-700);
     background: transparent; color: var(--text); cursor: pointer;
-    transition: border-color 150ms ease, background 150ms ease;
+    transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+    text-underline-offset: 3px;
   }
-  .btn:hover { border-color: var(--amber-500); background: rgba(245, 158, 11, 0.04); }
+  .btn:hover { border-color: var(--amber-500); background: rgba(245, 158, 11, 0.06); }
+  .btn:focus-visible { outline-color: var(--amber-500); }
   .btn-primary {
     background: var(--amber-500); color: var(--slate-900); border-color: var(--amber-500);
     font-weight: 600;
   }
-  .btn-primary:hover { background: #fbbf24; border-color: #fbbf24; }
+  .btn-primary:hover { background: var(--amber-400); border-color: var(--amber-400); color: var(--slate-900); }
   .btn .arrow { display: inline-block; transition: transform 150ms ease; }
   .btn:hover .arrow { transform: translateX(2px); }
 
-  /* ----- Section generic ----- */
-  section { padding: 80px 0; border-top: 1px solid var(--slate-700); }
+  /* ----- Section generic — spacing hierarchy ----- */
+  section { padding: 72px 0; border-top: 1px solid var(--slate-700); }
+  section:first-of-type { border-top: none; }
   .section-label {
-    font-size: 11px; color: var(--text-muted); letter-spacing: 0.22em;
-    text-transform: uppercase; margin-bottom: 20px;
+    font-size: 10px; color: var(--amber-500); letter-spacing: 0.20em;
+    text-transform: uppercase; margin-bottom: 14px; font-weight: 500;
   }
   .section-title {
-    font-size: 28px; font-weight: 600; letter-spacing: -0.01em;
-    margin-bottom: 20px; color: var(--text);
+    font-size: clamp(22px, 2.6vw, 26px); font-weight: 600; letter-spacing: -0.02em;
+    margin-bottom: 16px; color: var(--text); line-height: 1.25;
+    text-wrap: balance;
   }
-  .section-prose { color: var(--text-muted); max-width: 640px; margin-bottom: 48px; }
+  .section-prose { color: var(--text-muted); max-width: 620px; margin-bottom: 40px; font-size: 14px; line-height: 1.7; }
 
   /* ----- Transit (Hitchcock) ----- */
   .transit {
-    border: 1px solid var(--slate-700); border-radius: 8px; padding: 32px;
+    border: 1px solid var(--slate-700); border-radius: 8px; padding: 28px;
     background: var(--slate-800); max-width: 720px;
   }
   .transit-head {
     display: flex; justify-content: space-between; align-items: baseline;
-    margin-bottom: 24px; font-size: 12px; color: var(--text-muted);
-    letter-spacing: 0.10em;
+    margin-bottom: 20px; font-size: 11px; color: var(--text-muted);
+    letter-spacing: 0.10em; font-variant-numeric: tabular-nums;
   }
   .transit-tick { color: var(--amber-500); font-variant-numeric: tabular-nums; }
-  .transit-steps { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+  .transit-steps { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
   .step {
-    flex: 1 1 0; min-width: 120px; padding: 16px;
-    border: 1px solid var(--slate-700); border-radius: 4px;
-    text-align: center; transition: all 200ms ease;
+    flex: 1 1 0; min-width: 110px; padding: 14px 10px;
+    border: 1px solid var(--slate-700); border-radius: 6px;
+    text-align: center; transition: border-color 200ms ease, background 200ms ease;
   }
-  .step .label { font-size: 10px; color: var(--slate-500); letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 8px; }
-  .step .glyph { font-size: 18px; color: var(--slate-500); transition: color 200ms ease; }
-  .step.lit { border-color: var(--amber-500); }
+  .step .label { font-size: 10px; color: var(--slate-500); letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 6px; }
+  .step .glyph { font-size: 17px; color: var(--slate-500); transition: color 200ms ease; }
+  .step.lit { border-color: var(--amber-500); background: rgba(245,158,11,0.04); }
   .step.lit .glyph { color: var(--amber-500); }
   .step .latency { font-size: 11px; color: var(--slate-500); margin-top: 4px; font-variant-numeric: tabular-nums; }
   .transit-foot {
@@ -143,49 +174,62 @@
     min-height: 22px; font-size: 14px;
   }
 
-  /* ----- Properties grid (Bach: 4 properties, 4 counter-claims, paired) ----- */
+  /* ----- Properties grid (Bach) ----- */
   .props { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--slate-700); border-radius: 8px; overflow: hidden; }
-  .prop { padding: 28px; border-right: 1px solid var(--slate-700); border-bottom: 1px solid var(--slate-700); }
+  .prop { padding: 26px 24px; border-right: 1px solid var(--slate-700); border-bottom: 1px solid var(--slate-700); }
   .prop:nth-child(2n) { border-right: none; }
   .prop:nth-last-child(-n+2) { border-bottom: none; }
-  .prop .k { font-size: 10px; color: var(--amber-500); letter-spacing: 0.22em; text-transform: uppercase; margin-bottom: 10px; }
-  .prop .v { font-size: 15px; color: var(--text); margin-bottom: 10px; font-weight: 500; }
-  .prop .c { font-size: 12px; color: var(--text-muted); font-family: var(--font-poetic); font-style: italic; }
-  @media (max-width: 720px) { .props { grid-template-columns: 1fr; } .prop { border-right: none; } }
+  .prop .k { font-size: 10px; color: var(--amber-500); letter-spacing: 0.20em; text-transform: uppercase; margin-bottom: 10px; font-weight: 500; }
+  .prop .v { font-size: 14.5px; color: var(--text); margin-bottom: 8px; font-weight: 500; line-height: 1.4; }
+  .prop .c { font-size: 12px; color: var(--text-muted); font-family: var(--font-poetic); font-style: italic; line-height: 1.5; }
+  @media (max-width: 720px) { .props { grid-template-columns: 1fr; } .prop { border-right: none; } .prop:nth-last-child(-n+2) { border-bottom: 1px solid var(--slate-700); } .prop:last-child { border-bottom: none; } }
 
   /* ----- Stack line ----- */
   .stack-line {
-    font-size: 12px; color: var(--text-muted); letter-spacing: 0.10em;
-    text-align: center; padding: 24px 0; line-height: 2.2;
+    font-size: 12px; color: var(--text-muted); letter-spacing: 0.08em;
+    text-align: center; padding: 20px 0; line-height: 2.1;
+    font-variant-numeric: tabular-nums;
   }
   .stack-line strong { color: var(--text); font-weight: 500; }
-  .stack-line .meta { color: var(--slate-500); font-style: italic; }
-  .stack-line .sep { color: var(--slate-700); margin: 0 16px; }
+  .stack-line .meta { color: var(--slate-500); font-style: italic; font-family: var(--font-poetic); }
+  .stack-line .sep { color: var(--slate-700); margin: 0 14px; }
 
   /* ----- CLI block ----- */
   .cli {
-    background: #0a0f1a; border: 1px solid var(--slate-700); border-radius: 8px;
-    padding: 24px 28px; font-size: 13px; color: var(--text);
-    max-width: 720px; line-height: 1.7;
+    background: #0c1220; border: 1px solid var(--slate-700); border-radius: 8px;
+    padding: 22px 26px; font-size: 12.5px; color: var(--text);
+    max-width: 720px; line-height: 1.7; overflow-x: auto;
+    scrollbar-width: thin;
   }
   .cli .prompt { color: var(--amber-500); }
   .cli .cmd { color: var(--text); }
   .cli .out { color: var(--text-muted); }
   .cli .ok { color: var(--amber-500); }
 
+  /* ----- Honesty line ----- */
+  .honesty { text-align: left; line-height: 2; font-size: 12px; }
+  .honesty strong { font-size: 11px; letter-spacing: 0.12em; }
+
   /* ----- Footer ----- */
-  footer { padding: 64px 0 48px; border-top: 1px solid var(--slate-700); margin-top: 80px; }
-  .foot-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
-  .foot-meta { font-size: 11px; color: var(--slate-500); letter-spacing: 0.10em; }
-  .foot-meta .sep { color: var(--slate-700); margin: 0 12px; }
+  footer { padding: 48px 0 40px; border-top: 1px solid var(--slate-700); margin-top: 64px; }
+  .foot-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .foot-meta { font-size: 11px; color: var(--slate-500); letter-spacing: 0.08em; }
+  .foot-meta .sep { color: var(--slate-700); margin: 0 10px; }
+  .foot-meta a { color: var(--text-muted); text-decoration: none; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .foot-meta a:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--amber-500); }
 
   /* ----- Mobile ----- */
   @media (max-width: 640px) {
-    .hero { padding: 64px 0 48px; }
-    .hero h1 { font-size: 32px; }
-    .hero .tagline { font-size: 20px; }
-    .section-title { font-size: 22px; }
     .wrap { padding: 0 20px; }
+    .hero { padding: 56px 0 40px; }
+    .hero .mark-large { width: 72px; height: 72px; margin-bottom: 24px; }
+    section { padding: 56px 0; }
+    .transit { padding: 20px; }
+    .step { min-width: 72px; padding: 12px 8px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero .mark-large { animation: none; }
+    .btn, .step { transition: none; }
   }
 </style>
 </head>
@@ -208,13 +252,13 @@
         <span class="name">POLYGONE</span>
       </div>
       <div class="meta">
-        <span class="live"></span>v2.0.0 · AGPL-3.0 · Rust
+        <span class="live" aria-hidden="true"></span>v2.0.0 · AGPL-3.0 · Rust
       </div>
     </div>
   </header>
 
-  <!-- Hero -->
-  <section class="hero" style="border-top: none; padding-top: 120px;">
+  <!-- Hero — eyebrow removed per impeccable floor (ban), heading carries weight -->
+  <section class="hero">
     <svg class="mark-large" viewBox="0 0 64 64" aria-hidden="true">
       <polygon points="32,8 52.78,20 52.78,44 32,56 11.22,44 11.22,20" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linejoin="miter"/>
       <g fill="#f59e0b">
@@ -224,10 +268,9 @@
       </g>
       <circle cx="32" cy="32" r="1.5" fill="#f59e0b"/>
     </svg>
-    <div class="eyebrow">réseau de transit éphémère · post-quantique</div>
     <h1>Post-quantum transit network. Local-first, account-free, telemetry-free.</h1>
     <p class="tagline">L'information n'existe pas. Elle traverse.</p>
-    <p class="footnote">aucun fragment reconstructible sans réunion d'au moins 4 fragments Shamir sur 7, jamais.</p>
+    <p class="footnote">aucun fragment reconstructible sans réunion d'au moins 4 fragments Shamir sur 7, jamais — réseau de transit éphémère · post-quantique.</p>
     <div class="hero-ctas">
       <a class="btn btn-primary" href="https://github.com/lvs0/polygone">Voir le code <span class="arrow">→</span></a>
       <a class="btn" href="#transit">Voir un transit</a>
@@ -336,8 +379,7 @@
     <p class="section-prose">
       Style vim. Les choses qui marchent sont visibles. Les choses en chantier ne le sont pas.
     </p>
-    <pre class="cli">
-<span class="prompt">⬡</span> <span class="cmd">polygone</span>
+    <pre class="cli"><span class="prompt">⬡</span> <span class="cmd">polygone</span>
 <span class="out">╔════════════════════════════════════════╗
 ║  ⬡ POLYGONE                  v2.0.0   ║
 ║  ───────────────────────────────────  ║
@@ -352,8 +394,7 @@
 
 <span class="prompt">⬡</span> <span class="cmd">:peer @alice</span>
 <span class="out">connecting via ML-KEM-1024 handshake…</span>
-<span class="ok">✓ peer established · 4-of-7 ready</span>
-    </pre>
+<span class="ok">✓ peer established · 4-of-7 ready</span></pre>
   </section>
 
   <!-- Final: compteur honnête -->
@@ -364,7 +405,7 @@
       Polygone est un projet en développement. Ce qui marche est listé sans emphase.
       Ce qui n'est pas prêt est listé sans excuses.
     </p>
-    <div class="stack-line" style="text-align: left; line-height: 2;">
+    <div class="stack-line honesty">
       <strong style="color: var(--amber-500)">LIVRÉ</strong>
       &nbsp;·&nbsp; 162 tests <span class="sep">·</span> 0 clippy warnings <span class="sep">·</span> ML-KEM-1024 <span class="sep">·</span> ML-DSA-65 <span class="sep">·</span> AES-256-GCM <span class="sep">·</span> BLAKE3 <span class="sep">·</span> Shamir 4/7 <span class="sep">·</span> Plan-then-execute <span class="sep">·</span> Live event stream <span class="sep">·</span> Sub-agents typés <span class="sep">·</span> Approval gates
       <br>
@@ -382,7 +423,7 @@
         ⬡ POLYGONE <span class="sep">·</span> v2.0.0 <span class="sep">·</span> AGPL-3.0 <span class="sep">·</span> Rust
       </div>
       <div class="foot-meta">
-        <a href="https://github.com/lvs0/polygone" style="color: var(--text-muted); text-decoration: none;">github.com/lvs0/polygone</a>
+        <a href="https://github.com/lvs0/polygone" rel="noopener">github.com/lvs0/polygone</a>
       </div>
     </div>
   </footer>
@@ -408,7 +449,6 @@
       const t = now - start;
       tick.textContent = Math.floor(t) + ' ms';
       if (t < 60) {
-        // préparation latence
         foot.textContent = 'préparation…';
       } else if (t < 200) {
         const i = Math.min(3, Math.floor((t - 60) / 35));
@@ -423,7 +463,7 @@
         steps.forEach(s => { s.classList.add('lit'); });
         foot.textContent = '4-of-7 reunis, dérivation de la clé…';
       } else if (t < 500) {
-        foot.innerHTML = '<span class="ok">✓ delivered</span> · zeroize() executed';
+        foot.innerHTML = '<span class="ok" style="color:var(--amber-500)">✓ delivered</span> · zeroize() executed';
         cancelAnimationFrame(raf);
         setTimeout(() => { reset(); raf = requestAnimationFrame(loop); }, 1800);
         return;
