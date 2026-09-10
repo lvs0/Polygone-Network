@@ -60,35 +60,58 @@ check_deps() {
 install_binary() {
     local os=$1 arch=$2
     local version="2.0.0"
-    local url="https://github.com/lvs0/Polygone-Network/releases/download/v${version}/polygone-${os}-${arch}"
-    local sha_url="${url}.sha256"
+    local base="https://github.com/lvs0/Polygone-Network/releases/download/v${version}"
+    local asset="polygone-${os}-${arch}.tar.gz"
+    local url="${base}/${asset}"
+    local sums_url="${base}/SHA256SUMS"
+    local sha_url="${url}.sha256"  # compat si .sha256 par-asset publié
 
     log_info "Tentative d'installation binaire v${version}..."
 
-    if curl -fsSL "$url" -o /tmp/polygone 2>/dev/null; then
-        chmod +x /tmp/polygone
-        
-        # Verify SHA256 if available
-        if curl -fsSL "$sha_url" -o /tmp/polygone.sha256 2>/dev/null; then
-            local expected=$(cat /tmp/polygone.sha256 | awk '{print $1}')
-            local actual=$(sha256sum /tmp/polygone | awk '{print $1}')
-            if [ "$expected" = "$actual" ]; then
-                log_info "✓ Signature SHA256 vérifiée"
-            else
-                log_error "Signature SHA256 invalide"
-                rm -f /tmp/polygone /tmp/polygone.sha256
-                return 1
-            fi
-            rm -f /tmp/polygone.sha256
-        fi
-        
-        sudo mv /tmp/polygone /usr/local/bin/polygone
-        log_info "✓ Binaire installé : /usr/local/bin/polygone"
-        return 0
-    else
+    local tmp_asset="/tmp/${asset}"
+    if ! curl -fsSL "$url" -o "$tmp_asset" 2>/dev/null; then
         log_warn "Binaire non disponible pour ${os}-${arch}, compilation..."
         return 1
     fi
+    # ── SHA256 fail-closed ──────────────────────────────────
+    local expected="" actual="" sums_file="/tmp/SHA256SUMS"
+    if curl -fsSL "$sums_url" -o "$sums_file" 2>/dev/null; then
+        expected=$(grep -F "  ${asset}" "$sums_file" 2>/dev/null | awk '{print $1}' || true)
+        [ -z "$expected" ] && expected=$(grep -F "${asset}" "$sums_file" 2>/dev/null | awk '{print $1}' || true)
+    elif curl -fsSL "$sha_url" -o /tmp/polygone.sha256 2>/dev/null; then
+        expected=$(awk '{print $1}' /tmp/polygone.sha256)
+        rm -f /tmp/polygone.sha256
+    fi
+    if [ -z "$expected" ]; then
+        log_error "SHA256 manquant pour ${asset} (SHA256SUMS et .sha256 absents) — refus d'installer (fail-closed)."
+        log_error "Compilez depuis source: cargo build --release --workspace"
+        rm -f "$tmp_asset" "$sums_file"
+        return 1
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "$tmp_asset" | awk '{print $1}')
+    else
+        actual=$(shasum -a 256 "$tmp_asset" | awk '{print $1}')
+    fi
+    if [ "$expected" != "$actual" ]; then
+        log_error "SHA256 invalide pour ${asset} — attendu $expected, obtenu $actual"
+        rm -f "$tmp_asset" "$sums_file"
+        return 1
+    fi
+    log_info "✓ SHA256 vérifié: $actual"
+    rm -f "$sums_file"
+    # extraction tar.gz → binaires
+    mkdir -p /tmp/polygone-extract
+    tar -xzf "$tmp_asset" -C /tmp/polygone-extract
+    chmod +x /tmp/polygone-extract/polygone 2>/dev/null || true
+    sudo mv /tmp/polygone-extract/polygone /usr/local/bin/polygone 2>/dev/null || mv /tmp/polygone-extract/polygone /usr/local/bin/polygone
+    # autres binaires si présents
+    for b in polygone-client polygone-relay polygoned; do
+        [ -f "/tmp/polygone-extract/$b" ] && sudo mv "/tmp/polygone-extract/$b" /usr/local/bin/ 2>/dev/null || true
+    done
+    rm -rf "$tmp_asset" /tmp/polygone-extract
+    log_info "✓ Binaire installé : /usr/local/bin/polygone"
+    return 0
 }
 
 # Installation from source

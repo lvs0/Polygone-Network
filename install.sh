@@ -117,8 +117,8 @@ fetch_release() {
     local platform=$1
     local tag=$2
     local asset_name
+    local tmp_dir="/tmp"
 
-    # Mapping platform → asset GitHub release
     case "$platform" in
         linux-x86_64)     asset_name="${BINARY_NAME}-${platform}.tar.gz" ;;
         linux-aarch64)    asset_name="${BINARY_NAME}-${platform}.tar.gz" ;;
@@ -134,15 +134,65 @@ fetch_release() {
         url="https://github.com/${REPO}/releases/download/${tag}/${asset_name}"
     fi
 
-    log "Tentative téléchargement release: $url"
-    if curl -fsSL -o "/tmp/${asset_name}" "$url" 2>/dev/null; then
-        tar -xzf "/tmp/${asset_name}" -C /tmp/
-        ok "Release téléchargée et extraite"
-        echo "/tmp"
-        return 0
+    local sums_url
+    if [[ "$tag" == "latest" ]]; then
+        sums_url="https://github.com/${REPO}/releases/latest/download/SHA256SUMS"
+    else
+        sums_url="https://github.com/${REPO}/releases/download/${tag}/SHA256SUMS"
     fi
-    warn "Aucune release pré-compilée pour $platform (tag: $tag)"
-    return 1
+
+    log "Tentative téléchargement release: $url"
+    if ! curl -fsSL -o "${tmp_dir}/${asset_name}" "$url" 2>/dev/null; then
+        warn "Aucune release pré-compilée pour $platform (tag: $tag)"
+        return 1
+    fi
+    # ── SHA256 fail-closed ──────────────────────────────────
+    log "Vérification SHA256 (fail-closed)..."
+    local sums_file="${tmp_dir}/SHA256SUMS"
+    if ! curl -fsSL -o "$sums_file" "$sums_url" 2>/dev/null; then
+        err "SHA256SUMS introuvable à $sums_url — refus d'installer (fail-closed)."
+        err "Attendez la release signée ou compilez depuis source: git clone && cargo build --release"
+        rm -f "${tmp_dir}/${asset_name}" "$sums_file"
+        return 1
+    fi
+    # extrait la ligne attendue pour cet asset (supporte format BSD/GNU)
+    local expected
+    expected=$(grep -F "  ${asset_name}" "$sums_file" 2>/dev/null | awk '{print $1}' || true)
+    if [[ -z "$expected" ]]; then
+        expected=$(grep -F "${asset_name}" "$sums_file" 2>/dev/null | awk '{print $1}' || true)
+    fi
+    if [[ -z "$expected" ]]; then
+        err "Empreinte SHA256 absente pour ${asset_name} dans SHA256SUMS — refus d'installer."
+        rm -f "${tmp_dir}/${asset_name}" "$sums_file"
+        return 1
+    fi
+    local actual
+    if has_cmd sha256sum; then
+        actual=$(sha256sum "${tmp_dir}/${asset_name}" | awk '{print $1}')
+    elif has_cmd shasum; then
+        actual=$(shasum -a 256 "${tmp_dir}/${asset_name}" | awk '{print $1}')
+    else
+        err "sha256sum/shasum introuvable — impossible de vérifier (fail-closed)."
+        rm -f "${tmp_dir}/${asset_name}" "$sums_file"
+        return 1
+    fi
+    if [[ "$expected" != "$actual" ]]; then
+        err "SHA256 invalide pour ${asset_name}"
+        err "  attendu: $expected"
+        err "  obtenu : $actual"
+        rm -f "${tmp_dir}/${asset_name}" "$sums_file"
+        return 1
+    fi
+    ok "SHA256 vérifié: $actual"
+    # ── extraction ──────────────────────────────────────────
+    if ! tar -xzf "${tmp_dir}/${asset_name}" -C /tmp/; then
+        err "Extraction échouée pour ${asset_name}"
+        rm -f "${tmp_dir}/${asset_name}" "$sums_file"
+        return 1
+    fi
+    ok "Release téléchargée, vérifiée et extraite"
+    echo "/tmp"
+    return 0
 }
 
 build_from_source() {

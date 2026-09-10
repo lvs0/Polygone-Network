@@ -48,11 +48,15 @@ jobs:
           tar -czf "dist/polygone-${{ matrix.target }}.tar.gz" \
             -C target/release \
             polygone polygone-client polygone-relay polygoned
+          sha256sum "dist/polygone-${{ matrix.target }}.tar.gz" | awk '{print $1}' > "dist/polygone-${{ matrix.target }}.tar.gz.sha256"
+          echo "SHA256 $(cat dist/polygone-${{ matrix.target }}.tar.gz.sha256)  polygone-${{ matrix.target }}.tar.gz"
 
       - name: Upload binaries
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2, 2026-04-12
         with:
-          files: dist/polygone-${{ matrix.target }}.tar.gz
+          files: |
+            dist/polygone-${{ matrix.target }}.tar.gz
+            dist/polygone-${{ matrix.target }}.tar.gz.sha256
 
   checksums:
     name: SHA256SUMS
