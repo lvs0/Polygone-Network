@@ -3,7 +3,10 @@
 //! Request → Shamir 4-of-7 → ≥4 nodes execute → result reassembled.
 
 use polygone_core::NodeId;
+use polygone_core::crypto::shamir::{split, reconstruct, Fragment, FragmentId};
 use serde::{Deserialize, Serialize};
+
+use anyhow::{Result, anyhow};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerlessRequest {
@@ -32,17 +35,41 @@ impl ServerlessRequest {
         }
     }
 
-    pub fn shards(&self) -> Vec<Vec<u8>> {
-        let mut out = Vec::with_capacity(7);
-        for i in 0..7 {
-            let mut shard = Vec::new();
-            shard.push(self.id.as_bytes()[0]);
-            shard.push(i as u8);
-            shard.extend_from_slice(&self.payload);
-            out.push(shard);
-        }
-        out
+    /// Split payload into Shamir 4-of-7 fragments using polygone_core (sharks crate).
+    /// Returns 7 fragments, each as Vec<u8> with [index][data] wire format.
+    pub fn shards(&self) -> Result<Vec<Vec<u8>>> {
+        let fragments = split(&self.payload, self.threshold, self.total)
+            .map_err(|e| anyhow!(e))?;
+        Ok(fragments
+            .into_iter()
+            .map(|f| {
+                let mut v = Vec::with_capacity(1 + f.data.len());
+                v.push(f.id.0);
+                v.extend_from_slice(&f.data);
+                v
+            })
+            .collect())
     }
+}
+
+/// Reconstruct secret from ≥4 Shamir fragments (wire format: [index][data]).
+#[allow(dead_code)]
+pub fn reconstruct_from_shards(shards: &[Vec<u8>]) -> Result<Vec<u8>> {
+    let fragments: Vec<Fragment> = shards
+        .iter()
+        .filter_map(|s| {
+            if s.is_empty() {
+                return None;
+            }
+            let id = FragmentId(s[0]);
+            let data = s[1..].to_vec();
+            Some(Fragment { id, data })
+        })
+        .collect();
+    if fragments.len() < 4 {
+        anyhow::bail!("need ≥4 shares");
+    }
+    reconstruct(&fragments, 4).map_err(|e| anyhow!(e))
 }
 
 impl ServerlessResult {

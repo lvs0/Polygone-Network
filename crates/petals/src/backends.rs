@@ -1,6 +1,7 @@
 //! Backend implementations for different inference engines
 
 pub mod llamacpp;
+pub mod mock;
 pub mod ollama;
 pub mod vllm;
 
@@ -17,6 +18,7 @@ pub enum InferenceBackend {
     Ollama(ollama::OllamaBackend),
     Vllm(vllm::VllmBackend),
     LlamaCpp(llamacpp::LlamaCppBackend),
+    Mock(mock::MockBackend),
 }
 
 impl InferenceBackend {
@@ -25,6 +27,7 @@ impl InferenceBackend {
             Self::Ollama(b) => b.backend_type(),
             Self::Vllm(b) => b.backend_type(),
             Self::LlamaCpp(b) => b.backend_type(),
+            Self::Mock(b) => b.backend_type(),
         }
     }
 
@@ -33,6 +36,7 @@ impl InferenceBackend {
             Self::Ollama(b) => b.list_models().await,
             Self::Vllm(b) => b.list_models().await,
             Self::LlamaCpp(b) => b.list_models().await,
+            Self::Mock(b) => b.list_models().await,
         }
     }
 
@@ -41,6 +45,7 @@ impl InferenceBackend {
             Self::Ollama(b) => b.generate(request).await,
             Self::Vllm(b) => b.generate(request).await,
             Self::LlamaCpp(b) => b.generate(request).await,
+            Self::Mock(b) => b.generate(request).await,
         }
     }
 
@@ -49,6 +54,7 @@ impl InferenceBackend {
             Self::Ollama(b) => b.chat(request).await,
             Self::Vllm(b) => b.chat(request).await,
             Self::LlamaCpp(b) => b.chat(request).await,
+            Self::Mock(b) => b.chat(request).await,
         }
     }
 
@@ -60,6 +66,7 @@ impl InferenceBackend {
             Self::Ollama(b) => b.stream(request).await,
             Self::Vllm(b) => b.stream(request).await,
             Self::LlamaCpp(b) => b.stream(request).await,
+            Self::Mock(b) => b.stream(request).await,
         }
     }
 
@@ -68,6 +75,7 @@ impl InferenceBackend {
             Self::Ollama(b) => b.pull_model(name, source).await,
             Self::Vllm(b) => b.pull_model(name, source).await,
             Self::LlamaCpp(b) => b.pull_model(name, source).await,
+            Self::Mock(b) => b.pull_model(name, source).await,
         }
     }
 
@@ -76,6 +84,7 @@ impl InferenceBackend {
             Self::Ollama(b) => b.health_check().await,
             Self::Vllm(b) => b.health_check().await,
             Self::LlamaCpp(b) => b.health_check().await,
+            Self::Mock(b) => b.health_check().await,
         }
     }
 
@@ -84,6 +93,7 @@ impl InferenceBackend {
             Self::Ollama(b) => b.info(),
             Self::Vllm(b) => b.info(),
             Self::LlamaCpp(b) => b.info(),
+            Self::Mock(b) => b.info(),
         }
     }
 }

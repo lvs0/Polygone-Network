@@ -590,7 +590,7 @@ async fn main() -> Result<()> {
             };
             println!("⬡ Serverless — exécution distribuée (4/7 nœuds)");
             let req = serverless::ServerlessRequest::new(payload);
-            let shards = req.shards();
+            let shards = req.shards()?;
             println!("  request_id : {}", req.id);
             println!(
                 "  shards : {} ({} octets chacun)",
