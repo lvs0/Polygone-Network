@@ -114,11 +114,14 @@ mod tests {
     fn with_isolated_home(f: impl FnOnce()) {
         let _g = crate::testutil::with_global_state_guard();
         let prev = std::env::var_os("HOME");
-        let tmp = std::env::temp_dir().join(format!(
-            "duress-{}-{:?}",
-            std::process::id(),
-            std::thread::current().name()
-        ));
+        // Thread names may contain `:` and `"` (e.g. `Some("duress::tests::…")`),
+        // which are illegal in Windows filenames (NTFS forbids :*?"<>|).
+        // Use a hash of the thread id instead — valid on every OS.
+        let tid = format!("{:?}", std::thread::current().id())
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>();
+        let tmp = std::env::temp_dir().join(format!("duress-{}-{tid}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         std::env::set_var("HOME", &tmp);
