@@ -3,8 +3,8 @@
 use crate::types::ModelRequirements;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tokio::net::UnixStream;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
 
 /// Client for communicating with the Polygone daemon (`polygoned`)
 pub struct PetalsDaemonClient {
@@ -58,7 +58,10 @@ impl PetalsDaemonClient {
     }
 
     /// Request resource allocation for Petals models
-    pub async fn request_allocation(&mut self, requirements: ResourceRequest) -> Result<ResourceAllocation> {
+    pub async fn request_allocation(
+        &mut self,
+        requirements: ResourceRequest,
+    ) -> Result<ResourceAllocation> {
         let request = DaemonRequest::AllocateResources {
             client: "petals".to_string(),
             requirements,
@@ -85,7 +88,9 @@ impl PetalsDaemonClient {
             let request = DaemonRequest::ReleaseAllocation { allocation_id };
             match self.send_request(request).await? {
                 DaemonResponse::Released => Ok(()),
-                DaemonResponse::Error { message } => anyhow::bail!("Failed to release: {}", message),
+                DaemonResponse::Error { message } => {
+                    anyhow::bail!("Failed to release: {}", message)
+                }
                 _ => anyhow::bail!("Unexpected response"),
             }
         } else {
@@ -104,7 +109,11 @@ impl PetalsDaemonClient {
     }
 
     /// Register a model with the daemon for tracking
-    pub async fn register_model(&mut self, model: &str, requirements: &ModelRequirements) -> Result<()> {
+    pub async fn register_model(
+        &mut self,
+        model: &str,
+        requirements: &ModelRequirements,
+    ) -> Result<()> {
         let request = DaemonRequest::RegisterModel {
             client: "petals".to_string(),
             model: model.to_string(),
@@ -112,7 +121,9 @@ impl PetalsDaemonClient {
         };
         match self.send_request(request).await? {
             DaemonResponse::ModelRegistered => Ok(()),
-            DaemonResponse::Error { message } => anyhow::bail!("Failed to register model: {}", message),
+            DaemonResponse::Error { message } => {
+                anyhow::bail!("Failed to register model: {}", message)
+            }
             _ => anyhow::bail!("Unexpected response"),
         }
     }

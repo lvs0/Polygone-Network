@@ -2,8 +2,8 @@
 //!
 //! MVP: simple send/receive over relay or mesh, stored in `~/.polygone/received/`.
 
-use polygone_core::NodeId;
 use crate::Result;
+use polygone_core::NodeId;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug)]

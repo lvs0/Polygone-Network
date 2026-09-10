@@ -1,10 +1,10 @@
 //! llama.cpp / candle native inference backend (placeholder)
 
+use crate::backends::{BackendCapabilities, BackendInfo};
 use crate::types::{
-    BackendType, DeviceType, InferenceRequest, InferenceResponse, ChatRequest, ChatResponse,
+    BackendType, ChatRequest, ChatResponse, DeviceType, InferenceRequest, InferenceResponse,
     ModelInfo, ModelSource,
 };
-use crate::backends::{BackendInfo, BackendCapabilities};
 use anyhow::Result;
 use futures::Stream;
 
@@ -18,7 +18,9 @@ impl LlamaCppBackend {
     /// Create a new llama.cpp backend
     pub async fn new() -> Result<Self> {
         // TODO: Initialize candle model from GGUF
-        Err(anyhow::anyhow!("llama-cpp backend not yet implemented. Enable 'llama-cpp' feature and implement."))
+        Err(anyhow::anyhow!(
+            "llama-cpp backend not yet implemented. Enable 'llama-cpp' feature and implement."
+        ))
     }
 
     pub fn backend_type(&self) -> BackendType {
@@ -37,7 +39,10 @@ impl LlamaCppBackend {
         Err(anyhow::anyhow!("llama-cpp backend not yet implemented"))
     }
 
-    pub async fn stream(&self, _request: InferenceRequest) -> Result<Box<dyn Stream<Item = Result<String>> + Send + Unpin>> {
+    pub async fn stream(
+        &self,
+        _request: InferenceRequest,
+    ) -> Result<Box<dyn Stream<Item = Result<String>> + Send + Unpin>> {
         Err(anyhow::anyhow!("llama-cpp backend not yet implemented"))
     }
 
@@ -53,7 +58,12 @@ impl LlamaCppBackend {
         BackendInfo {
             name: "llama.cpp / candle".to_string(),
             version: None,
-            supported_devices: vec![DeviceType::Cpu, DeviceType::Cuda, DeviceType::Metal, DeviceType::Auto],
+            supported_devices: vec![
+                DeviceType::Cpu,
+                DeviceType::Cuda,
+                DeviceType::Metal,
+                DeviceType::Auto,
+            ],
             capabilities: BackendCapabilities {
                 chat: true,
                 completion: true,

@@ -11,13 +11,13 @@
 //!!
 //! « On voit rien. Et c'est comme ça que ça devrait être. »
 
+mod brain;
 mod demo;
 mod drive;
 mod duress;
 mod exec;
 mod hide;
 mod identity;
-mod brain;
 mod mesh;
 mod msg;
 mod net;
@@ -25,10 +25,10 @@ mod petals;
 mod product;
 mod reputation;
 mod self_test;
+mod serverless;
 #[cfg(test)]
 mod testutil;
 mod tui;
-mod serverless;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -582,7 +582,9 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Serverless { payload }) => {
             let payload: Vec<u8> = if payload == "-" {
-                std::io::read_to_string(std::io::stdin())?.as_bytes().to_vec()
+                std::io::read_to_string(std::io::stdin())?
+                    .as_bytes()
+                    .to_vec()
             } else {
                 payload.as_bytes().to_vec()
             };
@@ -590,7 +592,11 @@ async fn main() -> Result<()> {
             let req = serverless::ServerlessRequest::new(payload);
             let shards = req.shards();
             println!("  request_id : {}", req.id);
-            println!("  shards : {} ({} octets chacun)", shards.len(), shards[0].len());
+            println!(
+                "  shards : {} ({} octets chacun)",
+                shards.len(),
+                shards[0].len()
+            );
             println!("  threshold : {}/{}", req.threshold, req.total);
             println!("  (la couche réseau arrive — serveur + répartiteur)");
         }
@@ -618,7 +624,10 @@ async fn main() -> Result<()> {
                 println!("⬡ Pairing — {}", name);
                 println!("  device : {name}");
                 println!("  clef publique : {}", identity.kem_pk_hex);
-                println!("  node_id : {}", hex::encode(net::node_id(&identity).as_bytes()));
+                println!(
+                    "  node_id : {}",
+                    hex::encode(net::node_id(&identity).as_bytes())
+                );
                 println!("  (scannez le QR ou collez la clef sur l'autre appareil)");
             }
         }

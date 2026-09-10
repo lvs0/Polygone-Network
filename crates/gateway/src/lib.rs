@@ -200,7 +200,6 @@ impl Gateway {
     }
 }
 
-
 fn uuid_short() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();

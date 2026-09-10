@@ -216,7 +216,10 @@ pub struct FunctionDef {
 pub enum ToolChoice {
     Auto(String),
     Required(String),
-    Function { r#type: String, function: FunctionChoice },
+    Function {
+        r#type: String,
+        function: FunctionChoice,
+    },
 }
 
 /// Function choice
@@ -348,9 +351,9 @@ impl ModelInfo {
 
         // Base estimates (very rough, per billion parameters)
         let ram_per_billion = match device {
-            DeviceType::Cpu => 1.0 * quant_factor,      // CPU: weights in RAM
-            DeviceType::Cuda => 0.5 * quant_factor,     // GPU: weights in VRAM
-            DeviceType::Metal => 0.7 * quant_factor,    // Unified memory
+            DeviceType::Cpu => 1.0 * quant_factor,   // CPU: weights in RAM
+            DeviceType::Cuda => 0.5 * quant_factor,  // GPU: weights in VRAM
+            DeviceType::Metal => 0.7 * quant_factor, // Unified memory
             DeviceType::Vulkan => 0.6 * quant_factor,
             DeviceType::Auto => 1.0 * quant_factor,
         };
@@ -362,7 +365,9 @@ impl ModelInfo {
 
         // GPU VRAM
         let gpu_vram_gb = match device {
-            DeviceType::Cuda | DeviceType::Metal | DeviceType::Vulkan => Some(params * 0.5 * quant_factor + 1.0),
+            DeviceType::Cuda | DeviceType::Metal | DeviceType::Vulkan => {
+                Some(params * 0.5 * quant_factor + 1.0)
+            }
             _ => None,
         };
 
@@ -383,27 +388,39 @@ impl ModelInfo {
 
     /// Parse parameter count from string like "7B", "70B"
     fn parse_parameters(&self) -> Option<f32> {
-        self.parameters.as_ref().and_then(|p| {
-            p.trim_end_matches('B').parse().ok()
-        })
+        self.parameters
+            .as_ref()
+            .and_then(|p| p.trim_end_matches('B').parse().ok())
     }
 
     /// Quantization factor (1.0 = FP16, ~0.25 = Q4)
     fn quantization_factor(&self) -> f32 {
-        self.quantization.as_ref().map(|q| {
-            let q = q.to_uppercase();
-            if q.contains("Q4") || q.contains("4BIT") { 0.25 }
-            else if q.contains("Q5") { 0.3125 }
-            else if q.contains("Q6") { 0.375 }
-            else if q.contains("Q8") || q.contains("8BIT") { 0.5 }
-            else if q.contains("FP16") || q.contains("BF16") { 1.0 }
-            else if q.contains("FP32") { 2.0 }
-            else { 0.5 } // Default assumption
-        }).unwrap_or(0.5)
+        self.quantization
+            .as_ref()
+            .map(|q| {
+                let q = q.to_uppercase();
+                if q.contains("Q4") || q.contains("4BIT") {
+                    0.25
+                } else if q.contains("Q5") {
+                    0.3125
+                } else if q.contains("Q6") {
+                    0.375
+                } else if q.contains("Q8") || q.contains("8BIT") {
+                    0.5
+                } else if q.contains("FP16") || q.contains("BF16") {
+                    1.0
+                } else if q.contains("FP32") {
+                    2.0
+                } else {
+                    0.5
+                } // Default assumption
+            })
+            .unwrap_or(0.5)
     }
 
     /// Check if model supports a device
     pub fn supports_device(&self, device: DeviceType) -> bool {
-        self.supported_devices.contains(&device) || self.supported_devices.contains(&DeviceType::Auto)
+        self.supported_devices.contains(&device)
+            || self.supported_devices.contains(&DeviceType::Auto)
     }
 }

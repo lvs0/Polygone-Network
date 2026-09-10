@@ -20,6 +20,11 @@ impl Brain {
 
     #[allow(dead_code)]
     pub fn status(&self) -> Vec<(&'static str, &'static str)> {
-        vec![("msg", "live"), ("drive", "stub"), ("petals", "stub"), ("compute", "live")]
+        vec![
+            ("msg", "live"),
+            ("drive", "stub"),
+            ("petals", "stub"),
+            ("compute", "live"),
+        ]
     }
 }

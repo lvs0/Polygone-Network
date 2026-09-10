@@ -1,7 +1,7 @@
 //! Benchmarking infrastructure for Petals inference engine
 
-use crate::types::{BackendType, DeviceType, InferenceRequest};
 use crate::backends::InferenceBackend;
+use crate::types::{BackendType, DeviceType, InferenceRequest};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -167,7 +167,11 @@ impl InferenceBench {
             };
 
             runs.push(run_result);
-            log::info!("Benchmark run {} completed: {:.2} tok/s", i + 1, runs.last().unwrap().tokens_per_second);
+            log::info!(
+                "Benchmark run {} completed: {:.2} tok/s",
+                i + 1,
+                runs.last().unwrap().tokens_per_second
+            );
         }
 
         let stats = self.compute_stats(&runs);
@@ -214,7 +218,11 @@ impl InferenceBench {
         let median = sorted[sorted.len() / 2];
         let min = *sorted.first().unwrap_or(&0.0);
         let max = *sorted.last().unwrap_or(&0.0);
-        let variance = tokens_per_sec.iter().map(|x| (x - mean_tokens).powi(2)).sum::<f32>() / tokens_per_sec.len() as f32;
+        let variance = tokens_per_sec
+            .iter()
+            .map(|x| (x - mean_tokens).powi(2))
+            .sum::<f32>()
+            / tokens_per_sec.len() as f32;
         let std = variance.sqrt();
 
         let mean_ttft = if !ttfts.is_empty() {

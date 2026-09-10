@@ -1,12 +1,12 @@
 //! Backend implementations for different inference engines
 
+pub mod llamacpp;
 pub mod ollama;
 pub mod vllm;
-pub mod llamacpp;
 
 use crate::types::{
-    BackendType, DeviceType, InferenceRequest, InferenceResponse, ChatRequest, ChatResponse,
-    ModelInfo, ModelSource, GenerationConfig,
+    BackendType, ChatRequest, ChatResponse, DeviceType, GenerationConfig, InferenceRequest,
+    InferenceResponse, ModelInfo, ModelSource,
 };
 use anyhow::Result;
 use futures::Stream;
@@ -52,7 +52,10 @@ impl InferenceBackend {
         }
     }
 
-    pub async fn stream(&self, request: InferenceRequest) -> Result<Box<dyn Stream<Item = Result<String>> + Send + Unpin>> {
+    pub async fn stream(
+        &self,
+        request: InferenceRequest,
+    ) -> Result<Box<dyn Stream<Item = Result<String>> + Send + Unpin>> {
         match self {
             Self::Ollama(b) => b.stream(request).await,
             Self::Vllm(b) => b.stream(request).await,
@@ -111,8 +114,8 @@ pub struct BackendCapabilities {
 
 /// Common HTTP client utilities
 pub mod http {
-    use reqwest::Client;
     use anyhow::Result;
+    use reqwest::Client;
 
     pub fn create_client(timeout_secs: u64) -> Result<Client> {
         Ok(Client::builder()

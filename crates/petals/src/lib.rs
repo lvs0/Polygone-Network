@@ -49,14 +49,14 @@ pub mod daemon;
 pub mod models;
 pub mod types;
 
-pub use backends::{InferenceBackend};
+pub use backends::InferenceBackend;
 pub use benchmarks::{BenchmarkConfig, BenchmarkResult, InferenceBench};
-pub use daemon::{PetalsDaemonClient, ResourceRequest, ResourceAllocation};
-pub use models::{ModelRegistry};
+pub use daemon::{PetalsDaemonClient, ResourceAllocation, ResourceRequest};
+pub use models::ModelRegistry;
 pub use types::{
-    CompletionRequest, CompletionResponse, ChatMessage, ChatRequest, ChatResponse,
-    InferenceRequest, InferenceResponse, GenerationConfig, BackendType, DeviceType,
-    ModelCapabilities, ModelRequirements, ModelInfo, ModelSource,
+    BackendType, ChatMessage, ChatRequest, ChatResponse, CompletionRequest, CompletionResponse,
+    DeviceType, GenerationConfig, InferenceRequest, InferenceResponse, ModelCapabilities,
+    ModelInfo, ModelRequirements, ModelSource,
 };
 
 use anyhow::Result;
@@ -104,9 +104,13 @@ impl PetalsEngine {
     /// Create a new Petals engine with custom configuration
     pub async fn with_config(backend_type: BackendType, config: EngineConfig) -> Result<Self> {
         let backend = match backend_type {
-            BackendType::Ollama => InferenceBackend::Ollama(backends::ollama::OllamaBackend::new().await?),
+            BackendType::Ollama => {
+                InferenceBackend::Ollama(backends::ollama::OllamaBackend::new().await?)
+            }
             BackendType::Vllm => InferenceBackend::Vllm(backends::vllm::VllmBackend::new().await?),
-            BackendType::LlamaCpp => InferenceBackend::LlamaCpp(backends::llamacpp::LlamaCppBackend::new().await?),
+            BackendType::LlamaCpp => {
+                InferenceBackend::LlamaCpp(backends::llamacpp::LlamaCppBackend::new().await?)
+            }
             BackendType::Auto => {
                 // Try backends in order of preference
                 if let Ok(b) = backends::vllm::VllmBackend::new().await {
@@ -121,7 +125,9 @@ impl PetalsEngine {
 
         let registry = Arc::new(RwLock::new(ModelRegistry::new()));
         let daemon_client = if config.daemon_enabled {
-            Some(Arc::new(tokio::sync::Mutex::new(PetalsDaemonClient::connect().await?)))
+            Some(Arc::new(tokio::sync::Mutex::new(
+                PetalsDaemonClient::connect().await?,
+            )))
         } else {
             None
         };
@@ -147,13 +153,20 @@ impl PetalsEngine {
 
     /// Generate a completion for the given request
     pub async fn generate(&self, request: InferenceRequest) -> Result<InferenceResponse> {
-        let model = request.model.clone().or_else(|| self.config.default_model.clone())
+        let model = request
+            .model
+            .clone()
+            .or_else(|| self.config.default_model.clone())
             .ok_or_else(|| anyhow::anyhow!("No model specified and no default configured"))?;
 
         // Check if model is available
         let registry = self.registry.read().await;
         if !registry.has_model(&model) {
-            anyhow::bail!("Model '{}' not found. Available: {:?}", model, registry.list_models());
+            anyhow::bail!(
+                "Model '{}' not found. Available: {:?}",
+                model,
+                registry.list_models()
+            );
         }
         drop(registry);
 
@@ -165,7 +178,10 @@ impl PetalsEngine {
 
     /// Generate a chat completion
     pub async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
-        let model = request.model.clone().or_else(|| self.config.default_model.clone())
+        let model = request
+            .model
+            .clone()
+            .or_else(|| self.config.default_model.clone())
             .ok_or_else(|| anyhow::anyhow!("No model specified and no default configured"))?;
 
         let registry = self.registry.read().await;
@@ -178,7 +194,10 @@ impl PetalsEngine {
     }
 
     /// Stream a completion (for real-time output)
-    pub async fn stream(&self, request: InferenceRequest) -> Result<impl futures::Stream<Item = Result<String>>> {
+    pub async fn stream(
+        &self,
+        request: InferenceRequest,
+    ) -> Result<impl futures::Stream<Item = Result<String>>> {
         self.backend.stream(request).await
     }
 
@@ -231,7 +250,11 @@ impl PetalsEngine {
         Ok(ResourceRequest {
             cpu_cores: max_cpu_cores.max(1),
             ram_gb: total_ram_gb.max(1.0),
-            gpu_vram_gb: if gpu_vram_gb > 0.0 { Some(gpu_vram_gb) } else { None },
+            gpu_vram_gb: if gpu_vram_gb > 0.0 {
+                Some(gpu_vram_gb)
+            } else {
+                None
+            },
             concurrent_requests: self.config.max_concurrent_requests as u32,
             model_names: models.iter().map(|m| m.name.clone()).collect(),
         })
@@ -264,11 +287,9 @@ impl PetalsEngine {
 /// Re-export commonly used types
 pub mod prelude {
     pub use crate::{
-        PetalsEngine, EngineConfig, BackendType, DeviceType,
-        InferenceRequest, InferenceResponse, ChatRequest, ChatResponse,
-        CompletionRequest, CompletionResponse, GenerationConfig,
-        ModelInfo, ModelRegistry, ModelSource,
-        ResourceRequest, ResourceAllocation,
-        BenchmarkConfig, BenchmarkResult,
+        BackendType, BenchmarkConfig, BenchmarkResult, ChatRequest, ChatResponse,
+        CompletionRequest, CompletionResponse, DeviceType, EngineConfig, GenerationConfig,
+        InferenceRequest, InferenceResponse, ModelInfo, ModelRegistry, ModelSource, PetalsEngine,
+        ResourceAllocation, ResourceRequest,
     };
 }

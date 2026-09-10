@@ -1,6 +1,6 @@
 //! Model registry and management
 
-use crate::types::{ModelInfo, ModelSource, ModelRequirements, DeviceType};
+use crate::types::{DeviceType, ModelInfo, ModelRequirements, ModelSource};
 use std::collections::HashMap;
 
 /// Registry of available models
