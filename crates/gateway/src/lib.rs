@@ -88,16 +88,10 @@ impl Gateway {
         let method = parts[0];
         let path = parts[1];
 
-        let mime: String;
-        let body: Vec<u8>;
-        let len: usize;
-
-        match (method, path) {
+        let (mime, body): (String, Vec<u8>) = match (method, path) {
             ("GET", "/") => {
                 let data = self.serve_site("index.html").await?;
-                mime = "text/html".into();
-                body = data;
-                len = body.len();
+                (String::from("text/html"), data)
             }
             ("GET", "/api/v1/network/status") => {
                 let nodes = self.nodes.read().await;
@@ -111,9 +105,7 @@ impl Gateway {
                         .as_secs(),
                 };
                 let json = serde_json::to_vec(&status)?;
-                mime = "application/json".into();
-                body = json;
-                len = body.len();
+                (String::from("application/json"), json)
             }
             ("POST", "/api/v1/pair/request") => {
                 let body_raw = raw.split("\r\n\r\n").nth(1).unwrap_or("");
@@ -131,9 +123,7 @@ impl Gateway {
                 };
                 self.pairs.write().await.insert(token.clone(), pair);
                 let json = serde_json::to_vec(&serde_json::json!({"token": token}))?;
-                mime = "application/json".into();
-                body = json;
-                len = body.len();
+                (String::from("application/json"), json)
             }
             ("GET", p) if p.starts_with("/api/v1/pair/qr/") => {
                 let token = p.trim_start_matches("/api/v1/pair/qr/");
@@ -141,9 +131,7 @@ impl Gateway {
                 let pair = pairs.get(token).context("invalid token")?;
                 let deep_link = format!("polygone://pair/{}", pair.token);
                 let json = serde_json::to_vec(&serde_json::json!({"deep_link": deep_link}))?;
-                mime = "application/json".into();
-                body = json;
-                len = body.len();
+                (String::from("application/json"), json)
             }
             ("POST", "/api/v1/pair/accept") => {
                 let body_raw = raw.split("\r\n\r\n").nth(1).unwrap_or("");
@@ -161,9 +149,7 @@ impl Gateway {
                     },
                 );
                 let json = serde_json::to_vec(&serde_json::json!({"ok": true}))?;
-                mime = "application/json".into();
-                body = json;
-                len = body.len();
+                (String::from("application/json"), json)
             }
             ("GET", p) if p.starts_with("/api/v1/node/") => {
                 let id = p.trim_start_matches("/api/v1/node/");
@@ -174,16 +160,11 @@ impl Gateway {
                     last_seen: 0,
                 });
                 let json = serde_json::to_vec(&node)?;
-                mime = "application/json".into();
-                body = json;
-                len = body.len();
+                (String::from("application/json"), json)
             }
-            _ => {
-                mime = "text/plain".into();
-                body = b"not found".to_vec();
-                len = body.len();
-            }
-        }
+            _ => (String::from("text/plain"), b"not found".to_vec()),
+        };
+        let len = body.len();
 
         let header = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
