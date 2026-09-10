@@ -7,8 +7,8 @@
 //! — never a `compile_error!` that breaks CI.
 
 use crate::resources::{
-    BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint, MemoryInfo, NetInterface,
-    Platform, PlatformCaps, ProcessMemory, ServiceConfig,
+    BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint, MemoryInfo, Platform,
+    PlatformCaps, ProcessMemory, ServiceConfig,
 };
 
 // ---------------------------------------------------------------------------
