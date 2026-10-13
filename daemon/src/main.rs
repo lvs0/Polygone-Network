@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use polygoned::{
     create_platform,
-    socket::{notify_allocation, notify_shrink, socket_path},
+    socket::{socket_path},
     Allocation, DaemonConfig, GlowUpEngine, SystemSnapshot,
 };
 
@@ -143,9 +143,10 @@ fn main() -> Result<()> {
             if let Err(e) = engine.apply(&alloc) {
                 log::warn!("apply failed: {}", e);
             }
-            if let Err(e) = notify_allocation(&alloc, alloc.shrinking) {
-                log::debug!("notify: {}", e);
-            }
+            // Plus de `notify_allocation` : l'état est publié par le tick via
+            // `socket::publish_shared`, pas par une notification ponctuelle.
+            // L'appel précédent visait une fonction qui n'existe plus — il
+            // échouait en silence et ne publiait donc rien.
         }
 
         // Log
@@ -177,9 +178,7 @@ fn main() -> Result<()> {
         log::info!("polygoned: final shutdown — shrinking allocation to zero");
         engine.current.ram_bytes = 0;
         engine.current.bandwidth_mbps = 0;
-        if let Err(e) = notify_shrink("shutdown") {
-            log::debug!("shrink notify: {}", e);
-        }
+        // Le tick suivant publie l'allocation nulle via `publish_shared`.
     }
 
     log::info!("polygoned: exited cleanly");
@@ -223,7 +222,13 @@ fn handle_command(
             );
             println!(
                 "  User active : {}",
-                if snap.user_active { "yes" } else { "no" }
+                match snap.user_active {
+                    polygoned::UserActivity::Active => "yes",
+                    polygoned::UserActivity::Idle => "no",
+                    // Ne jamais afficher « no » pour une ignorance : c'est
+                    // exactement le mensonge d'origine (docs/PLAN_FREIN.md §2).
+                    polygoned::UserActivity::Unknown => "unknown (no source)",
+                }
             );
             println!();
 
@@ -247,8 +252,15 @@ fn handle_command(
             Ok(())
         }
         Commands::Stop => {
-            notify_shrink("user_requested")?;
-            println!("polygoned: shrink signal sent.");
+            // Le protocole socket n'expose pas de requête d'arrêt : le daemon
+            // s'arrête sur signal système (SIGTERM), que `systemd` envoie via
+            // `systemctl --user stop polygoned`. On ne prétend donc pas avoir
+            // « envoyé un signal » depuis ici — on indique la vraie commande.
+            // L'ancien `notify_shrink` visait une fonction inexistante : il
+            // échouait en silence et n'arrêtait rien.
+            println!(
+                "polygoned: pour arrêter le daemon, utilisez « systemctl --user stop polygoned »."
+            );
             Ok(())
         }
         Commands::Doctor => {

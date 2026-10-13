@@ -4,7 +4,6 @@
 //! into concrete allocations. Lightweight, deterministic, no ML.
 
 use crate::allocator::Allocation;
-use crate::resources::CpuAffinityMode;
 use crate::system::SystemSnapshot;
 use crate::Platform;
 use anyhow::Result;
@@ -238,8 +237,6 @@ pub struct DaemonConfig {
     #[serde(default)]
     pub safety: SafetyMargins,
     /// Platform-specific feature toggles
-    #[serde(default)]
-    pub cpu_affinity_mode: CpuAffinityMode,
     #[serde(default = "default_true")]
     pub memory_limit_enabled: bool,
     #[serde(default = "default_true")]
@@ -264,7 +261,6 @@ impl Default for DaemonConfig {
             custom_limits: None,
             behavior: BehaviorConfig::default(),
             safety: SafetyMargins::default(),
-            cpu_affinity_mode: CpuAffinityMode::Auto,
             memory_limit_enabled: true,
             bandwidth_shaping: true,
             gpu_allocation_enabled: true,
@@ -431,7 +427,7 @@ impl GlowUpEngine {
         }
 
         // User activity throttle
-        if behavior.throttle_on_user_activity && snap.user_active {
+        if behavior.throttle_on_user_activity && snap.user_active.is_active() {
             alloc.ram_bytes = (alloc.ram_bytes as f32 * 0.5) as u64;
             alloc.bandwidth_mbps = (alloc.bandwidth_mbps as f32 * 0.5) as u32;
         }
@@ -493,7 +489,14 @@ impl GlowUpEngine {
         result
     }
 
-    /// Apply allocation to platform (CPU affinity, priority, memory limit)
+    /// Apply allocation to platform (CPU priority).
+    ///
+    /// Le plafond mémoire n'est **plus** posé ici, et c'est une décision, pas un
+    /// oubli : le daemon n'écrit jamais le cgroup qui le contient. Ce fichier
+    /// appartient à `systemd` (`MemoryMax=` de l'unité `--user`) ; un daemon qui
+    /// le réécrit à chaque tick se bat contre son gestionnaire et plafonne le
+    /// cgroup de son lanceur — terminal, navigateur, session graphique — pas
+    /// lui-même. Voir `docs/PLAN_PRIORITES_2B5.md` §1/§4.
     pub fn apply(&self, alloc: &Allocation) -> Result<()> {
         // CPU priority via nice value
         let nice = if alloc.ram_bytes > 512 * 1024 * 1024 {
@@ -502,8 +505,6 @@ impl GlowUpEngine {
             5
         };
         self.platform.set_cpu_priority(nice)?;
-        // Memory limit (best-effort)
-        let _ = self.platform.set_memory_limit(alloc.ram_bytes);
         Ok(())
     }
 
@@ -575,7 +576,7 @@ mod tests {
                 power_watts: 50,
             }],
             timestamp: 0,
-            user_active: false,
+            user_active: crate::UserActivity::Idle,
         };
         let limits = ResourceLimits {
             max_cpu_percent: 60,
@@ -594,7 +595,6 @@ mod tests {
         // Format actuel (écrit par --gen-config depuis it.16) : tier scalaire.
         let toml_str = r#"
 tier = "Balanced"
-cpu_affinity_mode = "Auto"
 memory_limit_enabled = true
 bandwidth_shaping = true
 gpu_allocation_enabled = true
@@ -653,7 +653,6 @@ mode = "linux"
             toml::from_str(toml_str).expect("config legacy (table [tier]) lisible");
         assert_eq!(config.tier, AllocationTier::Balanced);
         // Champs absents du format legacy → defaults, jamais d'erreur.
-        assert_eq!(config.cpu_affinity_mode, CpuAffinityMode::Auto);
         assert!(config.memory_limit_enabled);
         assert!(config.service_integration);
     }

@@ -164,6 +164,14 @@ pub struct ServiceConfig {
 pub struct PlatformCaps {
     pub cpu_affinity: bool,
     pub cpu_priority: bool,
+    /// Capacité de la PLATEFORME (cgroup v2 présent), pas promesse du daemon.
+    ///
+    /// Depuis 2b-5b, le daemon ne pose plus lui-même de limite mémoire : elle
+    /// appartient à `systemd` (`MemoryMax=` de l'unité `--user`). Le drapeau
+    /// reste utile — c'est lui qui dira à `install_service` s'il faut émettre un
+    /// `MemoryMax=` — mais l'étiquette « Memory limit » du `doctor`
+    /// (`main.rs:414`) reste, elle, trompeuse : elle sera corrigée dans
+    /// l'incrément qui câblera `install_service`.
     pub memory_limit: bool,
     pub bandwidth_monitor: bool,
     pub gpu_monitor: bool,
@@ -174,46 +182,47 @@ pub struct PlatformCaps {
     pub windows_service: bool,
 }
 
-/// CPU affinity mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
-pub enum CpuAffinityMode {
-    #[default]
-    Auto,
-    Spread,
-    Compact,
-    Performance,
-    Off,
-}
-
-impl std::fmt::Display for CpuAffinityMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CpuAffinityMode::Auto => write!(f, "auto"),
-            CpuAffinityMode::Spread => write!(f, "spread"),
-            CpuAffinityMode::Compact => write!(f, "compact"),
-            CpuAffinityMode::Performance => write!(f, "performance"),
-            CpuAffinityMode::Off => write!(f, "off"),
-        }
-    }
-}
-
-impl std::str::FromStr for CpuAffinityMode {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "auto" => Ok(CpuAffinityMode::Auto),
-            "spread" => Ok(CpuAffinityMode::Spread),
-            "compact" => Ok(CpuAffinityMode::Compact),
-            "performance" => Ok(CpuAffinityMode::Performance),
-            "off" => Ok(CpuAffinityMode::Off),
-            _ => Err(format!("unknown cpu affinity mode: {}", s)),
-        }
-    }
-}
+// `CpuAffinityMode` vivait ici (Auto / Spread / Compact / Performance / Off) et
+// a été RETIRÉ à l'incrément 2b-8, avec la clé de config `cpu_affinity_mode` qui
+// était son unique usage : le mode était lu par personne, et `set_cpu_affinity`
+// n'a aucun appelant. Un type public dont la seule raison d'être est une clé
+// morte est la même dette que la clé (docs/PLAN_PRIORITES_2B5.md §2).
+//
+// Le trait `Platform::set_cpu_affinity` reste : il peut servir, et l'enlever
+// toucherait linux.rs/macos.rs.
 
 // ============================================================================
 // Platform trait
 // ============================================================================
+
+/// Ce que l'on sait de l'activité de l'utilisateur devant la machine.
+///
+/// Trois états, et non un booléen : « je ne sais pas » n'est pas « personne ».
+/// Les confondre a fait croire pendant plusieurs incréments qu'un frein
+/// fonctionnait alors qu'il ne recevait jamais qu'un `false` de complaisance —
+/// voir `docs/PLAN_FREIN.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserActivity {
+    /// L'utilisateur interagit : le daemon doit s'effacer.
+    Active,
+    /// Personne devant la machine : le daemon peut prendre la place.
+    Idle,
+    /// Aucune source de vérité disponible — l'état réel est INCONNU.
+    Unknown,
+}
+
+impl UserActivity {
+    /// L'utilisateur est-il **positivement** devant la machine ?
+    ///
+    /// Seul `Active` répond oui. `Unknown` répond non, délibérément : on ne
+    /// réduit pas l'allocation du réseau sur une ignorance. Confondre « je ne
+    /// sais pas » avec « quelqu'un est là » priverait le partage de ressources
+    /// sans qu'aucune mesure ne le justifie — l'inverse exact du bug d'origine,
+    /// où `false` de complaisance faisait croire au frein qu'il fonctionnait.
+    pub fn is_active(self) -> bool {
+        matches!(self, UserActivity::Active)
+    }
+}
 
 /// Platform abstraction trait — one implementation per OS.
 pub trait Platform: Send + Sync + 'static {
@@ -227,9 +236,15 @@ pub trait Platform: Send + Sync + 'static {
     fn set_cpu_priority(&self, level: i32) -> anyhow::Result<()>;
 
     // Memory
+    //
+    // Il n'y a plus de `set_memory_limit` ici, et c'est une décision, pas un
+    // oubli : le daemon n'écrit jamais le plafond mémoire du cgroup qui le
+    // contient. Ce fichier appartient à `systemd` (`MemoryMax=` de l'unité
+    // `--user`) ; un daemon qui le réécrit à chaque tick se bat contre son
+    // gestionnaire et plafonne le cgroup de son LANCEUR (terminal, navigateur,
+    // session graphique), pas lui-même. Voir `docs/PLAN_PRIORITES_2B5.md` §1/§4.
     fn memory_info(&self) -> anyhow::Result<MemoryInfo>;
     fn process_memory(&self) -> anyhow::Result<ProcessMemory>;
-    fn set_memory_limit(&self, bytes: u64) -> anyhow::Result<()>;
 
     // Bandwidth
     fn bandwidth_info(&self) -> anyhow::Result<BandwidthInfo>;
@@ -245,7 +260,7 @@ pub trait Platform: Send + Sync + 'static {
 
     // System
     fn uptime(&self) -> anyhow::Result<u64>;
-    fn user_active(&self) -> anyhow::Result<bool>;
+    fn user_active(&self) -> anyhow::Result<UserActivity>;
     fn config_dir(&self) -> std::path::PathBuf;
     fn data_dir(&self) -> std::path::PathBuf;
     fn log_dir(&self) -> std::path::PathBuf;

@@ -70,8 +70,9 @@ pub struct SystemSnapshot {
     pub bandwidth: BandwidthSnapshot,
     pub gpu: Vec<GpuSnapshot>,
     pub timestamp: i64,
-    /// Whether a human is currently using the machine.
-    pub user_active: bool,
+    /// État de présence de l'utilisateur — trois états, pas un booléen.
+    /// `Unknown` (aucune source de vérité) n'est pas `Idle` (personne).
+    pub user_active: crate::resources::UserActivity,
 }
 
 impl SystemSnapshot {
@@ -90,7 +91,12 @@ impl SystemSnapshot {
             .bandwidth_info()
             .unwrap_or_else(|_| crate::BandwidthInfo::default());
         let gpus = platform.gpu_info().unwrap_or_default();
-        let user_active = platform.user_active().unwrap_or(false);
+        // `Unknown` n'est pas `false` : une absence de mesure n'est pas une
+        // mesure d'absence. Un `unwrap_or(false)` ferait passer une ignorance
+        // pour une observation, et le frein croirait la place libre.
+        let user_active = platform
+            .user_active()
+            .unwrap_or(crate::resources::UserActivity::Unknown);
 
         let primary_iface = bw_info
             .interfaces

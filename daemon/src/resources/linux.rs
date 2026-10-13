@@ -2,7 +2,7 @@
 
 use crate::resources::{
     BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint, MemoryInfo, NetInterface,
-    Platform, PlatformCaps, ProcessMemory, ServiceConfig,
+    Platform, PlatformCaps, ProcessMemory, ServiceConfig, UserActivity,
 };
 use libc;
 use std::fs;
@@ -165,20 +165,6 @@ impl Platform for LinuxPlatform {
         Ok(mem)
     }
 
-    fn set_memory_limit(&self, bytes: u64) -> anyhow::Result<()> {
-        if !self.cgroups_v2 {
-            anyhow::bail!("cgroups v2 not available");
-        }
-        let cgroup_path = fs::read_to_string("/proc/self/cgroup")?
-            .lines()
-            .next()
-            .and_then(|l| l.split(':').nth(2))
-            .map(|p| std::path::PathBuf::from("/sys/fs/cgroup").join(p.trim_start_matches('/')))
-            .ok_or_else(|| anyhow::anyhow!("no cgroup"))?;
-        fs::write(cgroup_path.join("memory.max"), bytes.to_string())?;
-        Ok(())
-    }
-
     fn bandwidth_info(&self) -> anyhow::Result<BandwidthInfo> {
         let content = fs::read_to_string("/proc/net/dev")?;
         let mut interfaces = Vec::new();
@@ -294,8 +280,17 @@ impl Platform for LinuxPlatform {
             .unwrap_or(0.0) as u64)
     }
 
-    fn user_active(&self) -> anyhow::Result<bool> {
-        Ok(false)
+    fn user_active(&self) -> anyhow::Result<UserActivity> {
+        // Aucune source de vérité sur cette plateforme, pour deux raisons
+        // distinctes (docs/PLAN_FREIN.md §2) :
+        //   - aucun producteur d'inactivité n'est présent (hypridle / swayidle
+        //     absents, et le `IdleHint` de logind n'est alors jamais mis à jour) ;
+        //   - la session logind du daemon n'est pas forcément la session
+        //     graphique, donc même un `IdleHint` correct ne parlerait pas du bon
+        //     utilisateur.
+        // On répond `Unknown` plutôt que `false` : un `false` en dur faisait
+        // passer « je ne sais pas » pour « personne devant la machine ».
+        Ok(UserActivity::Unknown)
     }
 
     fn config_dir(&self) -> std::path::PathBuf {

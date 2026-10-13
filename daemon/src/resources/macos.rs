@@ -2,7 +2,7 @@
 
 use crate::resources::{
     BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint, MemoryInfo, NetInterface,
-    Platform, PlatformCaps, ProcessMemory, ServiceConfig,
+    Platform, PlatformCaps, ProcessMemory, ServiceConfig, UserActivity,
 };
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::Command;
@@ -133,10 +133,6 @@ impl Platform for MacOSPlatform {
         })
     }
 
-    fn set_memory_limit(&self, _bytes: u64) -> anyhow::Result<()> {
-        Err(anyhow::anyhow!("Memory limits not supported on macOS"))
-    }
-
     fn bandwidth_info(&self) -> anyhow::Result<BandwidthInfo> {
         let out = Command::new("netstat").args(["-ibn"]).output()?;
         let s = String::from_utf8_lossy(&out.stdout);
@@ -247,8 +243,11 @@ impl Platform for MacOSPlatform {
     fn uptime(&self) -> anyhow::Result<u64> {
         Ok(0)
     }
-    fn user_active(&self) -> anyhow::Result<bool> {
-        Ok(false)
+    fn user_active(&self) -> anyhow::Result<UserActivity> {
+        // Même constat que sous Linux : aucune source branchée n'alimente cette
+        // information, donc `Unknown` — et surtout pas `false`, qui ferait
+        // passer une ignorance pour une mesure (docs/PLAN_FREIN.md §2).
+        Ok(UserActivity::Unknown)
     }
 
     fn config_dir(&self) -> std::path::PathBuf {

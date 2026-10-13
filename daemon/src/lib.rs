@@ -10,6 +10,7 @@ pub mod cpu;
 pub mod gpu;
 pub mod policy;
 pub mod resources;
+pub mod runtime;
 pub mod socket;
 pub mod system;
 
@@ -25,7 +26,6 @@ pub use gpu::GpuAllocation;
 pub use resources::{
     create_platform,
     BandwidthInfo,
-    CpuAffinityMode,
     CpuInfo,
     // Also expose resources types that glow_up.rs depends on
     CpuTopology,
@@ -35,6 +35,7 @@ pub use resources::{
     MemoryInfo,
     NetInterface,
     Platform,
+    UserActivity,
     PlatformCaps,
     ServiceConfig,
 };
