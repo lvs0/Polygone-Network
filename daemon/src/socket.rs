@@ -15,13 +15,13 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
 use std::io::{self, BufReader, BufWriter, Read, Write};
-use serde_json;
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::panic::{self, AssertUnwindSafe};
@@ -1490,7 +1490,6 @@ mod tests {
             Err(DecodeError::UnsupportedVersion)
         );
     }
-
 
     #[test]
     fn test_ledger_persistence() {

@@ -12,9 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use polygoned::{
-    create_platform,
-    socket::{socket_path},
-    Allocation, DaemonConfig, GlowUpEngine, SystemSnapshot,
+    create_platform, socket::socket_path, Allocation, DaemonConfig, GlowUpEngine, SystemSnapshot,
 };
 
 static RUNNING: AtomicBool = AtomicBool::new(true);

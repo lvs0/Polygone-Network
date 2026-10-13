@@ -35,9 +35,9 @@ pub use resources::{
     MemoryInfo,
     NetInterface,
     Platform,
-    UserActivity,
     PlatformCaps,
     ServiceConfig,
+    UserActivity,
 };
 pub use system::{BandwidthSnapshot, CpuSnapshot, GpuSnapshot, MemorySnapshot, SystemSnapshot};
 
