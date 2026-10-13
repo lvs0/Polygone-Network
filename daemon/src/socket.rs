@@ -512,10 +512,10 @@ impl Ledger {
         match File::open(&path) {
             Ok(file) => {
                 let reader = BufReader::new(file);
-                match serde_json::from_reader(reader) {
-                    Ok(ledger) => ledger,
-                    Err(_) => Ledger::default(),
-                }
+                // Un ledger illisible vaut un ledger vierge : mieux vaut
+                // repartir de zéro que refuser de démarrer. Le fichier corrompu
+                // n'est pas écrasé tant qu'aucune écriture n'a lieu.
+                serde_json::from_reader::<_, Ledger>(reader).unwrap_or_default()
             }
             Err(_) => Ledger::default(),
         }
