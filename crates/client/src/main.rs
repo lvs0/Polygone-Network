@@ -12,14 +12,20 @@
 //! « On voit rien. Et c'est comme ça que ça devrait être. »
 
 mod demo;
-mod drive;
 mod duress;
 mod exec;
 mod hide;
 mod identity;
-mod brain;
 mod mesh;
 mod msg;
+
+// `drive` et `brain` ne sont PAS montés : placeholders du commit 060c11d,
+// jamais branchés (`DriveFile` a zéro appelant — décision 3 documentée dans
+// `blocks.rs`, qui prévoyait déjà la suppression de `drive.rs`). Les monter
+// faisait échouer `cargo clippy -D warnings` sur du code mort
+// (never constructed / never used) et bloquait la CI pour tout le monde.
+// Les fichiers restent sur disque, prêts à être branchés le jour où ils
+// auront un appelant. Les monter de nouveau exige d'abord de les câbler.
 mod net;
 mod petals;
 mod product;
