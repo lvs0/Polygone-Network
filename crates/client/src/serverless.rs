@@ -2,11 +2,11 @@
 //!
 //! Request → Shamir 4-of-7 → ≥4 nodes execute → result reassembled.
 
+use polygone_core::crypto::shamir::{reconstruct, split, Fragment, FragmentId};
 use polygone_core::NodeId;
-use polygone_core::crypto::shamir::{split, reconstruct, Fragment, FragmentId};
 use serde::{Deserialize, Serialize};
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerlessRequest {
@@ -38,8 +38,7 @@ impl ServerlessRequest {
     /// Split payload into Shamir 4-of-7 fragments using polygone_core (sharks crate).
     /// Returns 7 fragments, each as Vec<u8> with [index][data] wire format.
     pub fn shards(&self) -> Result<Vec<Vec<u8>>> {
-        let fragments = split(&self.payload, self.threshold, self.total)
-            .map_err(|e| anyhow!(e))?;
+        let fragments = split(&self.payload, self.threshold, self.total).map_err(|e| anyhow!(e))?;
         Ok(fragments
             .into_iter()
             .map(|f| {
