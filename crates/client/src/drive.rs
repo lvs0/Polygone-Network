@@ -2,9 +2,9 @@
 //!
 //! MVP: simple send/receive over relay or mesh, stored in `~/.polygone/received/`.
 
-use crate::Result;
 use crate::msg::{send_bytes, Fragment, SendOutput};
 use crate::serverless::reconstruct_from_shards;
+use crate::Result;
 use polygone_core::crypto::kem::KemPublicKey;
 use polygone_core::NodeId;
 use std::path::PathBuf;
@@ -130,7 +130,11 @@ impl DriveFile {
         // TODO: For multi-chunk files, we need to collect all chunks and reassemble in order.
         // For now, single-chunk files work directly.
         if total_chunks > 1 {
-            anyhow::bail!("multi-chunk reassembly not yet implemented (seq {}/{}))", seq + 1, total_chunks);
+            anyhow::bail!(
+                "multi-chunk reassembly not yet implemented (seq {}/{}))",
+                seq + 1,
+                total_chunks
+            );
         }
 
         Self::save(sender, &filename, &chunk_data)

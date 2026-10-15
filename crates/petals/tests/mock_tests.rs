@@ -7,12 +7,11 @@
 //! - model_list, device_detection
 
 use polygone_petals::backends::mock::MockBackend;
-use polygone_petals::types::{
-    ChatMessage, ChatRequest, ChatResponse, DeviceType,
-    GenerationConfig, InferenceRequest, InferenceResponse, ModelCapabilities, ModelInfo,
-    ModelSource, Usage,
-};
 use polygone_petals::backends::{BackendCapabilities, BackendInfo};
+use polygone_petals::types::{
+    ChatMessage, ChatRequest, ChatResponse, DeviceType, GenerationConfig, InferenceRequest,
+    InferenceResponse, ModelCapabilities, ModelInfo, ModelSource, Usage,
+};
 
 #[test]
 fn test_ollama_mock_generate() {
@@ -132,10 +131,12 @@ fn test_mock_failing_generate() {
 fn test_mock_pull_model() {
     let mock = MockBackend::new("model");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = rt.block_on(mock.pull_model("test-model", polygone_petals::types::ModelSource::Ollama));
+    let result =
+        rt.block_on(mock.pull_model("test-model", polygone_petals::types::ModelSource::Ollama));
     assert!(result.is_ok());
 
     let failing = MockBackend::failing("pull failed");
-    let result = rt.block_on(failing.pull_model("test", polygone_petals::types::ModelSource::Ollama));
+    let result =
+        rt.block_on(failing.pull_model("test", polygone_petals::types::ModelSource::Ollama));
     assert!(result.is_err());
 }
