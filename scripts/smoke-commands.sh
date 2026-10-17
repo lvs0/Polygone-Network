@@ -1,22 +1,27 @@
-#!/bin/bash
-# Smoke commands for Polygone
+#!/usr/bin/env bash
+# Smoke commands for the currently supported Polygone CLI.
 set -euo pipefail
 
-cd ~/Projets/Polygone-v2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
-# Test basic CLI
-cargo run --bin polygone -- --help 2>&1 | head -n 20
+TMP_HOME="$(mktemp -d)"
+trap 'rm -rf "$TMP_HOME"' EXIT
 
-# Test identity
-cargo run --bin polygone -- identity 2>&1 | head -n 20
+smoke() {
+    printf '+ polygone'
+    printf ' %q' "$@"
+    printf '\n'
+    HOME="$TMP_HOME" cargo run --quiet --bin polygone -- "$@" >/dev/null
+}
 
-# Test serverless
-cargo run --bin polygone -- serverless --help 2>&1 | head -n 20
-
-# Test drive
-cargo run --bin polygone -- drive --help 2>&1 | head -n 20
-
-# Test petals
-cargo run --bin polygone -- petals --help 2>&1 | head -n 20
+smoke --help
+smoke clef
+smoke id
+smoke envoyer --help
+smoke recevoir --help
+smoke ecouter --help
+smoke petals --help
 
 echo "Smoke commands completed"
