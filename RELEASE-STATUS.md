@@ -14,7 +14,7 @@
 | Tag `v2.0.0` | Existe dans le dépôt, mais ne pointe pas sur le `HEAD` actuel |
 | Remote | `origin` est configuré ; l’avance/retard de branche est à contrôler avec `git status -sb` |
 
-Les binaires locaux ont affiché `2.0.0`. Les trois commits locaux ne constituent pas une version publiée et ne correspondent pas au tag `v2.0.0`.
+Les binaires locaux ont affiché `2.0.0`. Les commits locaux ne constituent pas une version publiée et ne correspondent pas au tag `v2.0.0`.
 
 ## 2. Derniers résultats de tests rapportés — workspace et correctif TOFU séparés
 
