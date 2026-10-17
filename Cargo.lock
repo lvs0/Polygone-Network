@@ -3079,6 +3079,7 @@ name = "polygone-client"
 version = "2.0.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap",
  "crossterm",
  "env_logger",

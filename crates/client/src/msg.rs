@@ -138,8 +138,8 @@ pub fn send_bytes(plaintext: &[u8], recipient_pk: &KemPublicKey) -> anyhow::Resu
     })
 }
 
-/// Decrypt a message from fragments using the recipient's secret key.
-pub fn receive(output: &SendOutput, recipient_sk: &KemSecretKey) -> anyhow::Result<String> {
+/// Decrypt arbitrary bytes from fragments using the recipient's secret key.
+pub fn receive_bytes(output: &SendOutput, recipient_sk: &KemSecretKey) -> anyhow::Result<Vec<u8>> {
     // 1. KEM decapsulate
     let shared_secret = kem::decapsulate(recipient_sk, &output.kem_ct)?;
 
@@ -158,9 +158,13 @@ pub fn receive(output: &SendOutput, recipient_sk: &KemSecretKey) -> anyhow::Resu
     let ciphertext = shamir::reconstruct(&frags, 4)?;
 
     // 4. AES-256-GCM decrypt
-    let plaintext = symmetric::decrypt(&ciphertext, &session_key)?;
+    Ok(symmetric::decrypt(&ciphertext, &session_key)?)
+}
 
-    String::from_utf8(plaintext).map_err(|e| anyhow::anyhow!("UTF-8 decode: {e}"))
+/// Decrypt a UTF-8 message from fragments using the recipient's secret key.
+pub fn receive(output: &SendOutput, recipient_sk: &KemSecretKey) -> anyhow::Result<String> {
+    String::from_utf8(receive_bytes(output, recipient_sk)?)
+        .map_err(|e| anyhow::anyhow!("UTF-8 decode: {e}"))
 }
 
 #[cfg(test)]
@@ -188,6 +192,16 @@ mod tests {
         let output = send(&msg, &recipient_pk).unwrap();
         let decrypted = receive(&output, &recipient_sk).unwrap();
         assert_eq!(decrypted, msg);
+    }
+
+    #[test]
+    fn binary_payload_round_trip() {
+        let (recipient_pk, recipient_sk) = kem::generate_keypair().unwrap();
+        let bytes = [0, 255, 0, 128, 10, 13, 0];
+        let output = send_bytes(&bytes, &recipient_pk).unwrap();
+
+        assert_eq!(receive_bytes(&output, &recipient_sk).unwrap(), bytes);
+        assert!(receive(&output, &recipient_sk).is_err());
     }
 
     #[test]

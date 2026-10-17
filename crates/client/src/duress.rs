@@ -66,10 +66,9 @@ pub fn execute() -> Result<Vec<String>> {
 
     // 4. Trust anchors (peers.json) — the relational trace: who was contacted.
     let peers = peers_path();
-    if peers.exists() {
-        std::fs::remove_file(&peers)?;
+    if crate::net::remove_peers_store()? {
         removed.push(format!(
-            "ancres de confiance supprimées : {}",
+            "ancres de confiance et résidus de persistance supprimés : {}",
             peers.display()
         ));
     }
@@ -167,6 +166,11 @@ mod tests {
             std::fs::write(base.join("identity.json"), b"keys").unwrap();
             std::fs::write(base.join("reputation.json"), b"{}").unwrap();
             std::fs::write(base.join("peers.json"), b"{}").unwrap();
+            std::fs::write(
+                base.join("peers.json.initialized"),
+                b"polygone-peers-store-v1\n",
+            )
+            .unwrap();
             std::fs::write(base.join("received").join("f"), b"data").unwrap();
 
             let removed = execute().unwrap();
@@ -175,6 +179,7 @@ mod tests {
             assert!(!base.join("identity.json").exists());
             assert!(!base.join("reputation.json").exists());
             assert!(!base.join("peers.json").exists());
+            assert!(!base.join("peers.json.initialized").exists());
             assert!(!base.join("received").exists());
         });
     }

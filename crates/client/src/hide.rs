@@ -19,7 +19,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -281,17 +281,20 @@ async fn handle_socks_connection(
     let down_key = key.clone();
     let down_session = session.clone();
     let down = tokio::spawn(async move {
-        let mut line = String::new();
+        let mut line = Vec::new();
         loop {
             line.clear();
-            let n = match down_reader.read_line(&mut line).await {
-                Ok(0) | Err(_) => break,
-                Ok(n) => n,
-            };
+            let n =
+                match net::read_line_capped(&mut down_reader, &mut line, net::MAX_RELAY_LINE_BYTES)
+                    .await
+                {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
             if n == 0 {
                 break;
             }
-            let env: net::NetEnvelope = match serde_json::from_str(line.trim()) {
+            let env: net::NetEnvelope = match serde_json::from_slice(&line) {
                 Ok(e) => e,
                 Err(_) => continue,
             };
@@ -322,12 +325,12 @@ async fn handle_socks_connection(
 /// The exit node loop: connect to the relay, answer `req` hide envelopes by
 /// opening the real TCP connection, then relay `stream` envelopes both ways.
 pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
+    let mut known_peers = net::load_peers()?;
     let stream = net::connect_relay(relay, identity).await?;
     let (reader, writer) = stream.into_split();
     let writer = Arc::new(Mutex::new(writer));
     let mut reader = BufReader::new(reader);
-    let mut line = String::new();
-    let mut known_peers = net::load_peers();
+    let mut line = Vec::new();
     // Active tunnels: session → (session key, real-connection write half).
     let mut tunnels: HashMap<String, (symmetric::SessionKey, OwnedWriteHalf)> = HashMap::new();
 
@@ -339,12 +342,12 @@ pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
 
     loop {
         line.clear();
-        let n = reader.read_line(&mut line).await?;
+        let n = net::read_line_capped(&mut reader, &mut line, net::MAX_RELAY_LINE_BYTES).await?;
         if n == 0 {
             println!("relay déconnecté.");
             return Ok(());
         }
-        if line.starts_with("HELLO_DENIED") {
+        if line.starts_with(b"HELLO_DENIED") {
             println!("✖ ce node_id est déjà connecté au relay (slot pris).");
             return Ok(());
         }
@@ -353,7 +356,7 @@ pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let env: net::NetEnvelope = match serde_json::from_str(line.trim()) {
+        let env: net::NetEnvelope = match serde_json::from_slice(&line) {
             Ok(e) => e,
             Err(_) => continue,
         };
@@ -385,11 +388,12 @@ pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
         if env.typ == "req" && env.to == net::node_id(identity) {
             // Authenticate the sender (signed request, fresh timestamp,
             // trust anchor). Only provable senders get a tunnel.
+            let previous = known_peers.clone();
             if !net::verify_req(&env, &mut known_peers, now_secs) {
                 println!("  ✖ hide : requête non authentifiée de {}", env.from);
                 continue;
             }
-            net::save_peers(&known_peers);
+            net::persist_peer_changes_at(&mut known_peers, &previous, &net::peers_path())?;
 
             // Decapsulate: first CT_SIZE bytes are the ML-KEM ciphertext,
             // the rest is the AES-GCM-encrypted destination.

@@ -138,7 +138,7 @@ enum Commands {
     },
     /// Show your ML-KEM-1024 public key (what you share to receive)
     Clef,
-    /// Print this node's random NodeId
+    /// Print the stable node id derived from this identity's KEM public key
     Id,
     /// Run the real crypto self-test suite (exit 0 = all green)
     Test,
@@ -197,6 +197,8 @@ enum Commands {
     },
     /// Show network/node status
     Status,
+    /// Explicitly create the empty trust store on first run
+    InitialiserPairs,
 }
 
 #[derive(Subcommand, Debug)]
@@ -239,11 +241,21 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if matches!(&args.command, Some(Commands::InitialiserPairs)) {
+        net::initialize_peers()?;
+        println!(
+            "⬡ store de confiance initialisé : {}",
+            net::peers_path().display()
+        );
+        return Ok(());
+    }
+
     // First run: materialise the local identity (keys + pseudo).
     let identity = identity::LocalIdentity::load_or_create()?;
 
     match args.command {
         None | Some(Commands::Tui) => tui::run(identity).await?,
+        Some(Commands::InitialiserPairs) => unreachable!("handled before identity initialization"),
         Some(Commands::Demo { relay: _ }) => {
             demo::run()?;
         }
@@ -264,12 +276,13 @@ async fn main() -> Result<()> {
             }
             // File mode: read the file, send its bytes.
             let payload: Vec<u8> = if stdin {
-                std::io::read_to_string(std::io::stdin())?
-                    .as_bytes()
-                    .to_vec()
+                drive::read_stdin_capped(drive::MAX_TRANSFER_BYTES)?.into_bytes()
             } else {
                 match &fichier {
-                    Some(path) => std::fs::read(path)?,
+                    Some(path) => drive::read_file_capped(
+                        std::path::Path::new(path),
+                        drive::MAX_TRANSFER_BYTES,
+                    )?,
                     None => message.as_bytes().to_vec(),
                 }
             };
@@ -296,20 +309,39 @@ async fn main() -> Result<()> {
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| p.clone())
                 });
-                let session = net::send_network(
-                    &relay,
-                    &dest_node,
-                    &payload,
-                    name.as_deref(),
-                    &recipient,
-                    &identity,
-                )
-                .await?;
+                let sessions = match name.as_deref() {
+                    Some(filename) => {
+                        net::send_network_file(
+                            &relay, &dest_node, &payload, filename, &recipient, &identity,
+                        )
+                        .await?
+                    }
+                    None => vec![
+                        net::send_network(
+                            &relay, &dest_node, &payload, None, &recipient, &identity,
+                        )
+                        .await?,
+                    ],
+                };
                 match &fichier {
-                    Some(_) => println!("⬡ fichier envoyé via relay {relay} → {dest_node}"),
+                    Some(_) => println!(
+                        "⬡ fichier transmis vers le relay {relay} → {dest_node} — livraison non confirmée"
+                    ),
                     None => println!("⬡ message envoyé via relay {relay} → {dest_node}"),
                 }
-                println!("  session {session} · 7 fragments + KEM_CT (4 suffisent pour lire)");
+                if fichier.is_some() {
+                    println!("  BLAKE3 {}", blake3::hash(&payload).to_hex());
+                    println!(
+                        "  {} bloc(s) Drive · {} session(s) signée(s) · 7 fragments par bloc",
+                        sessions.len(),
+                        sessions.len()
+                    );
+                } else {
+                    println!(
+                        "  session {} · 7 fragments + KEM_CT (4 suffisent pour lire)",
+                        sessions[0]
+                    );
+                }
                 return Ok(());
             }
 
@@ -332,15 +364,30 @@ async fn main() -> Result<()> {
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| p.clone())
                 });
-                let session = net::send_network(
-                    &peer.relay,
-                    &dest_node,
-                    &payload,
-                    name.as_deref(),
-                    &recipient,
-                    &identity,
-                )
-                .await?;
+                let sessions = match name.as_deref() {
+                    Some(filename) => {
+                        net::send_network_file(
+                            &peer.relay,
+                            &dest_node,
+                            &payload,
+                            filename,
+                            &recipient,
+                            &identity,
+                        )
+                        .await?
+                    }
+                    None => vec![
+                        net::send_network(
+                            &peer.relay,
+                            &dest_node,
+                            &payload,
+                            None,
+                            &recipient,
+                            &identity,
+                        )
+                        .await?,
+                    ],
+                };
                 match &fichier {
                     Some(_) => {
                         println!(
@@ -355,7 +402,19 @@ async fn main() -> Result<()> {
                         )
                     }
                 }
-                println!("  session {session} · 7 fragments + KEM_CT (4 suffisent pour lire)");
+                if fichier.is_some() {
+                    println!("  BLAKE3 {}", blake3::hash(&payload).to_hex());
+                    println!(
+                        "  {} bloc(s) Drive · {} session(s) signée(s) · 7 fragments par bloc",
+                        sessions.len(),
+                        sessions.len()
+                    );
+                } else {
+                    println!(
+                        "  session {} · 7 fragments + KEM_CT (4 suffisent pour lire)",
+                        sessions[0]
+                    );
+                }
                 return Ok(());
             }
 
@@ -373,9 +432,12 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Recevoir { input }) => {
             let text = if input == "-" {
-                std::io::read_to_string(std::io::stdin())?
+                drive::read_stdin_capped(drive::MAX_TRANSFER_BYTES)?
             } else {
-                std::fs::read_to_string(&input)?
+                String::from_utf8(drive::read_file_capped(
+                    std::path::Path::new(&input),
+                    drive::MAX_TRANSFER_BYTES,
+                )?)?
             };
             let output = msg::SendOutput::parse(&text)?;
             let plain = msg::receive(&output, &identity.kem_secret_key()?)?;
@@ -426,7 +488,7 @@ async fn main() -> Result<()> {
                     "  module : {path} ({} octets, wasmi sandbox)",
                     wasm_bytes.len()
                 );
-                let mut peers = net::load_peers();
+                let mut peers = net::load_peers()?;
                 match net::borrow_wasm(
                     &via,
                     &ghost,
@@ -439,6 +501,7 @@ async fn main() -> Result<()> {
                 {
                     Some(grant) => {
                         let body: serde_json::Value = serde_json::from_str(&grant)?;
+                        ensure_compute_grant_accepted(&body)?;
                         println!(
                             "  ⬡ SORTIE WASM (nœud {}) :",
                             body["node"].as_str().unwrap_or("?")
@@ -451,7 +514,6 @@ async fn main() -> Result<()> {
                         reputation::ReputationTable::load().record(&ghost, false);
                     }
                 }
-                net::save_peers(&peers);
                 return Ok(());
             }
 
@@ -462,7 +524,7 @@ async fn main() -> Result<()> {
                 })?;
                 println!("⬡ RES — exécution sandboxée → {ghost} (via {via})");
                 println!("  tâche : {command}");
-                let mut peers = net::load_peers();
+                let mut peers = net::load_peers()?;
                 match net::borrow_compute(
                     &via,
                     &ghost,
@@ -475,6 +537,7 @@ async fn main() -> Result<()> {
                 {
                     Some(grant) => {
                         let body: serde_json::Value = serde_json::from_str(&grant)?;
+                        ensure_compute_grant_accepted(&body)?;
                         println!(
                             "  ⬡ RÉSULTAT (nœud {}) :",
                             body["node"].as_str().unwrap_or("?")
@@ -487,7 +550,6 @@ async fn main() -> Result<()> {
                         reputation::ReputationTable::load().record(&ghost, false);
                     }
                 }
-                net::save_peers(&peers);
                 return Ok(());
             }
 
@@ -495,7 +557,7 @@ async fn main() -> Result<()> {
             if let Some(ghost) = emprunter {
                 println!("⬡ RES — demande de compute → {ghost} (via {via})");
                 let task = "bench calcul Polygone (réservé au RES)".to_string();
-                let mut peers = net::load_peers();
+                let mut peers = net::load_peers()?;
                 match net::borrow_compute(
                     &via,
                     &ghost,
@@ -507,6 +569,8 @@ async fn main() -> Result<()> {
                 .await?
                 {
                     Some(grant) => {
+                        let body: serde_json::Value = serde_json::from_str(&grant)?;
+                        ensure_compute_grant_accepted(&body)?;
                         println!("  ⬡ COMPUTE ACCORDÉ :");
                         reputation::ReputationTable::load().record(&ghost, true);
                         println!("  {grant}");
@@ -516,7 +580,6 @@ async fn main() -> Result<()> {
                         reputation::ReputationTable::load().record(&ghost, false);
                     }
                 }
-                net::save_peers(&peers);
                 return Ok(());
             }
             println!("⬡ RES — ressources et nœuds fantômes");
@@ -560,9 +623,7 @@ async fn main() -> Result<()> {
             );
         }
         Some(Commands::Id) => {
-            use polygone_core::NodeId;
-            let id = NodeId::random();
-            println!("{id}");
+            println!("{}", net::node_id(&identity));
         }
         Some(Commands::Test) => {
             self_test::run()?;
@@ -582,9 +643,7 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Serverless { payload }) => {
             let payload: Vec<u8> = if payload == "-" {
-                std::io::read_to_string(std::io::stdin())?
-                    .as_bytes()
-                    .to_vec()
+                drive::read_stdin_capped(drive::MAX_TRANSFER_BYTES)?.into_bytes()
             } else {
                 payload.as_bytes().to_vec()
             };
@@ -640,7 +699,7 @@ async fn main() -> Result<()> {
             );
             let rep = reputation::ReputationTable::load();
             println!("  réputation nœuds : {} entrées", rep.nodes.len());
-            let peers = net::load_peers();
+            let peers = net::load_peers()?;
             println!("  pairs connus : {}", peers.len());
             match mesh::free_ram_mb() {
                 Some(ram) => println!("  RAM libre : {ram} Mo"),
@@ -690,4 +749,54 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn ensure_compute_grant_accepted(body: &serde_json::Value) -> Result<()> {
+    if body.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        let reason = body
+            .get("refus")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("grant sans champ ok:true");
+        anyhow::bail!("Compute refusé ou grant invalide par le nœud distant : {reason}");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod compute_grant_cli_tests {
+    use super::ensure_compute_grant_accepted;
+
+    #[test]
+    fn compute_refusal_is_reported_as_error() {
+        let refusal = serde_json::json!({
+            "ok": false,
+            "refus": "réputation insuffisante",
+        });
+
+        let error = ensure_compute_grant_accepted(&refusal).unwrap_err();
+
+        assert!(error.to_string().contains("Compute refusé"));
+        assert!(error.to_string().contains("réputation insuffisante"));
+    }
+
+    #[test]
+    fn successful_compute_grant_is_accepted() {
+        let grant = serde_json::json!({ "ok": true, "output": "42" });
+        assert!(ensure_compute_grant_accepted(&grant).is_ok());
+    }
+
+    #[test]
+    fn grants_without_boolean_true_ok_are_rejected() {
+        for grant in [
+            serde_json::json!({}),
+            serde_json::json!({ "ok": null }),
+            serde_json::json!({ "ok": "true" }),
+            serde_json::json!({ "ok": 1 }),
+        ] {
+            assert!(
+                ensure_compute_grant_accepted(&grant).is_err(),
+                "grant unexpectedly accepted: {grant}"
+            );
+        }
+    }
 }
