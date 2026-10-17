@@ -2,14 +2,18 @@
 
 > *Document de bord : état au moment du push GitHub v2.0.0.*
 > *Auteur : Ruflo (subagent SHIP) · Date : 2026-08-20 · Licence : AGPL-3.0.*
+>
+> **ARCHIVE HISTORIQUE — 20 août 2026.** Ce récapitulatif décrit l’état déclaré à cette date; son verdict et sa checklist ne décrivent pas l’état courant. Pour toute annonce ou action de publication, consulter `RELEASE-STATUS.md`. Ne pas traiter les anciennes étapes de tag/push comme des tâches encore ouvertes.
 
 ---
 
-## 1. TL;DR — verdict honnête
+## 1. TL;DR — verdict historique déclaré à l’époque
 
-**Polygone est shippable en v2.0.0 aujourd'hui.** Code Rust 2021 propre,
-workspace Cargo à 4 crates, PQC réelle (ML-KEM-1024 + ML-DSA-65), tests
-qui passent, binaire release compilé, remote GitHub synchronisé.
+**Au 20 août 2026, Polygone était déclaré shippable en v2.0.0.** Code Rust
+2021, workspace Cargo à 4 crates, PQC (ML-KEM-1024 + ML-DSA-65), tests
+rapportés passants, binaire release compilé et remote GitHub alors décrit
+comme synchronisé. Ce constat historique ne vaut pas verdict sur l’arbre
+local actuel.
 
 Ce qui reste pour passer de "rc2" à "v2.0.0 final" est purement
 opérationnel : tag Git propre, release GitHub, publication des binaires.
@@ -100,9 +104,9 @@ nul sur la sécurité pratique — ML-DSA couvre déjà la signature).
 
 ---
 
-## 3. Ce qui MANQUE pour passer de "v2.0.0-rc2" à "v2.0.0"
+## 3. Ce qui était alors considéré MANQUANT pour passer de "rc2" à "v2.0.0"
 
-### 3.1 Bloquant ship (à faire maintenant)
+### 3.1 Actions déclarées bloquantes à l’époque (historique)
 
 | # | Action | Statut | Effort |
 |---|---|---|---|
@@ -175,7 +179,7 @@ nul sur la sécurité pratique — ML-DSA couvre déjà la signature).
 
 ---
 
-## 5. Comment ship ce soir — checklist
+## 5. Checklist historique déclarée le 20 août 2026
 
 1. ✅ `POLYGONE_SHIP.md` créé (ce document)
 2. ✅ `LICENSE` (AGPL-3.0) à la racine
