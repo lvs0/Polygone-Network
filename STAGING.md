@@ -2,7 +2,8 @@
 
 > *Archive des services initialement prévus dans `ECOSYSTEM.md` qui ne sont pas livrés.*
 > *Source : Conseil des Sages 2026-06-29 — Musk (couper 90%) + Gödel (documenter pour la postérité).*
-> *Mis à jour 2026-08-06 : brain livré (pilot D4 — petals local).*
+> *Snapshot historique du 2026-08-06 : brain livré (pilot D4 — petals local).*
+> *Note de sécurité Compute vérifiée le 2026-10-16 ci-dessous; les autres statuts de ce tableau restent à réconcilier avec `ECOSYSTEM.md`.*
 
 ---
 
@@ -14,12 +15,12 @@
 | **drive**  | 🟢 Live | ✅ fichiers E2E via relay aveugle (4/7) |
 | **brain**  | 🟢 Live | ✅ IA locale (`polygone petals` → Ollama, zéro cloud) |
 | **mesh**   | 🟢 Live | ✅ découverte LAN (`voisins`/`annoncer`, Phase 4) |
-| `compute`  | 🟢 Live (MVP) | ✅ visibilité + prêt + exécution sandboxée — WASM/reputation en Phase 8 |
+| `compute`  | 🟡 Partiel (MVP) | Correctif grant appliqué dans l’arbre local; tests ciblés passent, validation complète encore ouverte — voir ci-dessous |
 | `hide`     | 🟢 Live (Phase 1 MVP) | ✅ SOCKS5 proxy via relay aveugle + exit node (single-hop, doc honnête) |
 | `petals`   | ⚪ Staging | ❌ (distribution distribuée — le local est livré sous `brain`) |
 | `shell`    | ⚪ Staging | ❌ |
 
-**3 livrés + 1 protocole live · 3 archivés** (la coupe 75% tient, +2 ramenés en isolation).
+**Comptage historique au 2026-08-06 seulement; consulter `ECOSYSTEM.md` pour le registre courant.**
 
 ---
 
@@ -41,10 +42,36 @@
   (`~/.polygone/reputation.json`) et affiché dans `polygone compute` —
   on préfère les fantômes qui délivrent.
 - **Honnête** : sandbox *système* + WASM wasmi (memory-safe), réputation
-  locale (pas de reçus signés ML-DSA ni d'échange réseau — Phase 8+).
-  Requêtes non chiffrées E2E (métadonnées).
-**Phase 8+ restante.** Reçus vérifiables (grants signés ML-DSA) + échange
-de réputation réseau + adversary budget. La couche d'allocation existe déjà
+  locale (pas d'échange de réputation réseau — Phase 8+). Le corps JSON des
+  requêtes Compute, y compris la tâche ou le contenu WASM encodé en base64,
+  est signé mais pas chiffré E2E; le relay et les observateurs du trajet
+  peuvent en lire le contenu car le transport TCP courant n’utilise pas TLS.
+  N’y envoyer ni secret, ni donnée personnelle, ni code confidentiel.
+- **Grant — défaut détecté puis corrigé localement le 2026-10-16** : le
+  worker construit maintenant le payload final par branche, puis `grant_for()`
+  le signe une seule fois. Les 10 tests `grant_` et la suite Client complète
+  (105/105, incluant le faux relais qui renvoie un grant au mauvais destinataire)
+  passent; rustfmt et `git diff --check` passent. Tilleul a relu indépendamment
+  le test E2E, confirmé son résultat et n’a trouvé aucun défaut; le gate grants
+  ciblé est clos. Le workspace (176 tests + 1 doc-test), Clippy strict, build
+  release, smoke CLI, loopback, rustfmt et diff-check passent sur l’arbre
+  non commité, avant le lot TOFU courant. Aucun smoke réseau entre environnements
+  n’a été exécuté; le gate Modal de ce cycle n’est pas une preuve physique. Le
+  corps Compute reste lisible par le relay et les observateurs TCP sans TLS.
+- **Store de confiance TOFU — P1/P2 corrigés, gate Windows ouvert** : le
+  snapshot de validation (24 chemins) SHA `33626ec120864167a107ceaa66164317e2d6cc9577cd792a671b74389c5bd0bd`
+  rapporte 206/206 tests, Clippy strict, fmt, release, smoke CLI et forensic
+  loopback PASS; Tilleul confirme Client 134/134 et ne trouve plus de défaut
+  P1/P2. Le test `peers_store_first_launch_creates_missing_parent` existe sous
+  `#[cfg(windows)]`, mais n’a pas été compilé/exécuté; MinGW échoue dans
+  `pqcrypto-mlkem` sur `features.h`, donc le comportement Windows reste
+  non démontré. Modal et tests inter-hôtes restent non exécutés/suspendus.
+  Les mises à jour documentaires sont postérieures à ce digest. Aucune
+  durabilité universelle face aux courses/crashs n’est revendiquée.
+  Voir [`RELEASE-STATUS.md`](./RELEASE-STATUS.md).
+**Phase 8+ restante.** Le parcours demande→grant, dont le rejet E2E d’un
+destinataire incorrect, est couvert par les tests ciblés. Restent l’échange de
+réputation réseau et l’adversary budget; la couche d’allocation existe déjà
 dans `polygoned` (policy GlowUp).
 
 ---

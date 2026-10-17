@@ -123,7 +123,11 @@ fn polygone_dir() -> PathBuf {
 /// rend le verdict. La confiance devient une interaction, pas une lecture de
 /// README : l'utilisateur lance la commande et voit la liste réelle.
 pub fn verite() -> Result<()> {
-    let dir = polygone_dir();
+    verite_at(&polygone_dir())
+}
+
+fn verite_at(dir: &std::path::Path) -> Result<()> {
+    crate::net::ensure_peers_store_recovery_clear_at(&dir.join("peers.json"))?;
     let mut kept_about_others = 0usize;
     let mut kept_own = 0usize;
 
@@ -133,7 +137,7 @@ pub fn verite() -> Result<()> {
     if !dir.exists() {
         println!("  {DIM}(pas de dossier ~/.polygone — première exécution ?){RESET}");
     } else {
-        let entries: Vec<_> = std::fs::read_dir(&dir)?.collect::<Result<_, _>>()?;
+        let entries: Vec<_> = std::fs::read_dir(dir)?.collect::<Result<_, _>>()?;
         let mut entries: Vec<_> = entries.into_iter().map(|e| e.file_name()).collect();
         entries.sort();
 
@@ -144,7 +148,7 @@ pub fn verite() -> Result<()> {
                 println!("  · {name}  {DIM}(mes clés — à moi, jamais partagées){RESET}");
                 kept_own += 1;
             } else if name == "peers.json" {
-                let peers = crate::net::load_peers();
+                let peers = crate::net::load_peers()?;
                 println!(
                     "  · {name}  {DIM}({}{} empreinte(s) de clé publique){RESET}",
                     peers.len(),
@@ -314,6 +318,31 @@ mod tests {
         // Un HOME vide = pas de dossier ~/.polygone → verdict « rien ».
         // La fonction ne panique pas et énumère proprement.
         let _ = verite();
+    }
+
+    #[test]
+    fn verite_blocks_on_orphaned_backup_without_peers_store() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "polygone-verite-orphan-backup-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(".peers.json.backup-orphaned"),
+            b"previous trust state",
+        )
+        .unwrap();
+
+        let error = verite_at(&dir).unwrap_err().to_string();
+        assert!(error.contains("sauvegarde du store de confiance non résolue"));
+        assert!(error.contains("récupération explicite requise"));
+        assert!(!dir.join("peers.json").exists());
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

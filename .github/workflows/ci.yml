@@ -15,18 +15,30 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
-          toolchain: stable
+          toolchain: 1.97.1
+          components: clippy, rustfmt
       - name: Check formatting
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Test
-        run: cargo test --workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Assert Windows first-bootstrap test executes
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $testOutput = cargo --color never test --manifest-path crates/client/Cargo.toml --bin polygone --locked net::tests::peers_store_first_launch_creates_missing_parent -- --exact 2>&1
+          $testOutput | ForEach-Object { Write-Host $_ }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $joinedOutput = $testOutput -join "`n"
+          if ($joinedOutput -notmatch 'test net::tests::peers_store_first_launch_creates_missing_parent \.\.\. ok') {
+            throw 'Windows first-bootstrap test did not execute and pass.'
+          }
+      - name: Test workspace
+        run: cargo test --workspace --locked
       - name: Build release
-        run: cargo build --release --workspace
+        run: cargo build --release --workspace --locked
 
   smoke:
     name: Smoke / ${{ matrix.os }}
@@ -37,12 +49,14 @@ jobs:
       matrix:
         os: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.97.1
       - name: Build release
-        run: cargo build --release --workspace
+        run: cargo build --release --workspace --locked
       - name: Smoke tests
         run: |
-          chmod +x scripts/*.sh
           bash scripts/smoke-commands.sh
+          bash scripts/test-smoke-two-hosts.sh
         shell: bash

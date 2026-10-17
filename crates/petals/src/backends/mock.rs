@@ -2,9 +2,8 @@
 
 use crate::backends::{BackendCapabilities, BackendInfo};
 use crate::types::{
-    ChatRequest, ChatResponse, DeviceType,
-    InferenceRequest, InferenceResponse, ModelCapabilities, ModelInfo,
-    ModelSource, Usage,
+    ChatRequest, ChatResponse, DeviceType, InferenceRequest, InferenceResponse, ModelCapabilities,
+    ModelInfo, ModelSource, Usage,
 };
 use anyhow::Result;
 use futures::Stream;
@@ -110,28 +109,26 @@ impl MockBackend {
         if self.should_fail {
             return Err(anyhow::anyhow!("{}", self.fail_message));
         }
-        Ok(vec![
-            ModelInfo {
-                name: "mock-model:7b".to_string(),
-                display_name: Some("Mock Model 7B".to_string()),
-                source: ModelSource::LocalGguf,
-                parameters: Some("7B".to_string()),
-                quantization: Some("Q4_K_M".to_string()),
-                context_window: Some(4096),
-                size_gb: Some(4.0),
-                supported_devices: vec![DeviceType::Cpu],
-                capabilities: ModelCapabilities {
-                    chat: true,
-                    completion: true,
-                    tools: false,
-                    vision: false,
-                    streaming: true,
-                    embeddings: true,
-                    max_concurrent: Some(4),
-                },
-                metadata: serde_json::json!({}),
+        Ok(vec![ModelInfo {
+            name: "mock-model:7b".to_string(),
+            display_name: Some("Mock Model 7B".to_string()),
+            source: ModelSource::LocalGguf,
+            parameters: Some("7B".to_string()),
+            quantization: Some("Q4_K_M".to_string()),
+            context_window: Some(4096),
+            size_gb: Some(4.0),
+            supported_devices: vec![DeviceType::Cpu],
+            capabilities: ModelCapabilities {
+                chat: true,
+                completion: true,
+                tools: false,
+                vision: false,
+                streaming: true,
+                embeddings: true,
+                max_concurrent: Some(4),
             },
-        ])
+            metadata: serde_json::json!({}),
+        }])
     }
 
     /// Generate a completion (mock)

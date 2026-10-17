@@ -67,6 +67,9 @@ La démo E2E complète : Alice → relay aveugle → Bob, avec audit
   destinataire sur le LAN (mesh) — zéro configuration.
 - `--fichier <path>` : envoie un fichier (le destinataire le reçoit
   dans `~/.polygone/received/`).
+  Sur le réseau, le fichier est transmis en blocs Drive chiffrés de 12 Kio,
+  chacun dans une session signée ; la réception ne l’écrit qu’après
+  réassemblage complet. Taille maximale d’un transfert réseau : 256 Mio.
 - `--stdin` : lit le message depuis stdin — rien n'apparaît dans
   l'historique shell. À préférer pour les messages sensibles
   (cf. `docs/kill-switch.md`). Exemple :
