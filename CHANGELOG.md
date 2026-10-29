@@ -1,5 +1,26 @@
 # CHANGELOG — Polygone
 
+## [Unreleased] — 2026-10-22 — Le client Petals parle enfin le protocole du daemon
+
+### Fixed
+- **Le client Petals ne pouvait pas parler au daemon.** Il envoyait `AllocateResources`, `GetSystemResources` et `RegisterModel` — trois types que le protocole v1 ne connaît pas — sans le champ `v` que chaque message doit porter, vers `/tmp/polygoned.sock` alors que le daemon écoute `~/.polygone/daemon.sock`. Le daemon répondait `UnknownType` à chaque message. Le client utilise désormais **le protocole du serveur** (`polygoned::socket`) : même chemin, même encodage — donc même champ `v` — mêmes types.
+- **`get_system_resources()` ne pouvait pas être honnête** : le daemon expose l'allocation courante, pas un état de la machine (ni RAM totale, ni cœurs libres, ni liste des GPU). La méthode devient `allocation_status()` et ne rapporte que ce que le daemon dit.
+- **`register_model()` envoyait un message mort** : le protocole v1 n'a pas de requête d'enregistrement de modèle. La méthode le dit explicitement au lieu d'envoyer une requête que personne ne lirait.
+- **Le chemin du socket** : deux règles pour un seul socket. Le client et le daemon utilisent désormais `socket_path()` du daemon.
+
+### Added
+- **`crates/petals` entre dans le workspace.** 1 478 lignes — dont `daemon.rs`, citée dans `daemon/src/socket.rs` comme implémentation de référence du protocole — n'étaient ni compilées ni testées : le CI ne les voyait pas. Elles sont maintenant sous `cargo test --workspace` et `clippy -D warnings`.
+- **Test de contrat** (`crates/petals/tests/protocol_contract.rs`, 5 tests) : chaque requête du client passe par le **décodeur réel du daemon**, chaque réponse réelle du daemon est traduite par le client. La dérive ne peut plus revenir sans casser un test.
+- **`polygoned` devient une dépendance de `polygone-petals`** : le client dépend du protocole du serveur au lieu d'en garder une copie.
+
+### Changed
+- 10 warnings et 6 lints clippy de `polygone-petals` corrigés — invisibles tant que le crate n'était pas dans le workspace.
+
+### Verification
+- `cargo test --workspace` → 195 tests verts (189 avant, +5 de contrat, +1 doc-test)
+- `cargo clippy --workspace --all-targets -- -D warnings` → 0 warning
+
+---
 ## [Unreleased] — 2026-09-02 — Polygone Hide (Phase 1 MVP) livré
 
 ### Added

@@ -17,7 +17,8 @@
 
 - Un domaine → front web statique + API JSON.
 - Le client web parle à un proxy local (`polygone-gateway`) qui se connecte au réseau.
-- Pas de navigateur spécial : HTTPS + Service Worker + WebCrypto côté client.
+- Pas de navigateur spécial : HTTPS + WebCrypto côté client.
+  - **Note** : le projet ne dispose pas actuellement d'un Service Worker, ce qui signifie qu'il n'y a pas de PWA installable ni de fonctionnalité de synchronisation en arrière-plan.
 - Le téléphone mobile peut rejoindre comme nœud via le même domaine.
 
 ## 3. Site officiel
@@ -25,18 +26,20 @@
 - Design sobre, honnête, anti-AI-slop.
 - Sections : pitch, crypto, démo, téléchargement, documentation, état du réseau.
 - Généré depuis les docs existantes (`README.md`, `STRATEGIE.md`, `docs/*`).
-- Hébergement statique : `docs/site/` + CI deploy vers Pages/Vercel/Cloudflare.
+- Hébergement statique : `site/index.html` + CI deploy vers Pages/Vercel/Cloudflare.
+  - **Note** : le site est actuellement hébergé à la racine du dépôt (`site/index.html`) et non dans `docs/site/` comme annoncé. Le répertoire `docs/site/` n'existe pas.
 
 ## 4. Mobile comme nœud
 
 - PWA installable avec consentement explicite ("Acceptez-vous de participer comme nœud ?").
-- Background sync via Service Worker + Wake Lock API.
+- **Note** : le projet ne dispose pas actuellement d'un Service Worker, ce qui signifie qu'il n'y a pas de fonctionnalité de synchronisation en arrière-plan.
 - Contribution optionnelle : messaging, relais local, compute mineur.
 - Batterie/network aware : pauses auto si <20% batterie ou mobile data only.
 
 ## 5. État du réseau
 
-- `/api/v1/network/status` : nœuds actifs, latence moyenne, charge.
+- `/api/v1/network/status` : nœuds actifs, latence moyenne.
+  - **Note** : la passerelle renvoie actuellement `latency_ms_median: 42` en dur et `active = nodes.len()` pour le nombre de nœuds actifs. La charge n'est pas actuellement mesurée ou rapportée.
 - Carte des pairs anonymisée (pas d’IP, seulement NodeId + pays estimé).
 - Historique 24h agrégé.
 
