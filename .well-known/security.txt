@@ -1,0 +1,12 @@
+# RFC 9116 — security.txt for Polygone
+# Document associé : LEGAL.md §6 Disclosure responsable.
+# Date : 2026-08-07.
+# Re-signer au moins annuellement (champ Expires).
+
+Contact: mailto:relay-lvs0@protonmail.com
+Contact: mailto:polygone@proton.me
+Expires: 2027-08-07T23:59:59Z
+Preferred-Languages: fr, en
+Canonical: https://github.com/lvs0/Polygone-Network/blob/main/.well-known/security.txt
+Policy: https://github.com/lvs0/Polygone-Network/blob/main/LEGAL.md
+Acknowledgments: https://github.com/lvs0/Polygone-Network/security/advisories

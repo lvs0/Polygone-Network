@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Polygone">
+  <!-- Icône PWA : fond plein (maskable), hexagone centré dans la zone de sécurité 80 %. -->
+  <rect width="512" height="512" fill="#030306"/>
+  <polygon points="256,116 375,183 375,317 256,384 137,317 137,183"
+           fill="none" stroke="#a78bfa" stroke-width="18" stroke-linejoin="round"/>
+  <polygon points="256,186 315,220 315,288 256,322 197,288 197,220"
+           fill="none" stroke="#7c3aed" stroke-width="10" stroke-linejoin="round"/>
+</svg>

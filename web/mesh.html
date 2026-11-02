@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mesh — Polygone</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="dashboard.css" />
+<link rel="stylesheet" href="mesh.css" />
+</head>
+<body class="page--dashboard">
+
+<header class="nav">
+  <div class="nav__inner">
+    <a class="brand" href="index.html">
+      <svg viewBox="0 0 32 32" class="brand__mark" aria-hidden="true">
+        <polygon points="16,2 30,10 30,22 16,30 2,22 2,10" fill="none" stroke="currentColor" stroke-width="2" />
+        <polygon points="16,8 24,12.5 24,19.5 16,24 8,19.5 8,12.5" fill="none" stroke="currentColor" stroke-width="1.2" />
+      </svg>
+      <span>Polygone</span>
+    </a>
+    <nav>
+      <a href="index.html">Accueil</a>
+      <a href="node.html">Nœud</a>
+      <a href="drive.html">Drive</a>
+      <a href="mesh.html" class="active">Mesh</a>
+    </nav>
+  </div>
+</header>
+
+<main class="dashboard">
+  <section class="mesh">
+    <div class="mesh__main">
+      <div class="mesh__canvas">
+        <canvas id="canvas" width="800" height="500"></canvas>
+        <div class="mesh__legend">
+          <span><i style="background:#22d3ee"></i> Toi</span>
+          <span><i style="background:#22c55e"></i> Disponible</span>
+          <span><i style="background:#fbbd24"></i> Occupé</span>
+          <span><i style="background:#a78bfa"></i> Bluetooth</span>
+        </div>
+      </div>
+    </div>
+
+    <aside class="mesh__side">
+      <h2 class="panel__title">Pairs détectés</h2>
+      <ul class="peers" id="peers"></ul>
+
+      <h2 class="panel__title" style="margin-top: 24px;">Tâches</h2>
+      <ul class="tasks" id="tasks">
+        <li class="task task--light">
+          <span class="task__icon">⚡</span>
+          <div>
+            <div class="task__name">Légère</div>
+            <div class="task__hint">Locale uniquement</div>
+          </div>
+        </li>
+        <li class="task task--medium">
+          <span class="task__icon">🔄</span>
+          <div>
+            <div class="task__name">Moyenne</div>
+            <div class="task__hint">Délégué si pair CPU &gt; 70%</div>
+          </div>
+        </li>
+        <li class="task task--heavy">
+          <span class="task__icon">🧮</span>
+          <div>
+            <div class="task__name">Lourde</div>
+            <div class="task__hint">Délégué si pair CPU &gt; 50%</div>
+          </div>
+        </li>
+        <li class="task task--massive">
+          <span class="task__icon">🧩</span>
+          <div>
+            <div class="task__name">Massive</div>
+            <div class="task__hint">Fragmentée et distribuée</div>
+          </div>
+        </li>
+      </ul>
+    </aside>
+  </section>
+</main>
+
+<template id="peer-template">
+  <li class="peer">
+    <span class="peer__dot"></span>
+    <div class="peer__main">
+      <div class="peer__name"></div>
+      <div class="peer__addr"></div>
+    </div>
+    <div class="peer__metrics">
+      <div class="peer__metric" data-label="CPU"><span></span>%</div>
+      <div class="peer__metric" data-label="RAM"><span></span>%</div>
+    </div>
+  </li>
+</template>
+
+<script src="mesh.js"></script>
+</body>
+</html>

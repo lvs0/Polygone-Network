@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>⬡ Polygone — L'information n'existe pas. Elle traverse.</title>
+<meta name="description" content="Réseau de transit éphémère post-quantique. ML-KEM-1024, ML-DSA-65, AES-256-GCM, BLAKE3, Shamir 4/7. Aucun compte. Aucun serveur cloud. Aucune télémétrie." />
+<link rel="icon" type="image/svg+xml" href="../mark/favicon.svg" />
+<meta property="og:image" content="../social/og-card.svg" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="../social/og-card.svg" />
+<style>
+  :root {
+    --slate-900: #0f172a;
+    --slate-800: #1e293b;
+    --slate-700: #334155;
+    --slate-500: #64748b;
+    --text-muted: #94a3b8;
+    --text: #e2e8f0;
+    --amber-500: #f59e0b;
+    --amber-glow: rgba(245, 158, 11, 0.25);
+    --amber-dim: rgba(245, 158, 11, 0.06);
+    --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
+    --font-poetic: Georgia, "Times New Roman", serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--slate-900);
+    background-image: radial-gradient(circle at 20% 20%, var(--amber-dim) 0%, transparent 50%);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.65;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 32px; }
+
+  /* ----- Top bar ----- */
+  .topbar {
+    padding: 24px 0;
+    border-bottom: 1px solid var(--slate-700);
+  }
+  .topbar-inner { display: flex; align-items: center; justify-content: space-between; }
+  .brand-mini { display: flex; align-items: center; gap: 12px; }
+  .brand-mini .mark { width: 28px; height: 28px; }
+  .brand-mini .name {
+    font-size: 14px; font-weight: 600; letter-spacing: 0.14em; color: var(--text);
+  }
+  .topbar .meta {
+    font-size: 12px; color: var(--text-muted); letter-spacing: 0.10em;
+  }
+  .topbar .meta .live {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--amber-500); margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px var(--amber-glow);
+  }
+
+  /* ----- Hero ----- */
+  .hero { padding: 120px 0 80px; position: relative; }
+  .hero .mark-large {
+    width: 96px; height: 96px; margin-bottom: 32px;
+    animation: pulse 4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { filter: drop-shadow(0 0 12px var(--amber-glow)); }
+    50%      { filter: drop-shadow(0 0 4px var(--amber-glow)); }
+  }
+  .hero .eyebrow {
+    font-size: 11px; color: var(--text-muted); letter-spacing: 0.22em;
+    text-transform: uppercase; margin-bottom: 24px;
+  }
+  .hero h1 {
+    font-family: var(--font-mono);
+    font-size: 44px; font-weight: 600; letter-spacing: -0.01em;
+    line-height: 1.15; margin-bottom: 28px; max-width: 720px;
+    color: var(--text);
+  }
+  .hero .tagline {
+    font-family: var(--font-poetic);
+    font-style: italic; font-size: 24px; line-height: 1.4;
+    color: var(--text-muted); max-width: 640px; margin-bottom: 12px;
+  }
+  .hero .footnote {
+    font-size: 12px; color: var(--slate-500); letter-spacing: 0.04em;
+    margin-bottom: 56px; max-width: 640px;
+  }
+  .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 20px; font-family: var(--font-mono); font-size: 13px;
+    font-weight: 500; letter-spacing: 0.06em; text-decoration: none;
+    border-radius: 6px; border: 1px solid var(--slate-700);
+    background: transparent; color: var(--text); cursor: pointer;
+    transition: border-color 150ms ease, background 150ms ease;
+  }
+  .btn:hover { border-color: var(--amber-500); background: rgba(245, 158, 11, 0.04); }
+  .btn-primary {
+    background: var(--amber-500); color: var(--slate-900); border-color: var(--amber-500);
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: #fbbf24; border-color: #fbbf24; }
+  .btn .arrow { display: inline-block; transition: transform 150ms ease; }
+  .btn:hover .arrow { transform: translateX(2px); }
+
+  /* ----- Section generic ----- */
+  section { padding: 80px 0; border-top: 1px solid var(--slate-700); }
+  .section-label {
+    font-size: 11px; color: var(--text-muted); letter-spacing: 0.22em;
+    text-transform: uppercase; margin-bottom: 20px;
+  }
+  .section-title {
+    font-size: 28px; font-weight: 600; letter-spacing: -0.01em;
+    margin-bottom: 20px; color: var(--text);
+  }
+  .section-prose { color: var(--text-muted); max-width: 640px; margin-bottom: 48px; }
+
+  /* ----- Transit (Hitchcock) ----- */
+  .transit {
+    border: 1px solid var(--slate-700); border-radius: 8px; padding: 32px;
+    background: var(--slate-800); max-width: 720px;
+  }
+  .transit-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 24px; font-size: 12px; color: var(--text-muted);
+    letter-spacing: 0.10em;
+  }
+  .transit-tick { color: var(--amber-500); font-variant-numeric: tabular-nums; }
+  .transit-steps { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+  .step {
+    flex: 1 1 0; min-width: 120px; padding: 16px;
+    border: 1px solid var(--slate-700); border-radius: 4px;
+    text-align: center; transition: all 200ms ease;
+  }
+  .step .label { font-size: 10px; color: var(--slate-500); letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 8px; }
+  .step .glyph { font-size: 18px; color: var(--slate-500); transition: color 200ms ease; }
+  .step.lit { border-color: var(--amber-500); }
+  .step.lit .glyph { color: var(--amber-500); }
+  .step .latency { font-size: 11px; color: var(--slate-500); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .transit-foot {
+    font-family: var(--font-poetic); font-style: italic; color: var(--amber-500);
+    min-height: 22px; font-size: 14px;
+  }
+
+  /* ----- Properties grid (Bach: 4 properties, 4 counter-claims, paired) ----- */
+  .props { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--slate-700); border-radius: 8px; overflow: hidden; }
+  .prop { padding: 28px; border-right: 1px solid var(--slate-700); border-bottom: 1px solid var(--slate-700); }
+  .prop:nth-child(2n) { border-right: none; }
+  .prop:nth-last-child(-n+2) { border-bottom: none; }
+  .prop .k { font-size: 10px; color: var(--amber-500); letter-spacing: 0.22em; text-transform: uppercase; margin-bottom: 10px; }
+  .prop .v { font-size: 15px; color: var(--text); margin-bottom: 10px; font-weight: 500; }
+  .prop .c { font-size: 12px; color: var(--text-muted); font-family: var(--font-poetic); font-style: italic; }
+  @media (max-width: 720px) { .props { grid-template-columns: 1fr; } .prop { border-right: none; } }
+
+  /* ----- Stack line ----- */
+  .stack-line {
+    font-size: 12px; color: var(--text-muted); letter-spacing: 0.10em;
+    text-align: center; padding: 24px 0; line-height: 2.2;
+  }
+  .stack-line strong { color: var(--text); font-weight: 500; }
+  .stack-line .meta { color: var(--slate-500); font-style: italic; }
+  .stack-line .sep { color: var(--slate-700); margin: 0 16px; }
+
+  /* ----- CLI block ----- */
+  .cli {
+    background: #0a0f1a; border: 1px solid var(--slate-700); border-radius: 8px;
+    padding: 24px 28px; font-size: 13px; color: var(--text);
+    max-width: 720px; line-height: 1.7;
+  }
+  .cli .prompt { color: var(--amber-500); }
+  .cli .cmd { color: var(--text); }
+  .cli .out { color: var(--text-muted); }
+  .cli .ok { color: var(--amber-500); }
+
+  /* ----- Footer ----- */
+  footer { padding: 64px 0 48px; border-top: 1px solid var(--slate-700); margin-top: 80px; }
+  .foot-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+  .foot-meta { font-size: 11px; color: var(--slate-500); letter-spacing: 0.10em; }
+  .foot-meta .sep { color: var(--slate-700); margin: 0 12px; }
+
+  /* ----- Mobile ----- */
+  @media (max-width: 640px) {
+    .hero { padding: 64px 0 48px; }
+    .hero h1 { font-size: 32px; }
+    .hero .tagline { font-size: 20px; }
+    .section-title { font-size: 22px; }
+    .wrap { padding: 0 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand-mini">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <polygon points="32,8 52.78,20 52.78,44 32,56 11.22,44 11.22,20" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linejoin="miter"/>
+          <g fill="#f59e0b">
+            <rect x="31" y="13" width="2" height="6"/><rect x="46" y="20.9" width="6" height="2"/>
+            <rect x="46" y="41.1" width="6" height="2"/><rect x="31" y="45" width="2" height="6"/>
+            <rect x="12" y="41.1" width="6" height="2"/><rect x="12" y="20.9" width="6" height="2"/>
+          </g>
+          <circle cx="32" cy="32" r="1.5" fill="#f59e0b"/>
+        </svg>
+        <span class="name">POLYGONE</span>
+      </div>
+      <div class="meta">
+        <span class="live"></span>v2.0.0 · AGPL-3.0 · Rust
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero" style="border-top: none; padding-top: 120px;">
+    <svg class="mark-large" viewBox="0 0 64 64" aria-hidden="true">
+      <polygon points="32,8 52.78,20 52.78,44 32,56 11.22,44 11.22,20" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linejoin="miter"/>
+      <g fill="#f59e0b">
+        <rect x="31" y="13" width="2" height="6"/><rect x="46" y="20.9" width="6" height="2"/>
+        <rect x="46" y="41.1" width="6" height="2"/><rect x="31" y="45" width="2" height="6"/>
+        <rect x="12" y="41.1" width="6" height="2"/><rect x="12" y="20.9" width="6" height="2"/>
+      </g>
+      <circle cx="32" cy="32" r="1.5" fill="#f59e0b"/>
+    </svg>
+    <div class="eyebrow">réseau de transit éphémère · post-quantique</div>
+    <h1>Post-quantum transit network. Local-first, account-free, telemetry-free.</h1>
+    <p class="tagline">L'information n'existe pas. Elle traverse.</p>
+    <p class="footnote">aucun fragment reconstructible sans réunion d'au moins 4 fragments Shamir sur 7, jamais.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/lvs0/polygone">Voir le code <span class="arrow">→</span></a>
+      <a class="btn" href="#transit">Voir un transit</a>
+    </div>
+  </section>
+
+  <!-- Transit (Hitchcock: typographic suspense) -->
+  <section id="transit">
+    <div class="section-label">§ transit</div>
+    <h2 class="section-title">Pendant qu'un message traverse, vous voyez l'attente.</h2>
+    <p class="section-prose">
+      Aucun spinner. Aucune barre de chargement. Quatre fragments s'allument l'un après l'autre,
+      un tick de 60 fps indique le TTL, puis le texte ambre confirme la livraison.
+    </p>
+
+    <div class="transit">
+      <div class="transit-head">
+        <span>MSG · outbound</span>
+        <span class="transit-tick" id="tick">0 ms</span>
+      </div>
+      <div class="transit-steps" id="steps">
+        <div class="step" data-step="1"><div class="label">f1</div><div class="glyph">⬡</div><div class="latency">—</div></div>
+        <div class="step" data-step="2"><div class="label">f2</div><div class="glyph">⬡</div><div class="latency">—</div></div>
+        <div class="step" data-step="3"><div class="label">f3</div><div class="glyph">⬡</div><div class="latency">—</div></div>
+        <div class="step" data-step="4"><div class="label">f4</div><div class="glyph">⬡</div><div class="latency">—</div></div>
+      </div>
+      <div class="transit-foot" id="foot">préparation…</div>
+    </div>
+  </section>
+
+  <!-- Bach: paired properties -->
+  <section>
+    <div class="section-label">§ principes</div>
+    <h2 class="section-title">Quatre voix, quatre contre-voix.</h2>
+    <p class="section-prose">
+      Chaque affirmation poétique a sa note technique en regard. La phrase sans footnote
+      n'est pas livrée. Le silence du produit est documenté, pas suggéré.
+    </p>
+    <div class="props">
+      <div class="prop">
+        <div class="k">Axiome 1</div>
+        <div class="v">L'information n'existe nulle part fixe.</div>
+        <div class="c">« Aucun fragment reconstructible sans réunion d'au moins 4 sur 7. »</div>
+      </div>
+      <div class="prop">
+        <div class="k">Invariant</div>
+        <div class="v">Shamir 4-of-7 · zeroize() après session</div>
+        <div class="c">« Un observateur extérieur ne peut pas prouver qu'un message a existé. »</div>
+      </div>
+      <div class="prop">
+        <div class="k">Axiome 2</div>
+        <div class="v">Le produit a deux tons, pas trois.</div>
+        <div class="c">« Slate + ambre. Monospace + italique serif. »</div>
+      </div>
+      <div class="prop">
+        <div class="k">Invariant</div>
+        <div class="v">2 commandes : envoyer, quitter. Tout le reste derrière `:`.</div>
+        <div class="c">« L'utilisateur ne voit pas ce qui ne marche pas encore. »</div>
+      </div>
+      <div class="prop">
+        <div class="k">Axiome 3</div>
+        <div class="v">La menace est honnêtement divisée en deux.</div>
+        <div class="c">« Le projet ne prétend pas protéger tout le monde. »</div>
+      </div>
+      <div class="prop">
+        <div class="k">Invariant</div>
+        <div class="v">docs/threat-commodity.md, docs/threat-high-value.md — séparés</div>
+        <div class="c">« Un non-dit explicite par fichier, vérifié par grep. »</div>
+      </div>
+      <div class="prop">
+        <div class="k">Axiome 4</div>
+        <div class="v">Le silence est le produit, pas le silence marketing.</div>
+        <div class="c">« 90% des fonctionnalités coupées. L'inventaire est fait et documenté. »</div>
+      </div>
+      <div class="prop">
+        <div class="k">Invariant</div>
+        <div class="v">workspace ≤ 4 crates, monolithe archivé hors compilation</div>
+        <div class="c">« Ce qui vit : msg, drive, brain, mesh. Le reste attend. »</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Crypto stack line -->
+  <section>
+    <div class="section-label">§ crypto</div>
+    <h2 class="section-title">Cryptographie post-quantique, choix explicites.</h2>
+    <p class="section-prose">
+      Pas de marketing "sécurisé". Chaque algorithme a un numéro de standard, une RFC, une raison.
+    </p>
+    <div class="stack-line">
+      <strong>ML-KEM-1024</strong> <span class="meta">(FIPS 203)</span> <span class="sep">·</span>
+      <strong>ML-DSA-65</strong> <span class="meta">(FIPS 204)</span>
+      <br />
+      <strong>Ed25519</strong> <span class="meta">(RFC 8032)</span> <span class="sep">·</span>
+      <strong>AES-256-GCM</strong> <span class="meta">(NIST SP 800-38D)</span>
+      <br />
+      <strong>BLAKE3</strong> <span class="meta">(RFC draft)</span> <span class="sep">·</span>
+      <strong>Shamir 4-of-7</strong> <span class="meta">(secret sharing)</span>
+    </div>
+  </section>
+
+  <!-- CLI -->
+  <section>
+    <div class="section-label">§ usage</div>
+    <h2 class="section-title">Deux commandes. Tout le reste est paramètre.</h2>
+    <p class="section-prose">
+      Style vim. Les choses qui marchent sont visibles. Les choses en chantier ne le sont pas.
+    </p>
+    <pre class="cli">
+<span class="prompt">⬡</span> <span class="cmd">polygone</span>
+<span class="out">╔════════════════════════════════════════╗
+║  ⬡ POLYGONE                  v2.0.0   ║
+║  ───────────────────────────────────  ║
+║  « L'information n'existe pas.        ║
+║    Elle traverse. »                  ║
+║  ───── aucun fragment reconstructible ║
+║    sans 4-of-7, jamais. ─────        ║
+╠════════════════════════════════════════╣
+║  ▶ Envoyer                           ║
+║    Quitter                           ║
+╚════════════════════════════════════════╝</span>
+
+<span class="prompt">⬡</span> <span class="cmd">:peer @alice</span>
+<span class="out">connecting via ML-KEM-1024 handshake…</span>
+<span class="ok">✓ peer established · 4-of-7 ready</span>
+    </pre>
+  </section>
+
+  <!-- Final: compteur honnête -->
+  <section>
+    <div class="section-label">§ honnêteté</div>
+    <h2 class="section-title">Ce qui est livré, ce qui ne l'est pas.</h2>
+    <p class="section-prose">
+      Polygone est un projet en développement. Ce qui marche est listé sans emphase.
+      Ce qui n'est pas prêt est listé sans excuses.
+    </p>
+    <div class="stack-line" style="text-align: left; line-height: 2;">
+      <strong style="color: var(--amber-500)">LIVRÉ</strong>
+      &nbsp;·&nbsp; 162 tests <span class="sep">·</span> 0 clippy warnings <span class="sep">·</span> ML-KEM-1024 <span class="sep">·</span> ML-DSA-65 <span class="sep">·</span> AES-256-GCM <span class="sep">·</span> BLAKE3 <span class="sep">·</span> Shamir 4/7 <span class="sep">·</span> Plan-then-execute <span class="sep">·</span> Live event stream <span class="sep">·</span> Sub-agents typés <span class="sep">·</span> Approval gates
+      <br>
+      <strong style="color: var(--slate-500)">EN COURS</strong>
+      &nbsp;·&nbsp; Multi-model routing (Notch-1.5B, Ollama, opt-in cloud) <span class="sep">·</span> Drive service (fragmented storage) <span class="sep">·</span> Mesh relay
+      <br>
+      <strong style="color: var(--slate-500)">NON LIVRÉ</strong>
+      &nbsp;·&nbsp; Audit externe de sécurité <span class="sep">·</span> GUI desktop complète <span class="sep">·</span> App stores
+    </div>
+  </section>
+
+  <footer>
+    <div class="foot-inner">
+      <div class="foot-meta">
+        ⬡ POLYGONE <span class="sep">·</span> v2.0.0 <span class="sep">·</span> AGPL-3.0 <span class="sep">·</span> Rust
+      </div>
+      <div class="foot-meta">
+        <a href="https://github.com/lvs0/polygone" style="color: var(--text-muted); text-decoration: none;">github.com/lvs0/polygone</a>
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+  // Hitchcock: typographic suspense. Not a spinner. A real-time transcription of state.
+  (function () {
+    const steps = Array.from(document.querySelectorAll('.step'));
+    const tick = document.getElementById('tick');
+    const foot = document.getElementById('foot');
+    let start = 0, raf = 0;
+
+    function reset() {
+      steps.forEach(s => s.classList.remove('lit'));
+      steps.forEach(s => s.querySelector('.latency').textContent = '—');
+      foot.textContent = 'préparation…';
+      start = performance.now();
+    }
+
+    function loop(now) {
+      const t = now - start;
+      tick.textContent = Math.floor(t) + ' ms';
+      if (t < 60) {
+        // préparation latence
+        foot.textContent = 'préparation…';
+      } else if (t < 200) {
+        const i = Math.min(3, Math.floor((t - 60) / 35));
+        steps.forEach((s, idx) => {
+          if (idx <= i) {
+            s.classList.add('lit');
+            s.querySelector('.latency').textContent = '+' + Math.floor((t - 60) / 4) + ' ms';
+          }
+        });
+        foot.textContent = 'reconstruction des fragments…';
+      } else if (t < 380) {
+        steps.forEach(s => { s.classList.add('lit'); });
+        foot.textContent = '4-of-7 reunis, dérivation de la clé…';
+      } else if (t < 500) {
+        foot.innerHTML = '<span class="ok">✓ delivered</span> · zeroize() executed';
+        cancelAnimationFrame(raf);
+        setTimeout(() => { reset(); raf = requestAnimationFrame(loop); }, 1800);
+        return;
+      }
+      raf = requestAnimationFrame(loop);
+    }
+    raf = requestAnimationFrame(loop);
+  })();
+</script>
+</body>
+</html>

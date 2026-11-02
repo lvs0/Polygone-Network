@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 180x180 apple-touch-icon. Rounded corners handled by iOS automatically. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Polygone">
+  <title>Polygone</title>
+  <rect width="180" height="180" fill="#0f172a"/>
+  <g transform="translate(26,26)">
+    <polygon points="64,16 105.56,40 105.56,88 64,112 22.44,88 22.44,40"
+             fill="none" stroke="#f59e0b" stroke-width="4" stroke-linejoin="miter"/>
+    <g fill="#f59e0b">
+      <rect x="62" y="26" width="4" height="12"/>
+      <rect x="92" y="41.8" width="12" height="4"/>
+      <rect x="92" y="82.2" width="12" height="4"/>
+      <rect x="62" y="90" width="4" height="12"/>
+      <rect x="24" y="82.2" width="12" height="4"/>
+      <rect x="24" y="41.8" width="12" height="4"/>
+    </g>
+    <circle cx="64" cy="64" r="3" fill="#f59e0b"/>
+  </g>
+</svg>

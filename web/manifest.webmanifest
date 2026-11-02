@@ -1,0 +1,21 @@
+{
+  "name": "Polygone",
+  "short_name": "Polygone",
+  "description": "Réseau de transit éphémère post-quantique. Aucun serveur ne voit le message.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#030306",
+  "theme_color": "#030306",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Polygone mark, light context">
+  <title>Polygone (light field)</title>
+  <!-- For light surfaces. Same geometry, slate stroke instead of amber, slate apertures. -->
+  <rect width="64" height="64" fill="#f8fafc"/>
+  <polygon points="32,8 52.78,20 52.78,44 32,56 11.22,44 11.22,20"
+           fill="none" stroke="#0f172a" stroke-width="2" stroke-linejoin="miter"/>
+  <g fill="#0f172a">
+    <rect x="30.75" y="12" width="2.5" height="8"/>
+    <rect x="45" y="20.25" width="8" height="2.5"/>
+    <rect x="45" y="41.25" width="8" height="2.5"/>
+    <rect x="30.75" y="44" width="2.5" height="8"/>
+    <rect x="11" y="41.25" width="8" height="2.5"/>
+    <rect x="11" y="20.25" width="8" height="2.5"/>
+  </g>
+  <circle cx="32" cy="32" r="1.5" fill="#0f172a"/>
+</svg>
