@@ -1,0 +1,68 @@
+# Polygone — spécification fonctionnelle ancrée dans le dépôt
+
+> Version de travail fondée sur le workspace observé. Ce document décrit le code présent, pas la vision à terme. Pour les promesses non livrées, voir STAGING.md et docs/VISION-COMPLETE.md.
+
+## 1. Produit et contrat
+
+Polygone est un ensemble d'outils Rust de communication pair-à-pair chiffrée, relayée par un routeur aveugle, avec un daemon local de ressources et plusieurs services annexes. Il n'existe pas de compte cloud obligatoire ni de base de données centrale applicative dans le workspace.
+
+Le transport de messages utilise ML-KEM-1024, AES-256-GCM, Shamir 4-of-7 et une signature ML-DSA-65 de l'enveloppe KEM. Le relay route les fragments sans lire le payload (client/src/net/mod.rs:198-290, :650-860 ; relay/src/relay.rs:14-27, :165-230 ; core/src/crypto).
+
+## 2. Crates réels
+
+| Package exact | Responsabilité constatée |
+|---|---|
+| polygone-core | Identités/types, ML-KEM, ML-DSA, AES-GCM, BLAKE3, Shamir |
+| polygone-relay | Serveur TCP NDJSON, routage aveugle, limites connexion/taille/débit |
+| polygone-client | Binaire polygone, CLI/TUI, identité, messages/fichiers, mesh, compute, Hide, nœud stockage |
+| polygoned | Daemon mesure/allocation/politique, socket IPC, ledger de réservations |
+| polygone-gateway | Serveur HTTP, routes JSON et site statique |
+| polygone-petals | Bibliothèque de backends/planner ; Ollama, vLLM et llama.cpp optionnels |
+| polygone-serverless | Modèle requête, parts Shamir, validation et quorum ; pas de transport réseau |
+
+Workspace Rust 2021 par défaut ; polygone-gateway déclare Rust 2024 (Cargo.toml:1-18 ; crates/gateway/Cargo.toml:1-6). Dépendances communes : Tokio, Serde, Clap, sysinfo (Cargo.toml:20-30).
+
+## 3. Capacités présentes et statut
+
+### Live selon la table API Gateway
+- msg : messagerie E2E via relay.
+- drive : transfert de fichiers via le pipeline réseau.
+- hide : proxy SOCKS5 mono-saut via relay et exit node.
+Source : crates/gateway/src/routes.rs:24-57 ; transport dans crates/client/src/net et hide.rs.
+
+### Partiel selon la table API Gateway
+- petals : IA locale via Ollama ; planner présent, distribution des poids et inférence inter-pairs non branchées.
+- serverless : split/reassemble Shamir et règles de quorum en fonctions ; la commande vérifie localement les parts et n'envoie aucune requête à un nœud (crates/client/src/serverless.rs:12-15, :25-78).
+
+### Autres capacités effectivement présentes
+- compute : prêt via relay, grants signés ML-DSA-65, exécution shell systemd et WASM wasmi (client/src/net/mod.rs:439-464, :516-620 ; client/src/exec.rs:36-189). Réputation locale, sans sélection automatique des pairs (client/src/main.rs:643-743).
+- node : service de blocs sous bail ; --isoler crée sous Linux un scope systemd/cgroup v2 dédié avec limites OS vérifiées (client/src/main.rs:215-330 ; client/src/node_isolation.rs).
+- brain : appels HTTP à Ollama local (client/src/petals.rs:1-18, :87-144).
+- mesh : découverte LAN UDP (client/src/mesh.rs).
+- Gateway : binaire distribué avec `web/`, résout le site relatif à l'installation, sert l'API HTTP sur loopback uniquement ; le Gateway refuse les binds publics tant que TLS et l'authentification mutuelle ne sont pas en place.
+- PWA : manifeste, service worker, cache de coque et page hors ligne (web/manifest.webmanifest, pwa.js, sw.js, offline.html).
+
+Écart à résoudre : la table SERVICES du Gateway ne liste que msg, drive, hide, petals, serverless, alors que STAGING.md déclare aussi compute, brain et mesh live. Ne pas présenter ces inventaires comme identiques avant harmonisation (routes.rs:24-57 ; STAGING.md:12-25).
+
+## 4. Contraintes techniques et sécurité
+- Crypto : pqcrypto-mlkem, pqcrypto-mldsa, aes-gcm, blake3, sharks, zeroize (crates/core/Cargo.toml:8-28).
+- WASM : wasmi et wasmi_wasi (crates/client/Cargo.toml:13-28).
+- Le relay voit l'adresse IP source et les identifiants de routage, mais ne lit pas le payload chiffré (crates/relay/src/relay.rs:14-16, :94-135).
+- Le daemon ne doit pas être décrit comme appliquant des quotas au consommateur sans isolation dédiée. Sous Linux, node servir --isoler ajoute un scope distinct ; sans cette option, le plafond de transferts est auto-imposé.
+- Gateway : HTTP sans terminaison TLS intégrée, écoute loopback uniquement (les binds publics sont refusés), état en mémoire, appairage token 256 bits / 5 min lié aux deux clés publiques ML-KEM-1024 + ML-DSA-65 ; preuve de possession mutuelle encore absente.
+- Licence : AGPL-3.0-or-later (Cargo.toml:13-18).
+
+## 5. Hors périmètre / non livré
+- Dispatch Serverless vers plusieurs nœuds, réception des résultats et quorum exécuté sur le réseau.
+- Distribution des poids et inférence Petals entre pairs.
+- Reçus signés de résultat d'exécution et réputation réseau ; le grant d'autorisation est déjà signé, mais ne prouve pas la justesse du résultat.
+- Hide multi-hop (circuit dry-run), comptes, login, passkeys, QR natif et gestion complète des deep links.
+- Téléphone comme nœud, adaptation batterie/réseau et synchronisation de fond.
+- Carte réseau globale, historique 24 h, pays estimés, métriques globales messages/fichiers.
+- Déploiement HTTPS public automatisé ; le Gateway local ne termine pas TLS.
+
+## 6. À CONFIRMER
+- Inventaire exact des services que /api/v1/services doit annoncer : table Gateway et STAGING.md divergent.
+- Hébergeur, DNS et terminaison TLS d'un éventuel déploiement public : aucun workflow web n'est présent.
+- Plateformes/appareils mobiles officiellement ciblés et testés.
+- Objectifs chiffrés de disponibilité, latence et capacité : aucun benchmark correspondant ne les établit.

@@ -1,0 +1,61 @@
+# ── Build artifacts ─────────────────────────────────────────────────────────────
+target/
+*.wasm
+*.exe
+
+# ── Rust generated ────────────────────────────────────────────────────────────
+# Cargo.lock est versionné : ce workspace produit des binaires, une release
+# reproductible exige un verrou. (L'original l'ignorait tout en le suivant.)
+# Cargo.lock
+
+# ── IDE ────────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── OS ─────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+
+# ── Local generated / runtime ─────────────────────────────────────────────────
+.polygone/
+.purple/
+*.hex
+
+# ── Test artifacts ─────────────────────────────────────────────────────────────
+benches/
+
+# ── Orchestrateur (état local, pas de la source) ──────────────────────────────
+.orchestrator/
+logs/
+# The D2 handshake gate bench is source, not an artifact — keep it tracked.
+!crates/core/benches/
+!crates/core/benches/handshake_bench.rs
+perf.data
+perf.data.old
+
+# ── Graphify generated output (local only) ───────────────────────────────────
+graphify-out/
+
+# ── Report artifacts ────────────────────────────────────────────────────────────
+NIGHT-REPORT.md
+
+# ── Serena tool metadata (local dev only) ─────────────────────────────────────
+.serena/
+
+# ── Agent / swarm metadata ───────────────────────────────────────────────────
+.claude/
+.claude-flow/
+.agents/
+.swarm/
+.mcp.json
+
+# ── Environment files ─────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*
+# Exception : archive documentée (time_sync, décision D9)
+!archive/2026-08-time_sync/

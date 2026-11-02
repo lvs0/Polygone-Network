@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polygone — hors-ligne</title>
+  <meta name="theme-color" content="#030306">
+  <meta name="robots" content="noindex">
+  <style>
+    :root {
+      --bg: #030306;
+      --surface: #0c0c14;
+      --border: #1e1e30;
+      --accent-bright: #a78bfa;
+      --text: #e2e2f0;
+      --text-muted: #6b6b8a;
+      --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.7;
+      text-align: center;
+    }
+    main {
+      max-width: 420px;
+      padding: 32px 28px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .hex { font-size: 40px; line-height: 1; color: var(--accent-bright); }
+    h1 { font-size: 18px; letter-spacing: 0.08em; margin: 16px 0 8px; }
+    p { color: var(--text-muted); }
+    p + p { margin-top: 12px; }
+    a {
+      display: inline-block;
+      margin-top: 24px;
+      padding: 8px 16px;
+      color: var(--text);
+      text-decoration: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    a:hover, a:focus-visible { border-color: var(--accent-bright); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="hex" aria-hidden="true">⬡</div>
+    <h1>Hors-ligne</h1>
+    <p>Cette page n'a pas été mise en cache et le réseau est indisponible.</p>
+    <p>L'interface reste consultable hors-ligne ; les échanges, eux, demandent une connexion au réseau Polygone.</p>
+    <a href="./index.html">Revenir à l'accueil</a>
+  </main>
+</body>
+</html>

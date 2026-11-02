@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 1280x640 GitHub social preview (also works as a README banner). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="Polygone GitHub banner">
+  <title>Polygone — GitHub banner</title>
+  <defs>
+    <radialGradient id="warm-spot-2" cx="78%" cy="25%" r="55%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+    <!-- The "transit graph" — six edges of a hexagon, suggested as faint lines. The user doesn't see the message; the user sees the absence. -->
+    <pattern id="transit" x="0" y="0" width="64" height="64" patternUnits="userSpaceOnUse">
+      <circle cx="32" cy="32" r="0.6" fill="#334155"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="640" fill="#0f172a"/>
+  <rect width="1280" height="640" fill="url(#warm-spot-2)"/>
+  <rect width="1280" height="640" fill="url(#transit)" opacity="0.5"/>
+  <!-- Top-left corner: compact mark + wordmark -->
+  <g transform="translate(60,60)">
+    <g transform="scale(0.6)">
+      <polygon points="32,8 52.78,20 52.78,44 32,56 11.22,44 11.22,20"
+               fill="none" stroke="#f59e0b" stroke-width="2" stroke-linejoin="miter"/>
+      <g fill="#f59e0b">
+        <rect x="31" y="13" width="2" height="6"/>
+        <rect x="46" y="20.9" width="6" height="2"/>
+        <rect x="46" y="41.1" width="6" height="2"/>
+        <rect x="31" y="45" width="2" height="6"/>
+        <rect x="12" y="41.1" width="6" height="2"/>
+        <rect x="12" y="20.9" width="6" height="2"/>
+      </g>
+      <circle cx="32" cy="32" r="1.5" fill="#f59e0b"/>
+    </g>
+    <text x="50" y="28" font-family="'JetBrains Mono', 'Courier New', monospace"
+          font-size="20" font-weight="600" letter-spacing="0.14em" fill="#e2e8f0">POLYGONE</text>
+  </g>
+  <!-- Big hex mark, right side, semi-transparent background presence -->
+  <g transform="translate(880,140) scale(6)" opacity="0.18">
+    <polygon points="32,8 52.78,20 52.78,44 32,56 11.22,44 11.22,20"
+             fill="none" stroke="#f59e0b" stroke-width="2" stroke-linejoin="miter"/>
+    <circle cx="32" cy="32" r="1.5" fill="#f59e0b"/>
+  </g>
+  <!-- Main statement -->
+  <text x="60" y="340" font-family="'JetBrains Mono', 'Courier New', monospace"
+        font-size="58" font-weight="600" letter-spacing="0.06em" fill="#e2e8f0">Post-quantum transit network.</text>
+  <!-- Italic counterpoint, beneath -->
+  <text x="60" y="400" font-family="Georgia, 'Times New Roman', serif"
+        font-size="34" font-style="italic" fill="#94a3b8">L&#x2019;information n&#x2019;existe pas. Elle traverse.</text>
+  <!-- Hairline, then technical line (Bach pair) -->
+  <line x1="60" y1="450" x2="1220" y2="450" stroke="#334155" stroke-width="1"/>
+  <text x="60" y="495" font-family="'JetBrains Mono', 'Courier New', monospace"
+        font-size="19" letter-spacing="0.10em" fill="#94a3b8">ML-KEM-1024 (FIPS 203)  ·  ML-DSA-65 (FIPS 204)</text>
+  <text x="60" y="520" font-family="'JetBrains Mono', 'Courier New', monospace"
+        font-size="19" letter-spacing="0.10em" fill="#94a3b8">Ed25519 (RFC 8032)  ·  AES-256-GCM  ·  BLAKE3</text>
+  <text x="60" y="545" font-family="'JetBrains Mono', 'Courier New', monospace"
+        font-size="19" letter-spacing="0.10em" fill="#94a3b8">Shamir 4-of-7  ·  zeroize</text>
+  <!-- Bottom band: truths -->
+  <text x="60" y="570" font-family="'JetBrains Mono', 'Courier New', monospace"
+        font-size="16" letter-spacing="0.18em" fill="#94a3b8">AUCUN COMPTE  ·  AUCUN SERVEUR  ·  AUCUNE TÉLÉMÉTRIE</text>
+  <text x="1220" y="570" text-anchor="end"
+        font-family="'JetBrains Mono', 'Courier New', monospace"
+        font-size="14" letter-spacing="0.10em" fill="#64748b">v2.0.0 · AGPL-3.0 · Rust</text>
+</svg>

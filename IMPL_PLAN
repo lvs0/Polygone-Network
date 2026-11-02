@@ -1,0 +1,58 @@
+# Polygone — plan d'implémentation fondé sur l'état réel
+
+> Pas de calendrier fictif. Chaque étape produit une preuve exécutable et une mise à jour documentaire. « Fait » signifie appelé dans un chemin produit, pas seulement défini ou testé isolément.
+
+## État déjà présent
+- [x] Workspace Rust et sept crates réels (Cargo.toml, cargo metadata --no-deps).
+- [x] Transport messages/fichiers chiffrés et signés via relay ; tests client/relay.
+- [x] Daemon : mesure, politique, bail, ledger persistant et IPC.
+- [x] Compute shell/systemd et WASM/wasmi appelés par receive_network (client/src/net/mod.rs:601-620).
+- [x] Nœud stockage sous bail ; isolation Linux explicite --isoler avec MemoryMax/CPUQuota vérifiés.
+- [x] Gateway HTTP, appairage MVP, bundle web/PWA distribué, résolution des ressources et tests socket réels ; bind loopback imposé.
+- [x] PWA installable/coque hors ligne ; Hide mono-saut ; IA locale Ollama.
+- [x] polygone id affiche désormais l'identifiant relay stable dérivé de la clé KEM persistante ; test CLI avec HOME temporaire passé.
+
+## Ordre de travail restant
+
+### P0 — Cohérence d'identité, sécurité et contrats
+- [ ] Réconcilier branches Git et worktrees sans écraser les changements locaux ; comparer chaque commit, test et appelant avant intégration.
+  - Preuve : liste des commits retenus/rejetés ; aucun merge/reset/clean automatique.
+- [x] MVP appairage Gateway : bearer token 256 bits, TTL cinq minutes, purge, plafond 4 096, consommation atomique, refus du rejeu et validation ML-KEM-1024 + ML-DSA-65. NodeInfo conserve le NodeId relay compatible et la clé de signature.
+  - Preuve : tests token valide, expiré, inconnu, rejoué/concurrent, clés KEM/DSA malformées ; cargo test -p polygone-gateway.
+- [ ] Compléter l'appairage avec une preuve de possession signée des deux côtés, confirmation utilisateur et révocation. Le bearer token seul n'authentifie pas mutuellement les deux appareils.
+- [ ] Définir un reçu post-exécution signé par le nœud. Le distinguer du grant actuel, qui prouve une réponse/autorisation, pas la correction du résultat.
+  - Preuve : tests ML-DSA sur sortie, identité, tâche, timestamp, altération, mauvaise clé et rejeu.
+- [ ] Brancher la réputation locale sur les reçus vérifiés ; ne pas prétendre sélectionner les pairs avant une politique testée.
+  - Preuve : appelant de production, tests acceptation/rejet ; cargo clippy -p polygone-client --all-targets -- -D warnings.
+
+### P1 — Mesures réseau et Gateway
+- [ ] Définir une source d'événements/heartbeats authentifiée pour alimenter Gateway ; mesurer la latence avec un protocole borné et une fenêtre documentée.
+  - Preuve : test socket arrivée, heartbeat, expiration, perte et latence ; cargo test -p polygone-gateway.
+- [ ] Harmoniser la table SERVICES avec STAGING.md sans annoncer un service non joignable.
+  - Preuve : test comparant table et registre approuvé.
+- [ ] Décider le modèle de déploiement : reverse proxy TLS, secrets, limites, journaux, sauvegardes et rétention. Garder Gateway sur loopback avant validation.
+  - Preuve : test de configuration et vérification HTTPS externe sur staging autorisé.
+
+### P2 — Serverless réseau
+- [ ] Définir un protocole versionné : sélection de nœuds distincts, enveloppe/tâche, transport, timeouts, retries bornés, annulation, réponse et reçu signé.
+- [ ] Brancher dispatch/réception sur relay ; ne pas envoyer une part Shamir à un exécuteur qui a besoin de la requête entière. Distinguer transit fragmenté et calcul répliqué.
+- [ ] Exécuter verify_receipts puis tally sur les réponses réelles ; un nœud ne vote qu'une fois.
+  - Preuve : test multi-processus relay local, nœuds distincts, panne, réponse forgée, sortie divergente, quorum insuffisant ; cargo test -p polygone-serverless -p polygone-client -p polygone-relay.
+
+### P3 — Petals distribué
+- [ ] Garder le planner comme planificateur ; définir format des poids, authentification, transfert, étapes d'inférence et retour activations/tokens.
+- [ ] Implémenter un pipeline multi-processus avec backpressure, limites mémoire, timeouts et reprise après panne.
+  - Preuve : au moins deux workers réels et une inférence de référence ; cargo test -p polygone-petals plus test multi-processus.
+
+### P4 — Mobile et expérience produit
+- [ ] Définir consentement, révocation, plafonds de ressources et contraintes batterie/réseau avant toute participation mobile.
+- [ ] Ajouter QR/deep-link seulement après sécurisation de l'appairage ; passkeys uniquement si un vrai modèle de compte devient nécessaire.
+  - Preuve : tests appareils/navigateurs ciblés, révocation et absence de participation sans consentement.
+
+## Garde-fous de livraison
+- cargo fmt --all -- --check
+- cargo test --workspace
+- cargo clippy --workspace --all-targets -- -D warnings
+- git diff --check
+- Tests d'intégration socket/processus pour toute capacité réseau ou système annoncée.
+- Chaque capacité documentaire doit pointer vers un appelant de production et un test pertinent ; sinon statut prototype, partiel ou non livré.

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 16x16 favicon. Mark scaled to fit, stroke thinned to 1.2 to stay crisp at small sizes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img" aria-label="Polygone">
+  <title>Polygone</title>
+  <rect width="16" height="16" fill="#0f172a"/>
+  <!-- Hex circumradius 6, centered (8,8). Vertices: (8,2) (13.2,5) (13.2,11) (8,14) (2.8,11) (2.8,5) -->
+  <polygon points="8,2 13.2,5 13.2,11 8,14 2.8,11 2.8,5"
+           fill="none" stroke="#f59e0b" stroke-width="1.2" stroke-linejoin="miter"/>
+  <circle cx="8" cy="8" r="0.8" fill="#f59e0b"/>
+</svg>

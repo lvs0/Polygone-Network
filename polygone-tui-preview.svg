@@ -1,0 +1,210 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 720" font-family="'JetBrains Mono', 'Courier New', monospace">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a0f"/>
+      <stop offset="100%" stop-color="#0d1117"/>
+    </linearGradient>
+    <linearGradient id="header-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0891b2"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="accent-glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="card-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="card-hover" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#334155"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="600" height="720" fill="url(#bg)"/>
+
+  <!-- Accent glow top -->
+  <rect width="600" height="100" fill="url(#accent-glow)" opacity="0.5"/>
+
+  <!-- Diagonal grid lines -->
+  <g stroke="#1e293b" stroke-width="0.5" opacity="0.3">
+    <line x1="0" y1="0" x2="200" y2="720"/>
+    <line x1="100" y1="0" x2="300" y2="720"/>
+    <line x1="200" y1="0" x2="400" y2="720"/>
+    <line x1="300" y1="0" x2="500" y2="720"/>
+    <line x1="400" y1="0" x2="600" y2="720"/>
+    <line x1="500" y1="0" x2="700" y2="720"/>
+  </g>
+
+  <!-- ===== HEADER ===== -->
+  <rect x="0" y="0" width="600" height="56" fill="#0a0a1a" opacity="0.9"/>
+  <line x1="0" y1="56" x2="600" y2="56" stroke="#1e293b" stroke-width="1"/>
+
+  <!-- Logotype -->
+  <text x="24" y="36" font-size="18" font-weight="bold" fill="#22d3ee" filter="url(#glow)">⬡ POLYGONE</text>
+  <text x="196" y="36" font-size="11" fill="#475569">v1.0.0</text>
+
+  <!-- Status dot -->
+  <circle cx="540" cy="28" r="5" fill="#22c55e" filter="url(#glow)"/>
+  <text x="554" y="33" font-size="10" fill="#64748b">Actif</text>
+
+  <!-- ===== TAB BAR ===== -->
+  <rect x="0" y="56" width="600" height="40" fill="#0f172a"/>
+  <line x1="0" y1="96" x2="600" y2="96" stroke="#1e293b" stroke-width="1"/>
+
+  <!-- Tab 1 — Accueil (active) -->
+  <rect x="0" y="56" width="150" height="40" fill="#1e293b"/>
+  <rect x="0" y="93" width="150" height="3" fill="#22d3ee"/>
+  <text x="48" y="82" font-size="13" font-weight="bold" fill="#22d3ee">🏠 Accueil</text>
+
+  <!-- Tab 2 — Favoris -->
+  <text x="178" y="82" font-size="13" fill="#64748b">⭐ Favoris</text>
+  <line x1="150" y1="62" x2="150" y2="93" stroke="#334155" stroke-width="1"/>
+
+  <!-- Tab 3 — Services -->
+  <text x="310" y="82" font-size="13" fill="#64748b">🧩 Services</text>
+  <line x1="300" y1="62" x2="300" y2="93" stroke="#334155" stroke-width="1"/>
+
+  <!-- Tab 4 — Paramètres -->
+  <text x="442" y="82" font-size="13" fill="#64748b">⚙️ Paramètres</text>
+  <line x1="450" y1="62" x2="450" y2="93" stroke="#334155" stroke-width="1"/>
+
+  <!-- ===== CONTENT ===== -->
+  <rect x="0" y="96" width="600" height="570" fill="transparent"/>
+
+  <!-- LEFT PANEL — Statut nœud -->
+  <rect x="16" y="112" width="272" height="240" rx="8" fill="url(#card-bg)" stroke="#1e293b" stroke-width="1" filter="url(#shadow)"/>
+  <rect x="16" y="112" width="272" height="34" rx="8" fill="#1e293b"/>
+  <rect x="16" y="138" width="272" height="8" fill="#1e293b"/>
+  <text x="28" y="135" font-size="11" font-weight="bold" fill="#94a3b8">STATUT DU NŒUD</text>
+
+  <circle cx="36" cy="172" r="6" fill="#22c55e" filter="url(#glow)"/>
+  <text x="50" y="177" font-size="14" font-weight="bold" fill="#22c55e">● ACTIF</text>
+  <text x="50" y="197" font-size="10" fill="#64748b">depuis 18 min · IP masquée</text>
+  <text x="50" y="217" font-size="10" fill="#64748b">Pairings : 3 nœuds locaux</text>
+  <text x="50" y="237" font-size="10" fill="#64748b">Trafic : 0.0 b/s entrée</text>
+
+  <!-- Barre de seuil -->
+  <rect x="28" y="260" width="230" height="6" rx="3" fill="#1e293b"/>
+  <rect x="28" y="260" width="144" height="6" rx="3" fill="#22c55e"/>
+  <rect x="28" y="273" width="230" height="3" rx="1.5" fill="#334155"/>
+  <text x="28" y="295" font-size="10" fill="#64748b">4/7 fragments requis · 3 nœuds</text>
+  <rect x="210" y="283" width="48" height="16" rx="4" fill="#1e293b" stroke="#22c55e" stroke-width="0.5"/>
+  <text x="218" y="295" font-size="9" fill="#22c55e">⚠ DANGER</text>
+
+  <!-- RIGHT PANEL — Modules vifs -->
+  <rect x="300" y="112" width="284" height="240" rx="8" fill="url(#card-bg)" stroke="#1e293b" stroke-width="1" filter="url(#shadow)"/>
+  <rect x="300" y="112" width="284" height="34" rx="8" fill="#1e293b"/>
+  <rect x="300" y="138" width="284" height="8" fill="#1e293b"/>
+  <text x="312" y="135" font-size="11" font-weight="bold" fill="#94a3b8">MODULES ACTIFS</text>
+
+  <!-- Msg -->
+  <rect x="314" y="156" width="128" height="56" rx="6" fill="#1e293b" stroke="#22d3ee" stroke-width="0.5"/>
+  <text x="318" y="178" font-size="13" fill="#22d3ee">💬 Msg</text>
+  <text x="318" y="196" font-size="9" fill="#64748b">Messagerie E2E</text>
+  <rect x="368" y="160" width="40" height="14" rx="3" fill="#22d3ee" opacity="0.15"/>
+  <text x="374" y="171" font-size="8" fill="#22d3ee">v0.1</text>
+  <!-- tiny dot -->
+  <circle cx="430" cy="168" r="3" fill="#22c55e"/>
+
+  <!-- Hide -->
+  <rect x="450" y="156" width="128" height="56" rx="6" fill="#1e293b" stroke="#a78bfa" stroke-width="0.5"/>
+  <text x="454" y="178" font-size="13" fill="#a78bfa">👻 Hide</text>
+  <text x="454" y="196" font-size="9" fill="#64748b">Proxy SOCKS5</text>
+  <circle cx="566" cy="168" r="3" fill="#22c55e"/>
+
+  <!-- Drive -->
+  <rect x="314" y="220" width="128" height="56" rx="6" fill="#1e293b" stroke="#fbbf24" stroke-width="0.5"/>
+  <text x="318" y="242" font-size="13" fill="#fbbf24">📁 Drive</text>
+  <text x="318" y="260" font-size="9" fill="#64748b">Stockage chiffré</text>
+  <circle cx="430" cy="232" r="3" fill="#64748b"/>
+
+  <!-- Mesh -->
+  <rect x="450" y="220" width="128" height="56" rx="6" fill="#1e293b" stroke="#34d399" stroke-width="0.5"/>
+  <text x="454" y="242" font-size="13" fill="#34d399">🔗 Mesh</text>
+  <text x="454" y="260" font-size="9" fill="#64748b">Réseau local P2P</text>
+  <circle cx="566" cy="232" r="3" fill="#64748b"/>
+
+  <!-- Brain badge bottom of right panel -->
+  <rect x="314" y="288" width="256" height="28" rx="6" fill="#1e293b" stroke="#fb7185" stroke-width="0.5" stroke-dasharray="4,2"/>
+  <text x="324" y="307" font-size="10" fill="#fb7185">🧠 Brain · IA locale</text>
+  <text x="458" y="307" font-size="9" fill="#64748b">🔜 bientôt</text>
+
+  <!-- ===== BOTTOM HALF: Messages + Quick actions ===== -->
+  <text x="16" y="380" font-size="12" font-weight="bold" fill="#64748b">📋 ACTIVITÉ RÉCENTE</text>
+  <line x1="16" y1="388" x2="584" y2="388" stroke="#1e293b" stroke-width="1"/>
+
+  <circle cx="28" cy="406" r="3" fill="#22c55e"/>
+  <text x="38" y="410" font-size="10" fill="#94a3b8">Nœud démarré</text>
+  <text x="520" y="410" font-size="9" fill="#475569">18 min ago</text>
+
+  <circle cx="28" cy="428" r="3" fill="#22d3ee"/>
+  <text x="38" y="432" font-size="10" fill="#94a3b8">Clé ML-KEM-1024 générée</text>
+  <text x="506" y="432" font-size="9" fill="#475569">17 min ago</text>
+
+  <circle cx="28" cy="450" r="3" fill="#22c55e"/>
+  <text x="38" y="454" font-size="10" fill="#94a3b8">Pairing avec node: 127.0.0.1:4001</text>
+  <text x="508" y="454" font-size="9" fill="#475569">15 min ago</text>
+
+  <circle cx="28" cy="472" r="3" fill="#fbbf24"/>
+  <text x="38" y="476" font-size="10" fill="#94a3b8">Cache zéroé — 4.2 MB libérés</text>
+  <text x="506" y="476" font-size="9" fill="#475569">12 min ago</text>
+
+  <circle cx="28" cy="494" r="3" fill="#22c55e"/>
+  <text x="38" y="498" font-size="10" fill="#94a3b8">Test Shamir 4-of-7 : ✓ (35/35 combinaisons)</text>
+  <text x="498" y="498" font-size="9" fill="#475569">8 min ago</text>
+
+  <circle cx="28" cy="516" r="3" fill="#a78bfa"/>
+  <text x="38" y="520" font-size="10" fill="#94a3b8">Tunnel Hide : SOCKS5 ready sur 127.0.0.1:9050</text>
+  <text x="480" y="520" font-size="9" fill="#475569">5 min ago</text>
+
+  <!-- Quick action bar -->
+  <rect x="16" y="550" width="568" height="56" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="28" y="570" font-size="10" fill="#64748b">ACTIONS RAPIDES</text>
+
+  <rect x="28" y="580" width="80" height="20" rx="4" fill="#0f172a" stroke="#22d3ee" stroke-width="0.5"/>
+  <text x="38" y="594" font-size="9" fill="#22d3ee">📤 Envoyer</text>
+
+  <rect x="116" y="580" width="80" height="20" rx="4" fill="#0f172a" stroke="#a78bfa" stroke-width="0.5"/>
+  <text x="126" y="594" font-size="9" fill="#a78bfa">👻 Proxy</text>
+
+  <rect x="204" y="580" width="80" height="20" rx="4" fill="#0f172a" stroke="#34d399" stroke-width="0.5"/>
+  <text x="214" y="594" font-size="9" fill="#34d399">🔗 Mesh</text>
+
+  <rect x="292" y="580" width="80" height="20" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="0.5"/>
+  <text x="302" y="594" font-size="9" fill="#fbbf24">📁 Drive</text>
+
+  <rect x="380" y="580" width="116" height="20" rx="4" fill="#0f172a" stroke="#fb7185" stroke-width="0.5" stroke-dasharray="2,2"/>
+  <text x="390" y="594" font-size="9" fill="#fb7185">🧠 Brain (α)</text>
+
+  <!-- ===== FOOTER ===== -->
+  <line x1="0" y1="622" x2="600" y2="622" stroke="#1e293b" stroke-width="1"/>
+  <rect x="0" y="622" width="600" height="42" fill="#0a0a1a"/>
+
+  <text x="24" y="648" font-size="10" fill="#475569">↑↓ naviguer</text>
+  <text x="124" y="648" font-size="9" fill="#334155">·</text>
+  <text x="138" y="648" font-size="10" fill="#475569">↵ sélectionner</text>
+  <text x="248" y="648" font-size="9" fill="#334155">·</text>
+  <text x="262" y="648" font-size="10" fill="#475569">q quitter</text>
+  <text x="348" y="648" font-size="9" fill="#334155">·</text>
+  <text x="362" y="648" font-size="10" fill="#475569">Tab basculer</text>
+
+  <!-- Solde dans le footer -->
+  <rect x="430" y="628" width="80" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="0.5"/>
+  <text x="440" y="648" font-size="9" fill="#64748b">⬡ 10 · 0.1/m</text>
+
+  <!-- Version -->
+  <text x="530" y="648" font-size="9" fill="#334155">v1.0.0</text>
+
+  <!-- Bottom border glow -->
+  <rect x="0" y="664" width="600" height="2" fill="url(#header-grad)" opacity="0.3"/>
+</svg>

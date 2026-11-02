@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>⬡ Polygone — L'information n'existe pas. Elle traverse.</title>
+<meta name="description" content="Réseau de transit éphémère post-quantique. ML-KEM-1024 · ML-DSA-65 · AES-256-GCM · BLAKE3 · Shamir 4/7. Aucun compte. Aucun serveur. Aucune télémétrie." />
+<style>
+  :root {
+    --slate-900: #0f172a;
+    --slate-800: #1e293b;
+    --slate-700: #334155;
+    --slate-500: #64748b;
+    --text-muted: #94a3b8;
+    --text: #e2e8f0;
+    --amber-500: #f59e0b;
+    --amber-glow: rgba(245, 158, 11, 0.25);
+    --amber-dim: rgba(245, 158, 11, 0.06);
+    --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
+    --font-poetic: Georgia, "Times New Roman", serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--slate-900);
+    background-image: radial-gradient(circle at 20% 30%, var(--amber-dim) 0%, transparent 55%);
+    color: var(--text);
+    font-family: var(--font-mono);
+    line-height: 1.65;
+    min-height: 100vh;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* ── Logo hexagone ── */
+  .logo-hex {
+    display: block;
+    width: 64px; height: 64px;
+    margin: 72px auto 28px;
+    color: var(--amber-500);
+    animation: pulse 4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { filter: drop-shadow(0 0 22px var(--amber-glow)); }
+    50%      { filter: drop-shadow(0 0 10px var(--amber-glow)); }
+  }
+
+  /* ── Hero ── */
+  .hero { text-align: center; margin-bottom: 72px; }
+  .hero .tagline {
+    font-family: var(--font-poetic);
+    font-style: italic;
+    font-size: 2.1rem;
+    line-height: 1.35;
+    font-weight: 400;
+    color: var(--text);
+    max-width: 560px;
+    margin: 0 auto 14px;
+  }
+  .hero .footnote {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+  }
+  .hero .install {
+    margin: 44px auto 0;
+    max-width: 560px;
+    text-align: left;
+    background: var(--slate-800);
+    border: 1px solid var(--slate-700);
+    border-radius: 8px;
+    padding: 18px 20px;
+    font-size: 0.82rem;
+    overflow-x: auto;
+  }
+  .hero .install .prompt { color: var(--amber-500); }
+  .hero .install .cmd { color: var(--text); }
+
+  /* ── Section ── */
+  section { margin-top: 72px; }
+  .section-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    margin-bottom: 22px;
+    border-top: 1px solid var(--slate-700);
+    padding-top: 18px;
+  }
+
+  /* ── Transit typographique (Hitchcock) ── */
+  .transit {
+    border: 1px solid var(--slate-700);
+    border-radius: 8px;
+    background: var(--slate-800);
+    padding: 22px 20px;
+    font-size: 0.8rem;
+    margin-top: 18px;
+  }
+  .transit .bar { color: var(--amber-500); margin-bottom: 10px; }
+  .transit .tick { color: var(--text-muted); font-size: 0.7rem; margin-bottom: 12px; }
+  .transit .steps { display: flex; gap: 10px; flex-wrap: wrap; }
+  .transit .step {
+    border: 1px solid var(--slate-700);
+    border-radius: 4px;
+    padding: 5px 9px;
+    color: var(--text-muted);
+    opacity: 0.25;
+    transition: opacity 0.15s;
+  }
+  .transit .step.on { opacity: 1; color: var(--amber-500); border-color: var(--amber-500); }
+  .transit .done { margin-top: 14px; color: var(--amber-500); opacity: 0; transition: opacity 0.4s; }
+
+  /* ── Crypto grid ── */
+  .crypto { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .crypto .cell {
+    border: 1px solid var(--slate-700);
+    border-radius: 8px;
+    padding: 18px 18px 14px;
+  }
+  .crypto .cell .name { color: var(--amber-500); font-size: 0.85rem; margin-bottom: 6px; }
+  .crypto .cell .role { font-size: 0.78rem; color: var(--text); }
+  .crypto .cell .std {
+    font-size: 0.66rem;
+    color: var(--text-muted);
+    margin-top: 10px;
+    font-style: italic;
+  }
+
+  /* ── Contraste honnête ── */
+  .honest { border: 1px solid var(--slate-700); border-radius: 8px; padding: 20px; }
+  .honest .row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 8px 0; border-bottom: 1px dashed var(--slate-700); font-size: 0.78rem;
+  }
+  .honest .row:last-child { border-bottom: none; }
+  .honest .yes { color: #34d399; }
+  .honest .no { color: var(--text-muted); font-style: italic; }
+
+  /* ── CTA unique ── */
+  .cta {
+    display: block;
+    margin: 56px auto 0;
+    max-width: 300px;
+    text-align: center;
+    padding: 16px 20px;
+    border: 1px solid var(--amber-500);
+    border-radius: 8px;
+    color: var(--amber-500);
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: background 0.2s;
+  }
+  .cta:hover { background: var(--amber-dim); }
+
+  footer {
+    margin-top: 80px;
+    text-align: center;
+    font-size: 0.66rem;
+    color: var(--text-muted);
+    line-height: 2;
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <!-- Logo hexagonal -->
+  <svg class="logo-hex" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <polygon points="32,4 56,18 56,46 32,60 8,46 8,18" stroke="currentColor" stroke-width="3" fill="none"/>
+    <polygon points="32,14 48,23 48,41 32,50 16,41 16,23" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.5"/>
+    <circle cx="32" cy="32" r="4" fill="currentColor"/>
+  </svg>
+
+  <div class="hero">
+    <p class="tagline">« L'information n'existe pas.<br/>Elle traverse. »</p>
+    <p class="footnote">aucun fragment reconstructible sans 4-of-7 fragments Shamir, jamais — c'est une promesse de design, pas une métaphore</p>
+    <div class="install">
+      <span class="prompt">$</span> <span class="cmd">curl -fsSL https://github.com/lvs0/Polygone-Network/releases/latest/install.sh | bash</span><br/>
+      <span class="prompt">$</span> <span class="cmd">polygone</span>
+    </div>
+  </div>
+
+  <section>
+    <h2 class="section-title">Ce que ça fait, vraiment</h2>
+    <p style="font-size:0.85rem; color:var(--text);">
+      Envoyer un message, ou un fichier, sans que personne d'autre ne puisse
+      prouver qu'il a traversé. Sept fragments circulent sur le réseau —
+      quatre suffisent pour lire, trois ne révèlent rien. Trente secondes,
+      et les fragments non consolidés se désintègrent.
+    </p>
+    <div class="transit">
+      <div class="bar">⬡ message en transit</div>
+      <div class="tick" id="tick">0 ms</div>
+      <div class="steps" id="steps">
+        <span class="step">f1</span><span class="step">f2</span><span class="step">f3</span>
+        <span class="step">f4</span><span class="step">f5</span><span class="step">f6</span>
+        <span class="step">f7</span>
+      </div>
+      <div class="done" id="done">✓ 4/7 suffisent · 3/7 ne révèlent rien</div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title">Crypto, post-quantique, par construction</h2>
+    <div class="crypto">
+      <div class="cell">
+        <div class="name">ML-KEM-1024</div>
+        <div class="role">échange de clés — résiste aux ordinateurs quantiques</div>
+        <div class="std">NIST FIPS 203 · formerly Kyber</div>
+      </div>
+      <div class="cell">
+        <div class="name">ML-DSA-65</div>
+        <div class="role">signatures — qui a écrit, prouvé</div>
+        <div class="std">NIST FIPS 204 · formerly Dilithium</div>
+      </div>
+      <div class="cell">
+        <div class="name">AES-256-GCM</div>
+        <div class="role">chiffrement symétrique des charges utiles</div>
+        <div class="std">NIST SP 800-38D</div>
+      </div>
+      <div class="cell">
+        <div class="name">Shamir 4-of-7</div>
+        <div class="role">fragmentation à seuil — un fragment isolé ne dit rien</div>
+        <div class="std">Shamir 1979 · secret sharing</div>
+      </div>
+      <div class="cell">
+        <div class="name">BLAKE3</div>
+        <div class="role">KDF domain-séparé — topologie et session, jamais liées</div>
+        <div class="std">BLAKE3 2020</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title">Comparé aux autres</h2>
+    <div class="crypto">
+      <div class="cell">
+        <div class="name">Tout le monde cache quelque chose.</div>
+        <div class="role">Polygone cache l'existence même de la communication.</div>
+        <div class="std">VPN cache le contenu · Tor cache l'origine · Polygone cache le fait</div>
+      </div>
+    </div>
+    <div class="honest" style="margin-top:16px">
+      <div class="row"><span>Cache le contenu</span><span>VPN ✓ · Tor ✓ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Cache l'IP source</span><span>VPN ✓ · Tor ✓ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Cache l'IP cible</span><span>VPN ✗ · Tor ✓ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Post-quantique</span><span>VPN ✗ · Tor ✗ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Pas de relay persistant</span><span>VPN ✗ · Tor ✗ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Messages auto-évaporés</span><span>VPN ✗ · Tor ✗ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Zero-log prouvable</span><span>VPN ✗ · Tor ~ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+      <div class="row"><span>Open source</span><span>VPN ~ · Tor ✓ · <span style="color:var(--amber-500)">Polygone ✓</span></span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title">Statut, sans maquillage</h2>
+    <div class="honest">
+      <div class="row"><span>Messagerie E2E (msg)</span><span class="yes">live</span></div>
+      <div class="row"><span>Drive — fichiers E2E (4/7)</span><span class="yes">live</span></div>
+      <div class="row"><span>IA locale (petals → Ollama)</span><span class="yes">live</span></div>
+      <div class="row"><span>Audit externe</span><span class="no">non réalisé — cf. LEGAL.md §5</span></div>
+      <div class="row"><span>P2P production</span><span class="no">relay réel, libp2p en cours</span></div>
+      <div class="row"><span>Compte · abonnement · token</span><span class="no">jamais, par design</span></div>
+    </div>
+  </section>
+
+  <a class="cta" href="https://github.com/lvs0/Polygone-Network" rel="noopener">voir le code · MIT</a>
+
+  <footer>
+    ⬡ Polygone v2.0.0-rc2 · AGPL-3.0 · zéro token · zéro télémétrie<br/>
+    « On voit rien. Et c'est comme ça que ça devrait être. »
+  </footer>
+
+</main>
+
+<script>
+  // Typographic suspense — 7 fragments s'allument, 4 suffisent. Pas de spinner.
+  (function () {
+    var steps = document.querySelectorAll('.step');
+    var done = document.getElementById('done');
+    var tick = document.getElementById('tick');
+    var t0 = performance.now();
+
+    function frame(now) {
+      var dt = now - t0;
+      if (dt < 2000) {
+        tick.textContent = Math.floor(dt) + ' ms';
+        var on = Math.min(7, Math.floor(dt / 260) + 1);
+        steps.forEach(function (s, i) { s.classList.toggle('on', i < on); });
+        requestAnimationFrame(frame);
+      } else {
+        tick.textContent = 'TTL 30 s · non consolidé = désintégré';
+        steps.forEach(function (s, i) { s.classList.add('on'); });
+        done.style.opacity = 1;
+      }
+    }
+    requestAnimationFrame(frame);
+  })();
+</script>
+</body>
+</html>

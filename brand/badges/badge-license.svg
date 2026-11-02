@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- crates.io / npm style badge. Pure SVG, no image conversion. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 20" role="img" aria-label="License: AGPL-3.0">
+  <title>License: AGPL-3.0</title>
+  <linearGradient id="g1" x2="0" y2="100%">
+    <stop offset="0" stop-color="#1e293b"/>
+    <stop offset="1" stop-color="#0f172a"/>
+  </linearGradient>
+  <clipPath id="r"><rect width="180" height="20" rx="3"/></clipPath>
+  <g clip-path="url(#r)" font-family="'JetBrains Mono', 'Courier New', monospace" font-size="11">
+    <rect width="60" height="20" fill="url(#g1)"/>
+    <rect x="60" width="120" height="20" fill="#0f172a"/>
+    <text x="30" y="14" text-anchor="middle" fill="#94a3b8">license</text>
+    <text x="120" y="14" text-anchor="middle" fill="#f59e0b">AGPL-3.0</text>
+  </g>
+</svg>

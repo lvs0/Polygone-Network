@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polygone — E2E Relay Network</title>
+  <meta name="description" content="Polygone is an end-to-end encrypted relay network. The relay sees nothing." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --border: #1e1e2e;
+      --text: #e0e0e0;
+      --text-muted: #7a7a9a;
+      --accent: #00d4ff;
+      --accent-dim: rgba(0, 212, 255, 0.12);
+      --accent-glow: rgba(0, 212, 255, 0.35);
+      --green: #00e5a0;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --font-body: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Navigation ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 56px;
+      background: rgba(10, 10, 15, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--accent);
+      letter-spacing: 0.05em;
+      text-decoration: none;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 1.75rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--accent); }
+
+    .btn-nav {
+      font-size: 0.8rem;
+      padding: 0.4rem 0.9rem;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      color: var(--accent) !important;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+
+    .btn-nav:hover {
+      background: var(--accent-dim);
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+
+    /* ── Layout helpers ── */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    section { padding: 5rem 0; }
+
+    /* ── Hero ── */
+    #hero {
+      padding-top: 8rem;
+      padding-bottom: 6rem;
+      text-align: center;
+    }
+
+    .hero-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 1.25rem;
+      opacity: 0.8;
+    }
+
+    .hero-title {
+      font-family: var(--font-mono);
+      font-size: clamp(3.5rem, 10vw, 7rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: #fff;
+      line-height: 1;
+      margin-bottom: 1.25rem;
+    }
+
+    .hero-title .accent { color: var(--accent); }
+
+    .hero-sub {
+      font-size: clamp(1rem, 2.5vw, 1.25rem);
+      color: var(--text-muted);
+      max-width: 520px;
+      margin: 0 auto 3rem;
+      font-weight: 300;
+    }
+
+    /* ── Animated terminal ── */
+    .terminal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      max-width: 620px;
+      margin: 0 auto;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,212,255,0.06);
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0.65rem 1rem;
+      background: #0e0e18;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tb-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+    }
+    .tb-dot.red    { background: #ff5f57; }
+    .tb-dot.yellow { background: #ffbd2e; }
+    .tb-dot.green  { background: #28c840; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    .terminal-body {
+      padding: 1.25rem 1.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 1.8;
+      text-align: left;
+      min-height: 180px;
+      position: relative;
+    }
+
+    .t-line { display: flex; align-items: flex-start; gap: 0.5rem; }
+    .t-prompt { color: var(--accent); user-select: none; flex-shrink: 0; }
+    .t-cmd { color: var(--text); }
+    .t-out { color: var(--text-muted); }
+    .t-ok  { color: var(--green); }
+    .t-cursor {
+      display: inline-block;
+      width: 8px; height: 15px;
+      background: var(--accent);
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink 1.1s step-end infinite;
+    }
+    .t-hidden { display: none; }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    /* ── Features ── */
+    #features { padding: 4rem 0 5rem; }
+
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+      opacity: 0.8;
+    }
+
+    .section-title {
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 700;
+      margin-bottom: 3rem;
+      line-height: 1.2;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 2rem 1.75rem;
+      transition: border-color 0.25s, box-shadow 0.25s;
+    }
+
+    .feature-card:hover {
+      border-color: rgba(0, 212, 255, 0.4);
+      box-shadow: 0 0 24px rgba(0, 212, 255, 0.08);
+    }
+
+    .f-icon {
+      font-size: 1.75rem;
+      margin-bottom: 1rem;
+      display: block;
+    }
+
+    .f-title {
+      font-family: var(--font-mono);
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: #fff;
+    }
+
+    .f-desc {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.65;
+    }
+
+    /* ── How it works ── */
+    #how-it-works { padding: 5rem 0; }
+
+    .ascii-diagram {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 2rem 2.5rem;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: var(--text-muted);
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .ascii-diagram .label {
+      color: var(--accent);
+    }
+
+    .ascii-diagram .node-lbl {
+      color: #fff;
+    }
+
+    .ascii-diagram .dim {
+      color: #3a3a55;
+    }
+
+    .ascii-diagram .note {
+      color: var(--green);
+      font-style: italic;
+    }
+
+    .diagram-caption {
+      text-align: center;
+      margin-top: 1.25rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Security model ── */
+    #security { padding: 5rem 0; }
+
+    .security-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.25rem;
+      margin-top: 0;
+    }
+
+    .sec-point {
+      display: flex;
+      gap: 1rem;
+      padding: 1.25rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .sec-num {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid rgba(0, 212, 255, 0.25);
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .sec-content h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.3rem;
+      color: #fff;
+    }
+
+    .sec-content p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    /* ── Quick start ── */
+    #quickstart { padding: 5rem 0; }
+
+    .code-block {
+      background: #0d0d16;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: #0a0a12;
+    }
+
+    .code-header span {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    .copy-btn {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      padding: 0.25rem 0.65rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    .code-body {
+      padding: 1.25rem 1.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 1.8;
+    }
+
+    .code-body .comment { color: #4a4a6a; }
+    .code-body .cmd     { color: var(--text); }
+    .code-body .flag    { color: #c792ea; }
+    .code-body .url     { color: var(--green); }
+    .code-body .output  { color: var(--text-muted); }
+
+    /* ── Comparison ── */
+    #comparison { padding: 5rem 0; }
+
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      overflow-x: auto;
+      display: block;
+    }
+
+    .comparison-table thead tr {
+      border-bottom: 2px solid var(--border);
+    }
+
+    .comparison-table th {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      padding: 0.75rem 1.25rem;
+      text-align: left;
+    }
+
+    .comparison-table th:not(:first-child) {
+      text-align: center;
+    }
+
+    .comparison-table td {
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+
+    .comparison-table td:not(:first-child) {
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+    }
+
+    .comparison-table tbody tr:hover {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .comparison-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .yes { color: var(--green); }
+    .no  { color: #ff5f57; }
+    .partial { color: #ffbd2e; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2.5rem 0;
+      margin-top: 2rem;
+    }
+
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .footer-left {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+
+    .footer-brand {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--accent);
+      font-size: 1rem;
+    }
+
+    .footer-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .footer-meta a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .footer-meta a:hover { color: var(--accent); }
+
+    .footer-right {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      nav { padding: 0 1rem; }
+      .nav-links { display: none; }
+      section { padding: 3.5rem 0; }
+      #hero { padding-top: 6rem; padding-bottom: 4rem; }
+      .terminal-body { font-size: 0.75rem; padding: 1rem; }
+      .ascii-diagram { font-size: 0.65rem; padding: 1.25rem; }
+      .footer-inner { flex-direction: column; align-items: flex-start; }
+    }
+
+    /* ── Scroll animations ── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav>
+  <a href="#" class="nav-logo">polygone</a>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how-it-works">How it works</a></li>
+    <li><a href="#security">Security</a></li>
+    <li><a href="#quickstart">Quick Start</a></li>
+    <li><a href="#comparison">Compare</a></li>
+    <li><a href="https://github.com/lvs0/polygone" class="btn-nav" target="_blank" rel="noopener">GitHub</a></li>
+  </ul>
+</nav>
+
+<!-- ── Hero ── -->
+<section id="hero">
+  <div class="container">
+    <p class="hero-eyebrow">// open-source · rust · agpl-3.0</p>
+    <h1 class="hero-title">POLY<span class="accent">GONE</span></h1>
+    <p class="hero-sub">E2E relay network. The relay sees nothing.</p>
+
+    <!-- Animated terminal -->
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="tb-dot red"></span>
+        <span class="tb-dot yellow"></span>
+        <span class="tb-dot green"></span>
+        <span class="terminal-title">polygoned — status</span>
+      </div>
+      <div class="terminal-body" id="terminal-body">
+
+        <div class="t-line" id="l1">
+          <span class="t-prompt">❯</span>
+          <span class="t-cmd">polygoned status</span>
+        </div>
+
+        <div class="t-line t-hidden" id="l2">
+          <span class="t-ok">  ✓</span>
+          <span class="t-out">node active — 3 peers connected</span>
+        </div>
+        <div class="t-line t-hidden" id="l3">
+          <span class="t-ok">  ✓</span>
+          <span class="t-out">e2e encryption — active</span>
+        </div>
+        <div class="t-line t-hidden" id="l4">
+          <span class="t-ok">  ✓</span>
+          <span class="t-out">relay blind mode — enabled</span>
+        </div>
+        <div class="t-line t-hidden" id="l5">
+          <span class="t-ok">  ✓</span>
+          <span class="t-out">uptime — 99.99%</span>
+        </div>
+        <div class="t-line" id="lcursor">
+          <span class="t-prompt">❯</span>
+          <span class="t-cursor"></span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ── -->
+<section id="features">
+  <div class="container">
+    <p class="section-label">// capabilities</p>
+    <h2 class="section-title">Built for threat models<br />where the relay is untrusted.</h2>
+    <div class="features-grid">
+
+      <div class="feature-card reveal">
+        <span class="f-icon">🔒</span>
+        <h3 class="f-title">Relay Blind</h3>
+        <p class="f-desc">Messages are end-to-end encrypted before they leave your device. The relay only ever sees encrypted blobs — it cannot read, inspect, or log message content.</p>
+      </div>
+
+      <div class="feature-card reveal">
+        <span class="f-icon">⚡</span>
+        <h3 class="f-title">Invisible Routing</h3>
+        <p class="f-desc">Traffic analysis resistance built in. Packet sizes and timing are normalised across the network, making it computationally hard to correlate sender and receiver.</p>
+      </div>
+
+      <div class="feature-card reveal">
+        <span class="f-icon">🌐</span>
+        <h3 class="f-title">Distributed Mesh</h3>
+        <p class="f-desc">No single point of failure. Nodes self-organise into a distributed mesh topology, routing around censorship and network partitions automatically.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── How it works ── -->
+<section id="how-it-works">
+  <div class="container" style="text-align:center">
+    <p class="section-label">// protocol</p>
+    <h2 class="section-title">How it works</h2>
+    <pre class="ascii-diagram reveal">
+<span class="dim">┌─────────────────────────────────────────────────────────────────┐</span>
+<span class="dim">│                         POLYGONE NETWORK                         │</span>
+<span class="dim">└─────────────────────────────────────────────────────────────────┘</span>
+
+        <span class="node-lbl">ALICE</span>                              <span class="node-lbl">BOB</span>
+     <span class="label">[device: encrypted]</span>            <span class="label">[device: encrypted]</span>
+           │                                          ▲
+           │  ╔════════════════════╗                  │
+           │  ║  <span class="note">relay sees: garbage</span>  ║
+           │  ║  ←── encrypted ──→ ║                  │
+           │  ╚════════════════════╝                  │
+           ▼           RELAY              ─────────────
+
+<span class="dim">  1. Alice encrypts with Bob's public key                     </span>
+<span class="dim">  2. Encrypted payload sent through relay — relay cannot decrypt</span>
+<span class="dim">  3. Bob's device holds the only private key                   </span>
+
+<span class="note">  relay sees nothing · zero knowledge · e2e everywhere</span>
+    </pre>
+    <p class="diagram-caption reveal">Payloads are encrypted at the application layer. The relay is a dumb pipe — it forwards bytes it cannot interpret.</p>
+  </div>
+</section>
+
+<!-- ── Security model ── -->
+<section id="security">
+  <div class="container">
+    <p class="section-label">// security model</p>
+    <h2 class="section-title">Defence in depth.<br />Four layers of protection.</h2>
+    <div class="security-grid">
+
+      <div class="sec-point reveal">
+        <span class="sec-num">1</span>
+        <div class="sec-content">
+          <h3>App-layer E2E encryption</h3>
+          <p>Curve25519 key exchange + ChaCha20-Poly1305 AEAD. Every message is sealed before it touches the network.</p>
+        </div>
+      </div>
+
+      <div class="sec-point reveal">
+        <span class="sec-num">2</span>
+        <div class="sec-content">
+          <h3>Relay-blind routing</h3>
+          <p>The relay receives ciphertext only. No metadata leakage — source, destination, and content are all protected.</p>
+        </div>
+      </div>
+
+      <div class="sec-point reveal">
+        <span class="sec-num">3</span>
+        <div class="sec-content">
+          <h3>Traffic analysis resistance</h3>
+          <p>Constant-rate padding and randomised timing. Adversaries watching the wire see indistinguishable patterns.</p>
+        </div>
+      </div>
+
+      <div class="sec-point reveal">
+        <span class="sec-num">4</span>
+        <div class="sec-content">
+          <h3>No logs, no identity</h3>
+          <p>Polygone nodes can be configured with zero persistence. Boot with a RAM-only disk image — nothing to subpoena.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Quick start ── -->
+<section id="quickstart">
+  <div class="container">
+    <p class="section-label">// get started</p>
+    <h2 class="section-title">Up in 60 seconds.</h2>
+    <div class="code-block reveal">
+      <div class="code-header">
+        <span>terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <div class="code-body">
+<span class="comment"># Clone the repo</span>
+<span class="cmd">git</span> <span class="flag">clone</span> <span class="url">https://github.com/lvs0/polygone.git</span>
+<span class="cmd">cd</span> polygone
+
+<span class="comment"># Build (requires Rust 1.75+)</span>
+<span class="cmd">cargo</span> <span class="flag">build</span> <span class="flag">--release</span>
+
+<span class="comment"># Run the node</span>
+<span class="cmd">./target/release/polygoned</span> <span class="flag">--config</span> <span class="url">config/default.toml</span>
+
+<span class="comment"># Verify status</span>
+<span class="cmd">./target/release/polygoned</span> <span class="flag">status</span>
+<span class="output">  ✓ node active — 3 peers connected</span>
+<span class="output">  ✓ e2e encryption — active</span>
+<span class="output">  ✓ relay blind mode — enabled</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Comparison ── -->
+<section id="comparison">
+  <div class="container">
+    <p class="section-label">// why polygone</p>
+    <h2 class="section-title">Compared to the alternatives.</h2>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>Polygone</th>
+          <th>Tor</th>
+          <th>VPN</th>
+          <th>I2P</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Relay sees nothing</td>
+          <td class="yes">✓</td>
+          <td class="partial">◐ exit node</td>
+          <td class="no">✗ provider</td>
+          <td class="partial">◐ tunnels</td>
+        </tr>
+        <tr>
+          <td>E2E encrypted payloads</td>
+          <td class="yes">✓</td>
+          <td class="no">✗</td>
+          <td class="no">✗</td>
+          <td class="partial">◐ Garlic routing</td>
+        </tr>
+        <tr>
+          <td>Traffic analysis resistance</td>
+          <td class="yes">✓</td>
+          <td class="partial">◐</td>
+          <td class="no">✗</td>
+          <td class="partial">◐</td>
+        </tr>
+        <tr>
+          <td>Open source (AGPL)</td>
+          <td class="yes">✓</td>
+          <td class="yes">✓</td>
+          <td class="partial">◐ mixed</td>
+          <td class="yes">✓</td>
+        </tr>
+        <tr>
+          <td>Rust implementation</td>
+          <td class="yes">✓</td>
+          <td class="no">✗ C</td>
+          <td class="no">✗</td>
+          <td class="no">✗ Java</td>
+        </tr>
+        <tr>
+          <td>No identity required</td>
+          <td class="yes">✓</td>
+          <td class="yes">✓</td>
+          <td class="no">✗</td>
+          <td class="yes">✓</td>
+        </tr>
+        <tr>
+          <td>Hardened against subpoena</td>
+          <td class="yes">✓</td>
+          <td class="partial">◐</td>
+          <td class="no">✗</td>
+          <td class="partial">◐</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="diagram-caption" style="margin-top:1.5rem">Polygone is the only option where the relay operator themselves cannot read your traffic — even if compelled.</p>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-left">
+        <span class="footer-brand">polygone</span>
+        <span class="footer-meta">
+          <a href="https://github.com/lvs0" target="_blank" rel="noopener">@lvs0</a>
+          &nbsp;·&nbsp; AGPL-3.0 license
+          &nbsp;·&nbsp; built with Rust 🦀
+        </span>
+      </div>
+      <div class="footer-right">
+        <span>zero knowledge · zero trust</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // ── Terminal animation ──
+  const lines = ['l2','l3','l4','l5'];
+  let idx = 0;
+
+  function showNext() {
+    if (idx >= lines.length) return;
+    document.getElementById(lines[idx]).classList.remove('t-hidden');
+    idx++;
+    setTimeout(showNext, 380);
+  }
+
+  // Delay start until page loads
+  window.addEventListener('load', () => {
+    setTimeout(showNext, 900);
+  });
+
+  // ── Scroll reveal ──
+  const revealEls = document.querySelectorAll('.reveal');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        observer.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.1 });
+
+  revealEls.forEach(el => observer.observe(el));
+
+  // ── Copy button ──
+  function copyCode(btn) {
+    const block = btn.closest('.code-block').querySelector('.code-body');
+    const text = block.textContent.replace(/ copy$/, '').trim();
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'copied!';
+      setTimeout(() => { btn.textContent = 'copy'; }, 2000);
+    });
+  }
+</script>
+
+</body>
+</html>

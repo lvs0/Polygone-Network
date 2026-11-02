@@ -1,0 +1,15 @@
+[package]
+name = "polygone-bench"
+description = "Reliability / speed / statistics harness for Polygone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "polygone-bench"
+path = "src/main.rs"
+
+[dependencies]
+polygone-core.workspace = true
+rand.workspace = true
