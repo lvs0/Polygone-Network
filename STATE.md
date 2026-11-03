@@ -36,6 +36,8 @@
 | `cargo fmt --all -- --check` | **OK** | 2026-11-03 |
 | Orchestrateur : tâches bloquées (AGT.1/AGT.2) | **fait** — `node --test 04-AGENT/tests/backlog.test.mjs` → **5/5**, dont « une tâche bloquée est refusée en nommant son bloqueur » (exit 3) | 2026-11-03 |
 | hope-gateway : suite et démarrage | **44 tests, 0 échec** ; `server.mjs` + `GET /healthz` → **200** au premier essai ; CI ajoutée (`83ed22a`) | 2026-11-03 |
+| MSG.1 : TTL de session contre les documents | **fait** — constante 300 s → **30 s**, reliée à `PUBLISHED_SESSION_TTL_SECS` ; trois documents alignés et lus à la compilation par `test_session_ttl_matches_the_published_promise` · `ac71668` | 2026-11-03 |
+| DAEMON.13 : crash réel (SIGKILL du consommateur, puis du daemon) | **fait** — `node scripts/crash-recovery.mjs` → **9/9 PASS**, exit 0 : bail durable après SIGKILL du daemon, marge rendue à l'échéance, redémarrage qui répond | 2026-11-03 |
 
 ## Décisions tranchées
 
@@ -66,15 +68,15 @@
 
 ## Prochaine action
 
-**`MSG.1` — rendre la durée de rétention vraie.** Trois documents publiés
-(`LEGAL.md:33`, `THREAT_MODEL.md:19`, `docs/threat-commodity.md:38`) affirment un
-TTL de 30 s sur le relais. Le relais ne conserve rien du tout, et la session
-incomplète côté récepteur vit **300 s**. C'est une affirmation fausse dans un
-document juridique : elle passe donc avant `DOC.2` (inventaire des documents),
-qui est la tête de file du backlog mais ne corrige aucun mensonge.
+**`DOC.2` — inventaire des documents avec date et statut.** ~34 documents dans
+`docs/` : pour chacun, la date, le statut (à jour / daté / faux) et la preuve qui
+le justifie. C'est la tête de file du backlog et la seule tâche P0 restante
+avant d'ouvrir G1.
 
-Ensuite, dans l'ordre du backlog : `DAEMON.13` (crash, veille, SIGKILL) puis
-`BLOCKS.9`, qui reste la preuve la plus ancienne qui manque au projet.
+Ensuite : `CI.1` (retirer Windows de la matrice bloquante alors que le code
+contient un `compile_error!`), `SEC.8` (secrets), `OPS.2` (compteurs de refus) —
+puis `BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui exige
+deux machines physiques.
 
 **L'autorité d'ordre est `../04-AGENT/backlog.json`** : 23 tâches restantes,
 3 bloquées (D2, D3, D8 + `BLOCKS.9`), 7 fermées avec leur preuve dans
