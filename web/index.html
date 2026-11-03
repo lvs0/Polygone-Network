@@ -588,10 +588,10 @@
         <div class="status">In production</div>
       </div>
       <div class="crypto-card">
-        <div class="algo">libp2p 0.53</div>
-        <div class="standard">Kad · GossipSub · Relay</div>
-        <div class="purpose">Peer-to-peer transport. NAT traversal. Peer discovery. No central server.</div>
-        <div class="status" style="color: var(--yellow);">Wired in, transport simulated</div>
+        <div class="algo">TCP + relais</div>
+        <div class="standard">TCP · relais · annonce UDP</div>
+        <div class="purpose">Transport pair-à-pair direct, repli par relais quand le NAT bloque, découverte locale par annonce.</div>
+        <div class="status" style="color: var(--yellow);">Mono-saut prouvé · multi-saut absent</div>
       </div>
     </div>
   </div>
@@ -733,12 +733,12 @@
       <div class="feature">
         <div class="feature-icon">🔀</div>
         <div class="feature-title">P2P Transport <span class="feat-badge wip">Building</span></div>
-        <div class="feature-desc">libp2p with Kad DHT, GossipSub, Relay, mDNS, AutoNAT, DCUtR. NAT traversal built-in. Zero port forwarding required.</div>
+        <div class="feature-desc">TCP direct entre pairs, repli par relais à un saut quand le NAT bloque, découverte locale par annonce UDP. Aucun transfert de port à ouvrir. Le multi-saut et le NAT traversal automatique ne sont pas implémentés.</div>
       </div>
       <div class="feature">
         <div class="feature-icon">⏱️</div>
         <div class="feature-title">TUI Dashboard <span class="feat-badge wip">Building</span></div>
-        <div class="feature-desc">ratatui v2. Five tabs. Sparklines. Real-time metrics. Arrow-key navigation. Zero configuration.
+        <div class="feature-desc">ratatui. Six écrans modaux : accueil, aide, sortie, envoi de clé, envoi de message, réception par collage. Navigation au clavier. Pas encore de graphiques ni de métriques temps réel.
       </div>
     </div>
   </div>

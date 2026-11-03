@@ -1,7 +1,10 @@
 /* ──────────────────────────────────────────────────────────────────
    Polygone — node dashboard logic
-   Fetches /api/status every 3s, renders live stats.
-   Falls back to a deterministic local simulation when offline.
+   Fetches /api/status every 3s and renders live stats.
+
+   When the daemon does not answer, every value is shown as unknown ("—").
+   Nothing here invents a number: a dashboard that lies is worse than a
+   dashboard that says "je ne sais pas".
    ────────────────────────────────────────────────────────────────── */
 
 (() => {
@@ -11,30 +14,37 @@
   const POLL_MS = 3000;
 
   // ── State ────────────────────────────────────────────────────────
+  // Tout est inconnu tant que le daemon n'a pas répondu. Aucune valeur
+  // par défaut n'est plausible : une valeur plausible est un mensonge
+  // qu'on ne remarque pas.
+  const UNKNOWN = null;
   const state = {
-    uptime: 0,
-    peers: 0,
-    traffic_in: 0,
-    traffic_out: 0,
-    frag_ready: 3,
-    frag_needed: 4,
-    modules: [
-      { name: "Msg",   icon: "💬", status: "running", label: "Running" },
-      { name: "Hide",  icon: "👻", status: "running", label: "Running" },
-      { name: "Drive", icon: "📁", status: "off",     label: "Off" },
-      { name: "Mesh",  icon: "🔗", status: "off",     label: "Off" },
-      { name: "Brain", icon: "🧠", status: "soon",    label: "Soon" },
-    ],
-    log: [
-      { t: 1080, kind: "success", msg: "⬡ Polygone v1.0.0 démarré" },
-      { t: 1020, kind: "info",    msg: "Clé ML-KEM-1024 générée" },
-      { t: 900,  kind: "success", msg: "Pairing 127.0.0.1:4001 ✓" },
-      { t: 720,  kind: "warn",    msg: "Cache zéroé — 4.2 MB libérés" },
-      { t: 480,  kind: "success", msg: "Test Shamir 4-of-7 : 35/35 ✓" },
-      { t: 300,  kind: "info",    msg: "Tunnel Hide SOCKS5 ready :9050" },
-    ],
+    available: false,
+    lastOkAt: null,
+    uptime: UNKNOWN,
+    peers: UNKNOWN,
+    traffic_in: UNKNOWN,
+    traffic_out: UNKNOWN,
+    frag_ready: UNKNOWN,
+    frag_needed: UNKNOWN,
+    modules: [],
+    log: [],
     spark_in: [],
     spark_out: [],
+  };
+
+  const resetUnknown = () => {
+    state.available = false;
+    state.uptime = UNKNOWN;
+    state.peers = UNKNOWN;
+    state.traffic_in = UNKNOWN;
+    state.traffic_out = UNKNOWN;
+    state.frag_ready = UNKNOWN;
+    state.frag_needed = UNKNOWN;
+    state.modules = [];
+    state.log = [];
+    state.spark_in = [];
+    state.spark_out = [];
   };
 
   // ── DOM refs ─────────────────────────────────────────────────────
@@ -66,21 +76,29 @@
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB/s`;
     return `${(n / 1024 / 1024).toFixed(2)} MB/s`;
   };
+  const DASH = "—";
+  const shown = (value, format) => (Number.isFinite(value) ? format(value) : DASH);
 
   // ── Render functions ─────────────────────────────────────────────
   const renderBanner = () => {
-    elUptime.textContent = fmtUptime(state.uptime);
-    elPeers.textContent  = state.peers;
+    elUptime.textContent = shown(state.uptime, fmtUptime);
+    elPeers.textContent  = shown(state.peers, (n) => String(n));
+    document.body.dataset.node = state.available ? "online" : "unknown";
   };
 
   const renderStats = () => {
-    elTrafficIn.firstChild.textContent  = fmtBytes(state.traffic_in).replace(/ b\/s$/, "");
-    elTrafficIn.querySelector("span").textContent = "b/s";
-    elTrafficOut.firstChild.textContent = fmtBytes(state.traffic_out).replace(/ b\/s$/, "");
-    elTrafficOut.querySelector("span").textContent = "b/s";
-    elFragReady.textContent = state.frag_ready;
-    elFragNeed.textContent  = state.frag_needed;
-    elFragBar.style.width   = `${Math.min(100, (state.frag_ready / state.frag_needed) * 100)}%`;
+    const setRate = (el, value) => {
+      el.firstChild.textContent = shown(value, (n) => fmtBytes(n).replace(/ b\/s$/, ""));
+      el.querySelector("span").textContent = Number.isFinite(value) ? "b/s" : "";
+    };
+    setRate(elTrafficIn, state.traffic_in);
+    setRate(elTrafficOut, state.traffic_out);
+    elFragReady.textContent = shown(state.frag_ready, (n) => String(n));
+    elFragNeed.textContent  = shown(state.frag_needed, (n) => String(n));
+    const ratio = Number.isFinite(state.frag_ready) && Number.isFinite(state.frag_needed) && state.frag_needed > 0
+      ? Math.min(100, (state.frag_ready / state.frag_needed) * 100)
+      : 0;
+    elFragBar.style.width = `${ratio}%`;
   };
 
   const renderSpark = () => {
@@ -96,6 +114,12 @@
 
   const renderModules = () => {
     elModules.innerHTML = "";
+    if (!state.modules.length) {
+      elModules.dataset.empty = "true";
+      elModules.textContent = state.available ? "aucun module annoncé" : DASH;
+      return;
+    }
+    delete elModules.dataset.empty;
     state.modules.forEach((m) => {
       const node = moduleTpl.content.firstElementChild.cloneNode(true);
       node.dataset.status = m.status;
@@ -128,50 +152,44 @@
     renderLog();
   };
 
-  // ── Local simulation (fallback) ──────────────────────────────────
-  const tick = () => {
-    state.uptime += 1;
-
-    // Smooth traffic with random walk
-    const step = () => (Math.random() - 0.5) * 200;
-    state.traffic_in  = Math.max(0, state.traffic_in  + step());
-    state.traffic_out = Math.max(0, state.traffic_out + step());
-    state.spark_in.push(state.traffic_in);
-    state.spark_out.push(state.traffic_out);
-    if (state.spark_in.length > 40)  state.spark_in.shift();
-    if (state.spark_out.length > 40) state.spark_out.shift();
-
-    // Random log entries
-    if (Math.random() < 0.15) {
-      const pool = [
-        { kind: "info",    msg: "Découverte pair mDNS" },
-        { kind: "success", msg: "Fragment transmis" },
-        { kind: "info",    msg: "Ping pair distant" },
-        { kind: "warn",    msg: "Latence élevée sur 1 pair" },
-      ];
-      state.log.push({ t: state.uptime, ...pool[Math.floor(Math.random() * pool.length)] });
-      if (state.log.length > 30) state.log.shift();
-    }
-  };
-
-  // ── Network fetch (with fallback) ────────────────────────────────
-  let online = false;
+  // ── Network fetch ────────────────────────────────────────────────
+  // Le sondage ne s'arrête JAMAIS : un tableau de bord figé sur un succès
+  // ancien finit par mentir, et personne ne le remarque.
   const fetchStatus = async () => {
-    if (online) return; // already polling endpoint
     try {
       const res = await fetch(ENDPOINT, { cache: "no-store" });
-      if (!res.ok) throw new Error(res.status);
+      if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
-      Object.assign(state, data);
-      online = true;
+      Object.assign(state, {
+        uptime: data.uptime ?? UNKNOWN,
+        peers: data.peers ?? UNKNOWN,
+        traffic_in: data.traffic_in ?? UNKNOWN,
+        traffic_out: data.traffic_out ?? UNKNOWN,
+        frag_ready: data.frag_ready ?? UNKNOWN,
+        frag_needed: data.frag_needed ?? UNKNOWN,
+        modules: Array.isArray(data.modules) ? data.modules : [],
+        log: Array.isArray(data.log) ? data.log.slice(-30) : [],
+      });
+      if (Number.isFinite(state.traffic_in)) {
+        state.spark_in.push(state.traffic_in);
+        if (state.spark_in.length > 40) state.spark_in.shift();
+      }
+      if (Number.isFinite(state.traffic_out)) {
+        state.spark_out.push(state.traffic_out);
+        if (state.spark_out.length > 40) state.spark_out.shift();
+      }
+      state.available = true;
+      state.lastOkAt = Date.now();
     } catch {
-      online = false; // stay in simulation
+      resetUnknown();
     }
+    render();
   };
 
   // ── Init ─────────────────────────────────────────────────────────
+  resetUnknown();
   render();
-  setInterval(() => { tick(); render(); }, 1000);
+  setInterval(() => { render(); }, 1000);
   setInterval(fetchStatus, POLL_MS);
   fetchStatus();
 })();
