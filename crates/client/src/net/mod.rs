@@ -810,9 +810,71 @@ fn valid_wire_token(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-/// Process one wire line against the session map. Returns `Some` when a
-/// session completes (>= 4/7 fragments) AND the ML-DSA signature verifies
-/// AND the ciphertext decrypts. Pure logic — no sockets.
+/// Motif explicite d'abandon d'une trame, rendu par
+/// [`process_line_detailed`] et journalisé par `process_line`.
+///
+/// Un refus muet ne se prouve pas : SEC.3 exige qu'un rejeu capturé soit
+/// refusé **et** que le refus porte un code. Les codes ne partent jamais sur
+/// le fil (aucun oracle pour l'attaquant) : ils existent pour les tests et
+/// les journaux de debug.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    NotForUs,
+    Malformed,
+    InvalidToken,
+    AlreadyCompleted,
+    ReplayCacheFull,
+    TooManySessions,
+    ConflictingIdentity,
+    BadFragmentIndex,
+    DuplicateFragment,
+    TooManyFragments,
+    SenderMismatch,
+    Unsigned,
+    MissingTimestamp,
+    StaleTimestamp,
+    UntrustedKey,
+    BadSignerKey,
+    BadSignature,
+    Undecryptable,
+    TrustCacheFull,
+}
+
+impl Refusal {
+    /// Code stable — c'est lui que les tests citent et que les journaux portent.
+    pub(crate) fn code(self) -> &'static str {
+        match self {
+            Refusal::NotForUs => "ENVELOPE.NOT_FOR_US",
+            Refusal::Malformed => "ENVELOPE.MALFORMED",
+            Refusal::InvalidToken => "ENVELOPE.INVALID_TOKEN",
+            Refusal::AlreadyCompleted => "REPLAY.SESSION_ALREADY_COMPLETED",
+            Refusal::ReplayCacheFull => "REPLAY.CACHE_FULL",
+            Refusal::TooManySessions => "SESSION.CAP_REACHED",
+            Refusal::ConflictingIdentity => "SESSION.CONFLICTING_IDENTITY",
+            Refusal::BadFragmentIndex => "FRAGMENT.INDEX_OUT_OF_RANGE",
+            Refusal::DuplicateFragment => "FRAGMENT.DUPLICATE_INDEX",
+            Refusal::TooManyFragments => "FRAGMENT.TOO_MANY",
+            Refusal::SenderMismatch => "FRAGMENT.SENDER_MISMATCH",
+            Refusal::Unsigned => "AUTH.UNSIGNED",
+            Refusal::MissingTimestamp => "AUTH.MISSING_TIMESTAMP",
+            Refusal::StaleTimestamp => "REPLAY.STALE_TIMESTAMP",
+            Refusal::UntrustedKey => "AUTH.UNTRUSTED_KEY",
+            Refusal::BadSignerKey => "AUTH.INVALID_SIGNER_KEY",
+            Refusal::BadSignature => "AUTH.BAD_SIGNATURE",
+            Refusal::Undecryptable => "CRYPTO.UNDECRYPTABLE",
+            Refusal::TrustCacheFull => "AUTH.TRUST_CACHE_FULL",
+        }
+    }
+}
+
+/// Verdict d'une trame : la session complétée s'il y en a une, et le motif
+/// explicite du refus sinon. Les deux sont `None` tant que la session est
+/// simplement incomplète — ce n'est pas un refus.
+type LineVerdict = (Option<(String, Received)>, Option<Refusal>);
+
+/// Process one wire line against the session map. Returns the completed
+/// session when one exists, plus the explicit refusal code when the line was
+/// rejected. Pure logic — no sockets.
 ///
 /// Fail-closed (attaque → rejet) :
 /// - enveloppe non adressée à nous, session déjà complétée (anti-replay),
@@ -826,34 +888,34 @@ fn valid_wire_token(value: &str) -> bool {
 /// `from` est connu et le `signer` ne correspond pas → rejet. Vide =
 /// confiance au premier contact (TOFU) — le binding est appris ici même
 /// après un message vérifié, et l'appelant le persiste.
-fn process_line(
+fn process_line_detailed(
     line: &str,
     identity: &LocalIdentity,
     known_peers: &mut HashMap<String, String>,
     now_secs: u64,
     completed: &mut CompletedSessions,
     sessions: &mut HashMap<String, SessionBuffer>,
-) -> Result<Option<(String, Received)>> {
+) -> Result<LineVerdict> {
     let raw = line.trim();
     if raw.is_empty() {
-        return Ok(None);
+        return Ok((None, None));
     }
     let env: NetEnvelope = match serde_json::from_str(raw) {
         Ok(e) => e,
-        Err(_) => return Ok(None),
+        Err(_) => return Ok((None, Some(Refusal::Malformed))),
     };
     if env.kind != "fragment" {
-        return Ok(None);
+        return Ok((None, Some(Refusal::NotForUs)));
     }
 
     // Only accept envelopes addressed to this node.
     if env.to != node_id(identity) {
-        return Ok(None);
+        return Ok((None, Some(Refusal::NotForUs)));
     }
 
     // Bound attacker-controlled map keys before allocating or persisting them.
     if !valid_wire_token(&env.from) || !valid_wire_token(&env.session) {
-        return Ok(None);
+        return Ok((None, Some(Refusal::InvalidToken)));
     }
 
     // Expire completed-session markers only after the signed timestamp window.
@@ -868,10 +930,10 @@ fn process_line(
         .iter()
         .any(|(from, session, _)| from == &env.from && session == &env.session)
     {
-        return Ok(None);
+        return Ok((None, Some(Refusal::AlreadyCompleted)));
     }
     if completed.len() >= MAX_COMPLETED {
-        return Ok(None);
+        return Ok((None, Some(Refusal::ReplayCacheFull)));
     }
 
     // A session belongs to one sender: key = from + session.
@@ -886,7 +948,7 @@ fn process_line(
         sessions.retain(|_, buffer| now_secs.saturating_sub(buffer.touched) < SESSION_TTL_SECS);
     }
     if sessions.len() >= MAX_SESSIONS && !sessions.contains_key(&skey) {
-        return Ok(None);
+        return Ok((None, Some(Refusal::TooManySessions)));
     }
 
     // A second KEM for the same key must come from the SAME identity.
@@ -898,7 +960,7 @@ fn process_line(
                 // Conflicting second KEM (different signer/from) → session
                 // confusion attack: reject the whole session.
                 if buf.signer.as_ref() != env.signer.as_ref() || buf.from != env.from {
-                    return Ok(None);
+                    return Ok((None, Some(Refusal::ConflictingIdentity)));
                 }
             }
             if let Ok(ct) = kem::KemCiphertext::from_bytes(&env.payload) {
@@ -914,19 +976,19 @@ fn process_line(
         "frag" => {
             // Valid Shamir share index: 1..=7 (idx is a u8 from the wire).
             if env.idx == 0 || env.idx > 7 {
-                return Ok(None);
+                return Ok((None, Some(Refusal::BadFragmentIndex)));
             }
             // Never buffer more than the total — bounds combinations4.
             if buf.fragments.len() >= 7 {
-                return Ok(None);
+                return Ok((None, Some(Refusal::TooManyFragments)));
             }
             // Fragments must belong to the same sender as the KEM.
             if buf.kem_ct.is_some() && env.from != buf.from {
-                return Ok(None);
+                return Ok((None, Some(Refusal::SenderMismatch)));
             }
             // Duplicate index → drop (a second idx=1 corrupts reconstruction).
             if buf.seen_idx.contains(&env.idx) {
-                return Ok(None);
+                return Ok((None, Some(Refusal::DuplicateFragment)));
             }
             buf.seen_idx.push(env.idx);
             buf.fragments.push(shamir::Fragment {
@@ -938,32 +1000,33 @@ fn process_line(
     }
 
     if buf.kem_ct.is_none() || buf.fragments.len() < 4 {
-        return Ok(None);
+        return Ok((None, None)); // session encore incomplète — pas un refus
     }
 
     // ── Completion: freshness, verify, decrypt. Fail closed on either. ──
     let kem_ct = buf.kem_ct.clone().expect("checked");
     let sig = match (buf.sig.clone(), buf.signer.clone()) {
         (Some(s), Some(pk_hex)) => (s, pk_hex),
-        _ => return Ok(None), // no signature → not from anyone provable
+        _ => return Ok((None, Some(Refusal::Unsigned))), // not from anyone provable
     };
     // Freshness: the signed timestamp must be within ± MAX_TS_SKEW_SECS.
     let ts = match buf.ts {
         Some(t) if t > 0 => t,
-        _ => return Ok(None),
+        _ => return Ok((None, Some(Refusal::MissingTimestamp))),
     };
     if now_secs.abs_diff(ts) > MAX_TS_SKEW_SECS {
-        return Ok(None); // replay or clock skew — refuse
+        // Rejeu capturé et renvoyé hors fenêtre — c'est le second refus de SEC.3.
+        return Ok((None, Some(Refusal::StaleTimestamp)));
     }
     // Trust anchor: if we know this peer's signing key, it must match.
     if let Some(expected_pk) = known_peers.get(&buf.from) {
         if expected_pk != &sig.1 {
-            return Ok(None); // claims to be a known peer, signs as another
+            return Ok((None, Some(Refusal::UntrustedKey))); // signs as another
         }
     }
     let verifier = match polygone_core::sign::PublicKey::from_hex(&sig.1) {
         Ok(pk) => polygone_core::sign::Verifier::from_public(pk),
-        Err(_) => return Ok(None),
+        Err(_) => return Ok((None, Some(Refusal::BadSignerKey))),
     };
 
     let shared = kem::decapsulate(&identity.kem_secret_key()?, &kem_ct)?;
@@ -972,7 +1035,7 @@ fn process_line(
     // Bounded by construction (≤7 fragments), kept as a hard guard: the
     // worst case is C(7,4) = 35 combinations, never C(n+1,5).
     if buf.fragments.len() > 7 {
-        return Ok(None);
+        return Ok((None, Some(Refusal::TooManyFragments)));
     }
     // Shamir reconstruction is deterministic: any 4-of-7 fragments rebuild
     // the same secret. Try the available 4-subsets until the signature
@@ -999,11 +1062,11 @@ fn process_line(
     }
     let ciphertext = match ciphertext {
         Some(c) => c,
-        None => return Ok(None), // no 4-subset verifies → forged/corrupt
+        None => return Ok((None, Some(Refusal::BadSignature))), // forged/corrupt
     };
     let plain = match symmetric::decrypt(&ciphertext, &key) {
         Ok(p) => p,
-        Err(_) => return Ok(None),
+        Err(_) => return Ok((None, Some(Refusal::Undecryptable))),
     };
 
     let session = env.session.clone();
@@ -1021,12 +1084,30 @@ fn process_line(
     // TOFU: learn the binding from → sign_pk on first verified contact.
     // If the trust-anchor cap is full, do not release a message we cannot pin.
     if !bind_peer_key(known_peers, &buf.from, sig.1.clone()) {
-        return Ok(None);
+        return Ok((None, Some(Refusal::TrustCacheFull)));
     }
     let completed_from = buf.from.clone();
     sessions.remove(&skey);
     completed.push_back((completed_from, session.clone(), now_secs));
-    Ok(Some((session, received)))
+    Ok((Some((session, received)), None))
+}
+
+/// Entrée de production : même traitement, motif de refus journalisé et non
+/// remonté à l'appelant (le récepteur ne renvoie rien à l'émetteur).
+fn process_line(
+    line: &str,
+    identity: &LocalIdentity,
+    known_peers: &mut HashMap<String, String>,
+    now_secs: u64,
+    completed: &mut CompletedSessions,
+    sessions: &mut HashMap<String, SessionBuffer>,
+) -> Result<Option<(String, Received)>> {
+    let (outcome, refusal) =
+        process_line_detailed(line, identity, known_peers, now_secs, completed, sessions)?;
+    if let Some(refusal) = refusal {
+        log::debug!("net : trame abandonnée — {}", refusal.code());
+    }
+    Ok(outcome)
 }
 
 /// All 4-element subsets of the buffered fragments (max C(7,4) = 35).

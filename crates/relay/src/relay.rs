@@ -393,7 +393,7 @@ pub async fn run(port: u16) -> Result<()> {
 }
 
 /// Serve on an already-bound listener (used by tests with port 0).
-async fn run_listener(listener: TcpListener) -> Result<()> {
+pub async fn run_listener(listener: TcpListener) -> Result<()> {
     let mut shards = Vec::with_capacity(SHARDS);
     for _ in 0..SHARDS {
         shards.push(RwLock::new(HashMap::new()));

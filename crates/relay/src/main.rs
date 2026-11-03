@@ -21,7 +21,7 @@
 //! Real implementation: libp2p request-response over relay circuit,
 //! encrypted end-to-end, so relay never sees the envelope body.
 
-mod relay;
+use polygone_relay::relay;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};

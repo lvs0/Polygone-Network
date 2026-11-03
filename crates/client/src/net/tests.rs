@@ -1351,3 +1351,204 @@ fn test_session_ttl_matches_the_published_promise() {
         "LEGAL.md ne doit pas situer le TTL sur le relais, qui ne conserve aucun fragment"
     );
 }
+
+/// Lit une trame livrée par le relais, avec une borne : un test qui attend
+/// indéfiniment est un test qui ment sur son résultat.
+async fn read_relay_line(
+    reader: &mut tokio::io::BufReader<tokio::net::tcp::OwnedReadHalf>,
+) -> String {
+    use tokio::io::AsyncBufReadExt as _;
+    let mut line = String::new();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        reader.read_line(&mut line),
+    )
+    .await
+    .expect("le relais doit livrer la trame dans les 2 s")
+    .expect("lecture relay");
+    assert!(!line.is_empty(), "connexion fermée par le relais");
+    line
+}
+
+/// Écrit une rafale de trames d'un seul coup : le relais reçoit exactement les
+/// octets d'origine, sans recomposition côté test.
+async fn send_frames(writer: &mut tokio::net::tcp::OwnedWriteHalf, frames: &[String]) {
+    use tokio::io::AsyncWriteExt as _;
+    let bytes: Vec<u8> = frames
+        .iter()
+        .flat_map(|frame| format!("{frame}\n").into_bytes())
+        .collect();
+    writer.write_all(&bytes).await.unwrap();
+}
+
+/// SEC.3 — l'anti-rejeu prouvé **sur le fil**, à travers le vrai relais.
+///
+/// Le relais est aveugle : il ne refuse rien, il recopie. Le refus vient donc
+/// du récepteur, et il doit porter un code. Ce test fait traverser une vraie
+/// socket TCP et le vrai `polygone_relay` aux octets d'une session valide,
+/// les capture, puis les renvoie **à l'identique** :
+///
+///   1. session valide → déchiffrée (témoin positif, sans quoi un relais qui
+///      ne route plus passerait le test) ;
+///   2. rejeu immédiat  → `REPLAY.SESSION_ALREADY_COMPLETED` ;
+///   3. rejeu à +10 min → `REPLAY.STALE_TIMESTAMP`.
+///
+/// Limite assumée : un adversaire qui contrôle l'horloge des deux pairs peut
+/// rester dans la fenêtre ; c'est écrit dans `docs/threat-commodity.md`.
+#[tokio::test]
+async fn replay_through_relay_is_refused_with_an_explicit_code() {
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+    use tokio::net::{TcpListener, TcpStream};
+
+    let alice = LocalIdentity::generate();
+    let bob = LocalIdentity::generate();
+    let bob_node = node_id(&bob);
+    let alice_node = node_id(&alice);
+
+    // Le VRAI relais, sur un port éphémère.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = polygone_relay::relay::run_listener(listener).await;
+    });
+
+    // Le récepteur s'enregistre ; HELLO_OK prouve qu'il possède son slot.
+    let bob_stream = TcpStream::connect(relay_addr).await.unwrap();
+    let (bob_read, mut bob_write) = bob_stream.into_split();
+    let mut bob_reader = BufReader::new(bob_read);
+    bob_write
+        .write_all(format!("HELLO {bob_node}\n").as_bytes())
+        .await
+        .unwrap();
+    let mut ack = String::new();
+    bob_reader.read_line(&mut ack).await.unwrap();
+    assert_eq!(
+        ack.trim(),
+        "HELLO_OK",
+        "le relais doit accepter bob : {ack}"
+    );
+
+    // L'émetteur, sur le même relais.
+    let alice_stream = TcpStream::connect(relay_addr).await.unwrap();
+    let (alice_read, mut alice_write) = alice_stream.into_split();
+    let mut alice_reader = BufReader::new(alice_read);
+    alice_write
+        .write_all(format!("HELLO {alice_node}\n").as_bytes())
+        .await
+        .unwrap();
+    let mut aack = String::new();
+    alice_reader.read_line(&mut aack).await.unwrap();
+    assert_eq!(
+        aack.trim(),
+        "HELLO_OK",
+        "le relais doit accepter alice : {aack}"
+    );
+
+    // Une session valide, exactement comme `envoyer` la produit.
+    let output =
+        crate::msg::send("message rejoué sur le fil", &bob.kem_public_key().unwrap()).unwrap();
+    let session = "replay-wire-1";
+    let mut frames = vec![signed_kem_json(
+        session,
+        &alice,
+        &bob_node,
+        test_now(),
+        &output,
+        None,
+    )];
+    for frag in output.fragments.iter().take(4) {
+        frames.push(frag_json(
+            session,
+            &alice_node,
+            &bob_node,
+            frag.index,
+            &frag.share,
+        ));
+    }
+
+    let mut known_peers: HashMap<String, String> = HashMap::new();
+    let mut completed: CompletedSessions = VecDeque::new();
+    let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
+
+    // 1) Témoin positif : la session traverse le relais et se déchiffre.
+    send_frames(&mut alice_write, &frames).await;
+    let mut delivered = None;
+    for _ in 0..frames.len() {
+        let line = read_relay_line(&mut bob_reader).await;
+        let (outcome, refusal) = process_line_detailed(
+            &line,
+            &bob,
+            &mut known_peers,
+            test_now(),
+            &mut completed,
+            &mut sessions,
+        )
+        .unwrap();
+        assert_eq!(refusal, None, "trame valide refusée : {refusal:?}");
+        if let Some((_, received)) = outcome {
+            delivered = Some(received);
+        }
+    }
+    match delivered.expect("la session valide doit aboutir à travers le relais") {
+        Received::Message(text) => assert_eq!(text, "message rejoué sur le fil"),
+        _ => panic!("message attendu"),
+    }
+
+    // 2) Rejeu immédiat, octets identiques : refus explicite, jamais livré.
+    send_frames(&mut alice_write, &frames).await;
+    for _ in 0..frames.len() {
+        let line = read_relay_line(&mut bob_reader).await;
+        let (outcome, refusal) = process_line_detailed(
+            &line,
+            &bob,
+            &mut known_peers,
+            test_now(),
+            &mut completed,
+            &mut sessions,
+        )
+        .unwrap();
+        assert!(outcome.is_none(), "un rejeu ne doit jamais être livré");
+        assert_eq!(
+            refusal.map(Refusal::code),
+            Some("REPLAY.SESSION_ALREADY_COMPLETED"),
+            "rejeu immédiat : {refusal:?}"
+        );
+    }
+
+    // 3) Rejeu décalé de 10 minutes, vers un récepteur FRAIS : processus
+    //    redémarré, cache anti-rejeu vide. Le cache ne peut donc pas sauver
+    //    la mise — c'est la fenêtre signée ±300 s qui doit refuser, et elle
+    //    le dit avec son propre code.
+    let later = test_now() + 2 * MAX_TS_SKEW_SECS;
+    let mut fresh_completed: CompletedSessions = VecDeque::new();
+    let mut fresh_sessions: HashMap<String, SessionBuffer> = HashMap::new();
+    send_frames(&mut alice_write, &frames).await;
+    let mut stale_refusals = 0;
+    for _ in 0..frames.len() {
+        let line = read_relay_line(&mut bob_reader).await;
+        let (outcome, refusal) = process_line_detailed(
+            &line,
+            &bob,
+            &mut known_peers,
+            later,
+            &mut fresh_completed,
+            &mut fresh_sessions,
+        )
+        .unwrap();
+        assert!(
+            outcome.is_none(),
+            "un rejeu décalé ne doit jamais être livré"
+        );
+        if refusal.map(Refusal::code) == Some("REPLAY.STALE_TIMESTAMP") {
+            stale_refusals += 1;
+        }
+    }
+    assert_eq!(
+        stale_refusals, 1,
+        "le rejeu décalé doit être refusé une fois, avec son code"
+    );
+    assert!(
+        fresh_completed.is_empty(),
+        "une session refusée pour horodatage périmé ne doit pas être mémorisée comme livrée"
+    );
+}

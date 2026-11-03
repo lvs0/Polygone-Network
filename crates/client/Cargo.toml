@@ -27,3 +27,7 @@ hex = "0.4"
 rand = "0.8"
 wasmi = "0.42"
 wasmi_wasi = "0.42"
+
+[dev-dependencies]
+# SEC.3 : le test d'anti-rejeu traverse le vrai relais, pas une imitation.
+polygone-relay = { path = "../relay" }

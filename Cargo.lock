@@ -3240,6 +3240,7 @@ dependencies = [
  "hex",
  "log",
  "polygone-core",
+ "polygone-relay",
  "polygone-serverless",
  "polygoned",
  "rand 0.8.7",
