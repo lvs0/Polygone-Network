@@ -22,8 +22,9 @@ dans `f3d09c0` le 2026-10-29. Sur ces deux crates, le distant est **en amont**,
 pas en aval.
 
 Conséquence opérationnelle : **un `git pull` écraserait du travail local plus
-récent**. Il n'y a pas de « mise à jour à récupérer ». Il y a **trois choses à
-sauver** et **quatorze à refuser**.
+récent**. Il n'y a pas de « mise à jour à récupérer ». Il y a **deux choses à sauver** et
+**quinze à refuser** — l'installateur, d'abord classé « à sauver », s'est révélé
+**déjà mieux fait localement** (voir A1).
 
 ---
 
@@ -63,21 +64,36 @@ encore. Tout code distant qui s'y accroche devra être re-porté à la main.
 
 ## 2. Les 17 commits distants — ce qui est repris
 
-### A1 · Installateur fail-closed — **À REPRENDRE** (`a796e83`, `8bb8654`)
+### A1 · Installateur fail-closed — **REFUSÉ : déjà en place, en mieux**
 
-`install.sh` passe de « vérification optionnelle » à **fail-closed** : si
-`SHA256SUMS` est introuvable, l'installation est **refusée** ; l'empreinte est
-comparée via `sha256sum` ou `shasum` ; chaque branche d'échec nettoie ses
-fichiers temporaires. `release.yml` publie `SHA256SUMS` **et** un `.sha256` par
-asset.
+*(entrée corrigée le 2026-11-03 après vérification directe — la première
+rédaction disait « à reprendre », c'était faux.)*
 
-**Ce que ça garantit, exactement** : l'intégrité du téléchargement contre une
+Le distant `a796e83` apporte un `install.sh` fail-closed. Mais le local le fait
+**déjà**, et plus complètement :
+
+| Contrôle | Local (`install.sh`) |
+|---|---|
+| `SHA256SUMS` introuvable | `:157-160` — « release refusée (fail-closed) » |
+| Empreinte absente ou mal formée | `:168` — exige exactement 64 caractères hexadécimaux |
+| Ni `sha256sum` ni `shasum` | `:175` — refuse plutôt que de sauter la vérification |
+| Nettoyage sur chaque échec | `rm -rf` sur les quatre branches |
+| Test négatif | `scripts/test-installer.sh:201-207` — **cinq** modes (`missing`, `mismatch`, `extra`, `symlink`, `duplicate`) doivent tous faire échouer `fetch_release` |
+| Fuite de dossier temporaire | `:210-213` — échoue si un `polygone-release.*` subsiste |
+
+Le test local est **plus fort** que le correctif distant : il exerce des modes
+d'échec que le patch ne nomme pas (symlink, doublon, fichier en trop dans
+l'archive). Reprendre `a796e83` reviendrait à remplacer un test à cinq modes par
+un script non testé.
+
+**Ce que la vérification garantit** : l'intégrité du téléchargement contre une
 troncature, une corruption ou un miroir altéré.
-**Ce que ça ne garantit pas** : une release compromise — l'empreinte vient de
-la **même origine HTTPS**, sans signature hors-bande ni clé épinglée.
+**Ce qu'elle ne garantit pas** : une release compromise — l'empreinte vient de
+la **même origine HTTPS**, sans signature hors-bande ni clé épinglée. La phrase
+publique doit donc rester « empreinte vérifiée », jamais « release signée ».
 
-→ Reprendre le code, mais **ne jamais** l'appeler « release signée » dans le
-README ni sur le site. C'est la règle `ETAT-REEL.md` appliquée à l'installateur.
+→ Action réelle : **aucune reprise de code**. Seul reste le durcissement de
+`release.yml` (publier `SHA256SUMS` systématiquement), à vérifier séparément.
 
 ### A2 · Backend mock de petals — **À REPRENDRE** (`57bb551`, `39a285d`)
 
@@ -153,8 +169,8 @@ vérifié.
    + `sha256` + rapport de restauration. Rien ne se fait avant.
 2. **Commit des 65 fichiers non suivis** sur `realign/v1` (travail local réel,
    actuellement non protégé). Ne pas mélanger avec autre chose.
-3. **A1** : appliquer l'installateur fail-closed à la main, puis vérifier qu'une
-   installation sans `SHA256SUMS` **échoue** (test négatif obligatoire).
+3. **A1** : rien à reprendre. Rejouer `bash scripts/test-installer.sh` et citer
+   sa sortie — c'est la preuve que l'installateur est déjà fail-closed.
 4. **A2** : porter `MockBackend` avec `BackendType::Mock`, écrire **un** test de
    routage qui échoue si le sélecteur prend le mock pour Ollama.
 5. **A3** : ajouter les `cfg(unix)` au nouveau protocole, avec un test qui
