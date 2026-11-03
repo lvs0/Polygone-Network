@@ -37,6 +37,7 @@ des faiblesses génériques à grande échelle.
 | Reconstruction d'un message capturé | Fragmentation à seuil | Shamir 4-of-7 — 3 fragments = zéro information. **Honnêteté** : au transit, le relay voit les 7 fragments (chiffrés) ; le seuil 4/7 protège contre la *perte* de fragments et la reconstruction partielle, pas contre le relay — la protection réelle est ML-KEM/AES (le relay sans clé ne lit rien) |
 | Persistance du message sur les nœuds | Éphémérité | TTL ≤ 30 s côté destinataire ; fragments non consolidés désintégrés ; le relais ne conserve rien |
 | Usurpation de l'expéditeur | Signature | ML-DSA-65 (FIPS 204), détachée, vérifiable — ✅ **branché au chemin réseau** (Phase 1) : chaque message est signé, la signature est vérifiée avant déchiffrement, une clé connue = pas d'usurpation possible |
+| Rejeu d'une session capturée | Refus explicite | Horodatage signé ±300 s + cache des sessions complétées ; prouvé **sur le fil**, à travers le vrai relais (`replay_through_relay_is_refused_with_an_explicit_code`), avec deux codes distincts : `REPLAY.SESSION_ALREADY_COMPLETED` et `REPLAY.STALE_TIMESTAMP` |
 | Fuite du nom de fichier | Nom hors-bande | Le nom du fichier est chiffré par la clé de session (`name_ct`) — le relay ne voit que des octets opaques |
 
 ## 4. Ce que Polygone ne protège PAS
@@ -56,6 +57,11 @@ des faiblesses génériques à grande échelle.
   publique) voyage dans chaque enveloppe : le relay sait *qui* parle à
   *qui* (assomption documentée Phase 1.3), pas *quoi*. Un pseudonyme de
   session éphémère est une piste future, pas une promesse.
+- ⚠ **Horloge contrôlée chez les deux pairs** — l'anti-rejeu repose sur un
+  horodatage **signé** et une fenêtre de ±300 s. Un adversaire qui contrôle
+  l'horloge de l'émetteur *et* celle du récepteur peut rester dans la fenêtre.
+  Le cache des sessions complétées le rattrape tant que le récepteur n'a pas
+  redémarré ; après redémarrage, seule la fenêtre reste.
 
 ## 5. Coût d'adoption
 
@@ -71,7 +77,7 @@ aucune adresse email, aucune télémétrie.
 
 - `cargo test --workspace` reproduit l'état : la suite fait foi, elle n'est pas
   recopiée ici (un nombre recopié dans dix documents devient faux dans neuf).
-  Mesure du 2026-11-03 : 348 tests, 0 échec — voir `ARCHITECTURE.md` §1.
+  Mesure du 2026-11-04 : 371 tests, 0 échec — voir `ARCHITECTURE.md` §1.
 - Le code source est conçu pour être lisible en un après-midi.
 - `polygone demo` montre le pipeline complet — y compris l'audit du relay :
   « on voit rien » n'est pas une promesse, c'est un test.

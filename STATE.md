@@ -46,6 +46,10 @@
 | `scripts/check-docs.mjs` : somme des LOC du tableau vérifiée comme celle des tests | **ajouté** — c'est ce contrôle qui manquait quand `client` affichait 11 365 pour 11 677 mesurées | 2026-11-04 |
 | `node scripts/check-docs.mjs --tests 370` | **documents cohérents**, exit 0 ; deux négatifs vérifiés : branche forcée à `realign/v1` → exit 1 (`[state.branche]`), LOC volontairement faussées → exit 1 (`[architecture.somme.LOC]`) | 2026-11-04 |
 | `node --test ../04-AGENT/tests/backlog.test.mjs` | **5/5**, exit 0 — 19 tâches ouvertes, 15 fermées, JSON valide | 2026-11-04 |
+| SEC.3 : rejeu capturé sur le fil, refusé par le **vrai** relais | **fait** — `replay_through_relay_is_refused_with_an_explicit_code` : session déchiffrée (témoin positif), rejeu immédiat → `REPLAY.SESSION_ALREADY_COMPLETED`, rejeu à +10 min contre un récepteur frais → `REPLAY.STALE_TIMESTAMP`. Le refus n'est plus un `None` muet : `Refusal::code()` le nomme | 2026-11-04 |
+| `cargo test --workspace -j 2` après SEC.3 | **371 tests, 0 échec** (exit 0) | 2026-11-04 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | **exit 0** | 2026-11-04 |
+| `node scripts/check-docs.mjs --tests 371` | **documents cohérents**, exit 0 | 2026-11-04 |
 
 ## Décisions tranchées
 
@@ -76,20 +80,18 @@
 
 ## Prochaine action
 
-**`SEC.3` — prouver l'anti-rejeu à travers le relais.** L'anti-rejeu existe et
-n'est testé qu'en unitaire (`replayed_session_is_rejected`) : capturer une
-enveloppe sur le fil, la renvoyer à l'identique vers le relais, et vérifier le
-refus explicite **deux fois de suite**. Ne demande aucun second hôte : relais et
-client tournent sur cette machine.
+**`CLI.1` — `polygone doctor`.** Une commande qui répond aux trois questions
+réelles : ce que la machine **mesure**, ce qu'elle peut **réserver**, ce qu'elle
+**subit** (politique, isolation OS, bail du daemon) — et qui dit « non vérifié »
+plutôt que d'inventer un chiffre quand la mesure échoue.
 
-Ensuite : `CLI.1` (`polygone doctor` avec mesuré / réservable / contraint),
-`DOC.2` (inventaire daté des documents), `CI.1` (matrice Windows honnête),
-`SEC.8` (secrets), `OPS.2` (compteurs de refus) — puis `BLOCKS.9`, la preuve la
-plus ancienne qui manque au projet et qui **exige deux machines physiques** :
-non réalisable ici, scripts à préparer.
+Ensuite : `CLI.2`, `CLI.5`, `DOC.2` (inventaire daté des documents), `CI.1`
+(matrice Windows honnête), `SEC.8` (secrets), `OPS.2` (compteurs de refus) — puis
+`BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui **exige deux
+machines physiques** : non réalisable ici, scripts à préparer.
 
-**L'autorité d'ordre est `../04-AGENT/backlog.json`** : 19 tâches restantes,
-4 bloquées (D2, D3, D8, `BLOCKS.9` + `RECIP.1`), 15 fermées avec leur preuve
+**L'autorité d'ordre est `../04-AGENT/backlog.json`** : 18 tâches restantes,
+4 bloquées (D2, D3, D8, `BLOCKS.9` + `RECIP.1`), 16 fermées avec leur preuve
 dans `completed`. Les vagues W0…W5 de `../02-PLAN/PLAN-ECOSYSTEME.md` §8 placent le
 gateway, l'agent et le corpus sur le même calendrier.
 
