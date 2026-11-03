@@ -21,6 +21,12 @@
 | `cargo fmt --all -- --check` | OK (hérité du dépôt canonique) | 2026-11-02 |
 | `cargo clippy --workspace --all-targets -- -D warnings` | OK (hérité du dépôt canonique) | 2026-11-02 |
 
+## Décisions tranchées
+
+| Date | Sujet | Décision | Document |
+|---|---|---|---|
+| 2026-11-03 | Monnaie `POLY` | **Pas de cryptomonnaie.** Unité de réciprocité non transférable, dans le `Ledger` du daemon ; reçu signé dans `crates/core` ; rien dans `hope-gateway`, rien sur une chaîne. | `../02-PLAN/DECISION-POLY.md` |
+
 ## Bloquants connus
 
 1. **Divergence Git non réconciliée** : 6 commits locaux, 17 commits distants
