@@ -22,6 +22,9 @@
 | `cargo clippy --workspace --all-targets -- -D warnings` | OK (hérité du dépôt canonique) | 2026-11-02 |
 | Archive P0.1 : listing + extraction + `cmp` ×3 + HEAD | **PASS** — 6 204 entrées, `tar exit=0`, stderr vide, HEAD `f3d09c0` et 65 fichiers modifiés identiques | 2026-11-03 |
 | Inventaire P0.2 : 6 commits locaux + 17 distants | **Fait** — décisions par commit dans `docs/RECONCILIATION.md` | 2026-11-03 |
+| Les 65 fichiers non commités du canonique sont-ils perdables ? | **Non** — 60 fichiers byte-identiques ici, 3 dossiers identiques (`diff -rq`), les 2 restants sont `.freebuff-tasks/` et `.specify/` (outillage). Déjà commités sur `realign/v1`. | 2026-11-03 |
+| P0.3 : documentation factuellement fausse | **Corrigé** — `ARCHITECTURE.md` passe de « 4 crates, ~9 600 LOC, 109 tests » à **7 membres, 28 456 LOC, 4 binaires, 348 tests** (mesuré). `threat-commodity.md` ne recopie plus de compte. `CORE-COMPLETE.md` reçoit un bandeau d'instantané daté. | 2026-11-03 |
+| `cargo test --workspace` sur `realign/v1` | **348 tests, 17 suites, 0 échec** | 2026-11-03 |
 
 ## Décisions tranchées
 
@@ -50,8 +53,15 @@
 
 ## Prochaine action
 
-`P0.3` — corriger la documentation factuellement fausse (`ARCHITECTURE.md` annonce
-4 crates, il y en a 7 ; le README doit être confronté à `ETAT-REEL.md`).
-Mais **avant** : committer les 65 fichiers non suivis du dépôt canonique, qui
-sont désormais sauvegardés dans l'archive P0.1 mais toujours absents de Git.
+`P1.1` — séparer **capacité mesurée**, **capacité réservable** et **capacité
+contrainte** dans le daemon et l'API de bail ; refuser explicitement toute
+réservation qui ne peut pas être garantie (`ROADMAP.md`, `docs/DAEMON_STATE.md`).
+
+> **Correction du 2026-11-03** : la note précédente demandait de committer les
+> 65 fichiers non suivis du dépôt canonique. **C'était inutile.** Vérifié par
+> `cmp` sur 60 fichiers et `diff -rq` sur 3 dossiers : ils sont **déjà
+> byte-identiques** ici, donc déjà commités sur `realign/v1` et poussés. Le
+> dépôt canonique reste volontairement fragile : c'est le poste de travail,
+> pas la copie de référence.
+
 Voir `ROADMAP.md`, `docs/P0-RAPPORT.md` et `../04-AGENT/backlog.json`.

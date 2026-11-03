@@ -3,14 +3,22 @@
 > *For contributors. Read [`ECOSYSTEM.md`](./ECOSYSTEM.md) first to
 > understand what we are building. This document is about how.*
 >
-> **Status 2026-08-07** : this document describes the **real** workspace
-> (4 crates). The previous `src/` monolith (libp2p, HTTP relay, 4-tab TUI)
-> was archived to `archive/2026-07-src/` — it is not built, not tested, not
-> the product. The code is the source of truth; this document follows it.
+> **Status 2026-11-03** : this document describes the **real** workspace
+> (**7 members**, 4 binaries). The previous `src/` monolith (libp2p, HTTP
+> relay, 4-tab TUI) was archived to `archive/2026-07-src/` — it is not built,
+> not tested, not the product. The code is the source of truth; this document
+> follows it.
+>
+> *Correction du 2026-11-03* : la version précédente de ce document annonçait
+> « 4 crates, ~9 600 LOC, 109 tests » (état du 2026-08-07). C'était vrai à
+> cette date. `gateway`, `petals` et `serverless` ont été intégrés le
+> 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
+> **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
+> `cargo test --workspace` (17 suites, **348 tests, 0 échec**) pour les tests.
 
 ---
 
-## 1. Workspace layout — 4 crates
+## 1. Workspace layout — 7 members, 4 binaries
 
 ```
 polygone/
@@ -34,20 +42,48 @@ polygone/
 │   ├── client/                   the product — one binary: `polygone`
 │   │   ├── main.rs               clap CLI + command dispatcher
 │   │   ├── msg.rs                offline pipeline: KEM → KDF → AES → Shamir
-│   │   ├── net.rs                real network transport (plane 2)
+│   │   ├── net/                  real network transport (plane 2)
 │   │   ├── identity.rs           ~/.polygone/identity.json (chmod 600)
+│   │   ├── blocks.rs             content-addressed store (BLAKE3), port 7643
+│   │   ├── calc.rs               computation cache, keyed BLAKE3(version‖input)
+│   │   ├── node.rs               daemon lease: serve, stop on lease loss
+│   │   ├── serverless.rs         client side of split/reassemble
 │   │   ├── exec.rs               RES execution (systemd-run + wasmi)
+│   │   ├── hide.rs               SOCKS5 via relay (mono-saut)
 │   │   ├── mesh.rs               LAN discovery (UDP broadcast, port 7642)
 │   │   ├── reputation.rs         ghost-node trust ledger
 │   │   ├── petals.rs             local AI (Ollama HTTP, no cloud)
-│   │   ├── duress.rs             kill-switch (Axiome 5)
+│   │   ├── product.rs            packaging helpers for the single-command product
+│   │   ├── duress.rs             kill-switch (Axiome 5, manuel)
 │   │   ├── demo.rs               flagship E2E demo (in-process)
 │   │   ├── self_test.rs          crypto self-test suite
-│   │   └── tui.rs                vim-style command TUI (:envoyer / :quitter)
+│   │   ├── node_isolation.rs     tests du bail et de l'isolation
+│   │   ├── testutil.rs           fixtures partagées
+│   │   ├── tui.rs                vim-style command TUI (:envoyer / :quitter)
+│   │   ├── drive.rs              PRÉSENT MAIS NON MONTÉ (zéro appelant)
+│   │   └── brain.rs              PRÉSENT MAIS NON MONTÉ (zéro appelant)
 │   │
 │   ├── relay/                    the blind relay — one binary: `polygone-relay`
 │   │   ├── main.rs               CLI (port, bind)
 │   │   └── relay.rs              async TCP server, in-memory routing table
+│   │
+│   ├── gateway/                  HTTP loopback — one binary: `polygone-gateway`
+│   │   ├── lib.rs                Gateway · NetworkStatus · PairRequest
+│   │   ├── http.rs               socket TCP réel (testé dans tests/serve.rs)
+│   │   ├── routes.rs             routes JSON + table de statut
+│   │   ├── static_files.rs       web/ · PWA (POLYGONE_SITE_DIR)
+│   │   └── status.rs             état réseau publié (table en mémoire)
+│   │
+│   ├── petals/                   inference backend planner — library only
+│   │   ├── backends.rs           Ollama · vLLM · llama.cpp
+│   │   ├── pipeline.rs           planner de pipeline (aucun consommateur hors tests)
+│   │   ├── daemon.rs             client de démon petals
+│   │   ├── models.rs             ModelRegistry
+│   │   └── benchmarks.rs         BenchmarkConfig / BenchmarkResult
+│   │
+│   ├── serverless/               split/reassemble + quorum — library only
+│   │   ├── request.rs            Shamir split, reassemble (tests négatifs)
+│   │   └── quorum.rs             seuil de votes (jamais appelé par le CLI)
 │   │
 │   └── (daemon lives at repo root, see §7)
 │
@@ -66,15 +102,23 @@ polygone/
 └── .github/workflows/            ci.yml · release.yml
 ```
 
-**Reality check (2026-08-07) :**
+**Reality check — measured 2026-11-03 :**
 
-| Crate      | LOC (rust) | Binaries              | Tests |
-| ---------- | ---------- | --------------------- | ----- |
-| core       | ~2 200     | — (lib)               | 34    |
-| client     | ~3 600     | `polygone`            | 47    |
-| relay      | ~340       | `polygone-relay`      | 7     |
-| daemon     | ~3 500     | `polygoned`           | 21    |
-| **Total**  | **~9 600** | 4 binaries            | **109** |
+| Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
+| ------------ | -------- | ---------- | -------------------- | ----- |
+| `core`       | 11       | 1 373      | — (lib)              | 29    |
+| `client`     | 24       | 11 306     | `polygone`           | 130   |
+| `relay`      | 2        | 979        | `polygone-relay`     | 17    |
+| `gateway`    | 7        | 1 796      | `polygone-gateway`   | 36    |
+| `petals`     | 13       | 3 238      | — (lib)              | 13    |
+| `serverless` | 3        | 776        | — (lib)              | 17    |
+| `daemon`     | 17       | 8 988      | `polygoned`          | 97    |
+| doc-tests    | —        | —          | —                    | 9     |
+| **Total**    | **77**   | **28 456** | **4 binaires**       | **348** |
+
+Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
+inclus), `cargo test --workspace` pour les tests — 17 suites, **0 échec**.
+Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is
 real: `pqcrypto-mlkem` (FIPS 203) and `pqcrypto-mldsa` (FIPS 204) with
