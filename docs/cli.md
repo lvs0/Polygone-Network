@@ -125,8 +125,20 @@ points de contact, jamais à prouver une identité ni à garantir la RAM annonc�
 `bash scripts/mesh-smoke.sh` teste l'annonce, la réponse au PING et la redécouverte
 du nœud local sur le LAN.
 
+**Interfaces utilisées.** Le scan et l'annonce n'emploient jamais `0.0.0.0` :
+un socket est ouvert par interface autorisée, lié à l'adresse de cette interface,
+et le datagramme part vers son broadcast dirigé. Le loopback, les adresses
+link-local (`169.254.0.0/16`) et les interfaces VPN ou de conteneur (`tun*`,
+`tap*`, `wg*`, `tailscale*`, `docker*`, `br-*`, `veth*`, `virbr*`, `ve-*`, `zt*`,
+`utun*`, `ppp*`) sont toujours exclus : une annonce ne doit pas partir sur le
+réseau du café ni sur le VPN (MESH.1). Sans interface autorisée, la commande
+échoue en le disant — elle n'annonce rien par défaut.
+`POLYGONE_MESH_IFACE=wlp3s0` (ou `eth0,wlp3s0`) restreint la liste. La variable
+ne peut que **retirer** des interfaces : nommer `tailscale0` ne le réactive pas.
+
 ### `polygone annoncer --relay <addr>`
-Annonce le nœud + relay sur le LAN, répond aux PING de découverte.
+Annonce le nœud + relay sur le LAN, répond aux PING de découverte, avec la même
+sélection d'interfaces que `voisins` (`POLYGONE_MESH_IFACE` pour restreindre).
 
 ### `polygone compute [--emprunter <node> --via <relay>] [--executer "<cmd>" --emprunter <node> --via <relay>]`
 - Sans option : RAM libre locale + nœuds fantômes du LAN (RES).
@@ -194,6 +206,7 @@ Pas de padding, pas de multi-hop — documenté, pas promis.
 | Variable | Effet |
 |---|---|
 | `POLYGONE_OLLAMA_URL` | URL de l'Ollama local (défaut `http://127.0.0.1:11434`) |
+| `POLYGONE_MESH_IFACE` | Restreint les annonces mesh à ces interfaces (ex. `wlp3s0`, `eth0,wlp3s0`) ; ne peut que retirer, jamais réactiver une interface exclue |
 | `POLYGONE_GATEWAY_ADDR` | Adresse de la passerelle (défaut `127.0.0.1:8088`) |
 | `POLYGONE_SITE_DIR` | Répertoire servi par la passerelle (défaut `web`) |
 | `POLYGONE_INSTALL_DIR` | Répertoire d'installation (installateur) |
