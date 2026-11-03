@@ -702,14 +702,22 @@ mod tests {
         assert!(got.is_err(), "relay must not forward non-fragments");
     }
 
+    /// SEC.4 — the regression that must never disappear silently.
+    ///
+    /// Alice is authenticated as `alice`. If she emits an envelope under
+    /// Mallory's name, the relay must drop it. The test also keeps a **positive
+    /// witness**: the legitimate frame she sends next, on the same connection to
+    /// the same recipient, must still be forwarded. Without that witness, a relay
+    /// that had simply stopped routing would pass the spoofing assertion.
     #[tokio::test]
-    async fn drops_envelopes_with_mismatched_from() {
+    async fn refuse_from_spoofing_through_relay() {
         let addr = spawn_relay().await;
 
         let mut bob = TcpStream::connect(addr).await.unwrap();
         hello(&mut bob, "bob").await;
         let mut alice = TcpStream::connect(addr).await.unwrap();
         hello(&mut alice, "alice").await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Alice tries to forward under Mallory's name — anti-spoofing.
         let forged = r#"{"kind":"fragment","from":"mallory","to":"bob","session":"sX","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[9,9]}"#;
@@ -718,13 +726,34 @@ mod tests {
             .await
             .unwrap();
 
-        let mut line = String::new();
-        let got = tokio::time::timeout(Duration::from_millis(300), async {
+        let mut forged_line = String::new();
+        let forged_delivery = tokio::time::timeout(Duration::from_millis(300), async {
             let mut reader = BufReader::new(&mut bob);
-            reader.read_line(&mut line).await.unwrap();
+            reader.read_line(&mut forged_line).await.unwrap();
         })
         .await;
-        assert!(got.is_err(), "relay must not forward a mismatched from");
+        assert!(
+            forged_delivery.is_err(),
+            "relay forwarded an envelope spoofing `from`: {forged_line}"
+        );
+
+        // Positive witness: same connection, same recipient, truthful `from`.
+        let legit = r#"{"kind":"fragment","from":"alice","to":"bob","session":"sX-legit","seq":2,"payload":[7]}"#;
+        alice
+            .write_all(format!("{legit}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut legit_line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            let mut reader = BufReader::new(&mut bob);
+            reader.read_line(&mut legit_line).await.unwrap();
+        })
+        .await
+        .expect("the legitimate frame must still reach bob after the drop");
+        assert!(
+            legit_line.contains(r#""from":"alice""#),
+            "forwarded frame is not alice's: {legit_line}"
+        );
     }
 
     #[tokio::test]
