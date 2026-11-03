@@ -69,7 +69,9 @@ aucune adresse email, aucune télémétrie.
 
 ## 6. Fabriquer la confiance (pour cet utilisateur)
 
-- `cargo test --workspace` reproduit l'état en 2 minutes (109 tests).
+- `cargo test --workspace` reproduit l'état : la suite fait foi, elle n'est pas
+  recopiée ici (un nombre recopié dans dix documents devient faux dans neuf).
+  Mesure du 2026-11-03 : 348 tests, 0 échec — voir `ARCHITECTURE.md` §1.
 - Le code source est conçu pour être lisible en un après-midi.
 - `polygone demo` montre le pipeline complet — y compris l'audit du relay :
   « on voit rien » n'est pas une promesse, c'est un test.

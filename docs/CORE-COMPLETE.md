@@ -1,5 +1,17 @@
 # Polygone-CORE v2.0.0-rc2 — Tests verts complets
 
+> ## ⚠ Instantané daté — ne pas lire comme l'état courant
+>
+> Ce document décrit le workspace du **2026-08-31** : **4 crates, 109 tests**.
+> Depuis, `gateway`, `petals` et `serverless` ont été intégrés (2026-10-29)
+> et la suite est passée à **7 membres, 348 tests**. Pour l'état mesuré, voir
+> [`../ARCHITECTURE.md`](../ARCHITECTURE.md) §1.
+>
+> Deux défauts de ce fichier, laissés visibles plutôt que réécrits : il annonce
+> un compte de tests qui n'est plus vrai, et il contient la substitution shell
+> **non développée** `$(git rev-parse HEAD)` en guise de commit — preuve que ce
+> rapport n'a jamais été relu après génération.
+>
 > **Généré le** : `2026-08-31` | **Commit** : `$(git rev-parse HEAD)` | **Rust** : `1.82.0`
 
 ---
