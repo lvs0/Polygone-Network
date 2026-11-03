@@ -268,6 +268,10 @@ fn with_id(request: Request, id: String) -> Request {
             id: Some(id),
             allocation_id,
         },
+        Request::Renew { allocation_id, .. } => Request::Renew {
+            id: Some(id),
+            allocation_id,
+        },
     }
 }
 
@@ -279,6 +283,7 @@ fn reply_id(reply: &Reply) -> Option<&str> {
         | Reply::AllocGranted { id, .. }
         | Reply::AllocDenied { id, .. }
         | Reply::Released { id, .. }
+        | Reply::Renewed { id, .. }
         | Reply::Pong { id, .. }
         | Reply::Error { id, .. } => id.as_deref(),
     }

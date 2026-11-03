@@ -805,7 +805,10 @@ mod tests {
                             ram_gb,
                             gpu_vram_gb: None,
                             storage_gb: None,
-                            expires_at: None,
+                            // Un bail réel a toujours une échéance depuis
+                            // DAEMON.1 : un faux daemon qui annoncerait `None`
+                            // testerait un protocole qui n'existe plus.
+                            expires_at: Some(4_000_000_000),
                             enforced: false,
                         },
                         polygoned::socket::Request::Alloc { id, .. } => {
@@ -820,6 +823,13 @@ mod tests {
                         }
                         polygoned::socket::Request::Ping { id } => {
                             polygoned::socket::Reply::Pong { id }
+                        }
+                        polygoned::socket::Request::Renew { id, allocation_id } => {
+                            polygoned::socket::Reply::Renewed {
+                                id,
+                                allocation_id,
+                                expires_at: 4_000_000_000,
+                            }
                         }
                     };
                     if writer

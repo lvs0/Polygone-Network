@@ -104,19 +104,28 @@ pub const MAX_LINE_BYTES: usize = 64 * 1024;
 /// Cette liste est vérifiée par `test_known_request_types_covers_every_variant` :
 /// un variant ajouté au type mais oublié ici serait refusé en `unknown_type`,
 /// des deux côtés du fil.
-pub const KNOWN_REQUEST_TYPES: [&str; 4] = ["status_request", "ping", "alloc_request", "release"];
+pub const KNOWN_REQUEST_TYPES: [&str; 5] = [
+    "status_request",
+    "ping",
+    "alloc_request",
+    "release",
+    // `renew` existe parce que les baux expirent : sans renouvellement, un
+    // consommateur légitime perdrait sa réservation au bout de `lease_secs()`.
+    "renew",
+];
 
 /// Types de réponses que le client sait lire (noms sérialisés des variants de
 /// `Reply`) — le pendant de `KNOWN_REQUEST_TYPES` pour la direction inverse.
 ///
 /// Vérifiée par `test_known_reply_types_covers_every_variant` : sans ce test, la
 /// liste dériverait du type au premier variant ajouté, en silence.
-pub const KNOWN_REPLY_TYPES: [&str; 7] = [
+pub const KNOWN_REPLY_TYPES: [&str; 8] = [
     "hello",
     "status_response",
     "alloc_granted",
     "alloc_denied",
     "released",
+    "renewed",
     "pong",
     "error",
 ];
@@ -143,6 +152,11 @@ pub const REASON_POLICY_SHRINKING: &str = "policy_shrinking";
 /// reçoit `exceeds_measured` doit réduire sa demande, sans quoi il réessaiera
 /// indéfiniment contre un mur.
 pub const REASON_EXCEEDS_MEASURED: &str = "exceeds_measured";
+
+/// `renew` sur un identifiant que le ledger ne connaît pas, ou dont le bail est
+/// déjà échu. Distinct de `insufficient_headroom` : aucune libération ne rendra
+/// ce bail, il faut en redemander un.
+pub const REASON_UNKNOWN_ALLOCATION: &str = "unknown_allocation";
 
 /// Pourquoi une ligne n'a pas pu être décodée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,6 +224,17 @@ pub enum Request {
     },
     #[serde(rename = "release")]
     Release {
+        id: Option<String>,
+        allocation_id: String,
+    },
+    /// Prolonge un bail avant son échéance.
+    ///
+    /// Un bail qui n'est jamais renouvelé expire : c'est voulu (un processus
+    /// tué ne doit pas bloquer la marge). Ce variant est la contrepartie pour
+    /// les consommateurs vivants — sans lui, le correctif d'expiration
+    /// évincerait le travail légitime au bout d'un bail.
+    #[serde(rename = "renew")]
+    Renew {
         id: Option<String>,
         allocation_id: String,
     },
@@ -291,6 +316,14 @@ pub enum Reply {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         reason: String,
+    },
+    #[serde(rename = "renewed")]
+    Renewed {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        allocation_id: String,
+        /// Nouvelle échéance, en secondes Unix.
+        expires_at: i64,
     },
     #[serde(rename = "released")]
     Released {
@@ -533,10 +566,111 @@ impl Capacity {
 /// Sans ledger, `dispatch_alloc` décidait contre `ram_headroom_bytes()` — qui ne
 /// reflète que le dernier tick publié : deux clients demandant la même RAM
 /// recevaient chacun `alloc_granted` (`docs/PLAN_CONSOMMATEUR.md` §3, écart 10).
+/// Durée par défaut d'un bail, en secondes.
+///
+/// Quinze minutes : assez long pour qu'un consommateur réel ne perde pas son
+/// bail au milieu d'un calcul (le renouvellement explicite viendra avec
+/// `Request::Renew`), assez court pour qu'un processus tué ne bloque pas la
+/// marge indéfiniment. Sans cette durée, `expires_at` restait `None` et une
+/// réservation ne mourait qu'avec la connexion qui l'avait obtenue — jamais
+/// avec le processus.
+pub const DEFAULT_LEASE_SECS: u64 = 900;
+
+/// Surcharge de la durée de bail, en secondes. Utile aux tests et aux
+/// déploiements qui veulent des baux plus courts.
+pub const ENV_LEASE_SECS: &str = "POLYGONE_LEASE_SECS";
+
+/// Durée de bail effective. Une valeur absente, vide, nulle ou illisible
+/// retombe sur `DEFAULT_LEASE_SECS` : un bail infini serait un retour au défaut
+/// qu'on corrige ici.
+pub fn lease_secs() -> u64 {
+    std::env::var(ENV_LEASE_SECS)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_LEASE_SECS)
+}
+
+/// Horloge murale en secondes Unix. Une horloge antérieure à l'époque rend 0 :
+/// le bail sera long, jamais immédiatement échu.
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Une réservation du ledger.
+///
+/// **Forme `Legacy`** : les ledgers écrits avant l'expiration stockaient un
+/// triplet `[cores, ram_bytes, storage_bytes]`. Ils doivent rester lisibles —
+/// refuser de démarrer sur un fichier d'ancien format perdrait toutes les
+/// réservations en cours, ce qui est pire que le défaut qu'on corrige.
+///
+/// **Forme `Current`** : la même chose plus `expires_at`. Le champ est un objet
+/// JSON nommé, donc un ancien daemon qui relit un ledger récent échoue au lieu
+/// de mal interpréter un tableau — l'échec est préférable au silence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Grant {
+    Legacy((u32, u64, u64)),
+    Current {
+        cores: u32,
+        ram_bytes: u64,
+        storage_bytes: u64,
+        expires_at: Option<i64>,
+    },
+}
+
+impl Grant {
+    fn current(cores: u32, ram_bytes: u64, storage_bytes: u64, expires_at: Option<i64>) -> Grant {
+        Grant::Current {
+            cores,
+            ram_bytes,
+            storage_bytes,
+            expires_at,
+        }
+    }
+
+    pub fn cores(&self) -> u32 {
+        match self {
+            Grant::Legacy((c, _, _)) => *c,
+            Grant::Current { cores, .. } => *cores,
+        }
+    }
+
+    pub fn ram_bytes(&self) -> u64 {
+        match self {
+            Grant::Legacy((_, r, _)) => *r,
+            Grant::Current { ram_bytes, .. } => *ram_bytes,
+        }
+    }
+
+    pub fn storage_bytes(&self) -> u64 {
+        match self {
+            Grant::Legacy((_, _, s)) => *s,
+            Grant::Current { storage_bytes, .. } => *storage_bytes,
+        }
+    }
+
+    /// `None` pour un bail d'ancien format : il n'expire pas tant que
+    /// `Ledger::adopt_legacy_grants` ne lui a pas donné une échéance.
+    pub fn expires_at(&self) -> Option<i64> {
+        match self {
+            Grant::Legacy(_) => None,
+            Grant::Current { expires_at, .. } => *expires_at,
+        }
+    }
+
+    fn is_expired(&self, now: i64) -> bool {
+        matches!(self.expires_at(), Some(at) if at <= now)
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Ledger {
-    /// `allocation_id` → (cœurs réservés, octets de RAM réservés, octets de stockage réservés).
-    grants: HashMap<String, (u32, u64, u64)>,
+    /// `allocation_id` → réservation (cœurs, RAM, stockage, échéance).
+    grants: HashMap<String, Grant>,
     /// Octets réservés, tenus à jour à chaque mutation : la décision reste O(1)
     /// au lieu de sommer le map à chaque requête.
     reserved_ram_bytes: u64,
@@ -545,12 +679,12 @@ pub struct Ledger {
     reserved_cpu_cores: u32,
     /// Octets de stockage réservés — agrégat O(1) comme RAM et CPU.
     ///
-    /// **Avertissement persistance** : ce compteur vit en mémoire. Un
-    /// redémarrage du daemon l'oublie, ce qui est correct pour RAM et CPU
-    /// mais FAUX pour le stockage durable (`docs/ARCHITECTURE_RESEAU.md` §5).
-    /// La persistance fera l'objet d'un incrément séparé ; d'ici là, le
-    /// comptage en mémoire empêche la sur-allocation PENDANT la durée de vie
-    /// du processus, mais pas ENTRE deux lancements.
+    /// **Persistance** : ce compteur est sérialisé avec le reste du ledger, donc
+    /// il **survit** à un redémarrage. La version précédente de ce commentaire
+    /// affirmait le contraire (« vit en mémoire, un redémarrage l'oublie ») et
+    /// c'était faux : `test_ledger_persistence_preserves_counters` relit 5 Gio
+    /// identiques après un cycle écriture/lecture. Un commentaire qui contredit
+    /// son propre test est un mensonge de plus, pas une note.
     reserved_storage_bytes: u64,
     /// Départage : deux demandes identiques produisent le même `allocation_id`
     /// déterministe ; sans suffixe, la seconde écraserait la première dans le map
@@ -661,6 +795,7 @@ impl Ledger {
         cpu_cores: u32,
         ram_bytes: u64,
         storage_bytes: u64,
+        expires_at: Option<i64>,
     ) -> String {
         let mut allocation_id = allocation_id;
         if self.grants.contains_key(&allocation_id) {
@@ -668,8 +803,10 @@ impl Ledger {
             allocation_id = format!("{allocation_id}-{}", self.disambiguator);
         }
 
-        self.grants
-            .insert(allocation_id.clone(), (cpu_cores, ram_bytes, storage_bytes));
+        self.grants.insert(
+            allocation_id.clone(),
+            Grant::current(cpu_cores, ram_bytes, storage_bytes, expires_at),
+        );
         self.reserved_ram_bytes = self.reserved_ram_bytes.saturating_add(ram_bytes);
         self.reserved_cpu_cores = self.reserved_cpu_cores.saturating_add(cpu_cores);
         self.reserved_storage_bytes = self.reserved_storage_bytes.saturating_add(storage_bytes);
@@ -680,11 +817,82 @@ impl Ledger {
     /// rien et n'est pas une erreur — un client qui se déconnecte après avoir
     /// déjà libéré, ou qui n'a jamais rien obtenu, ne doit pas provoquer d'échec.
     fn release(&mut self, allocation_id: &str) {
-        if let Some((cores, ram_bytes, storage_bytes)) = self.grants.remove(allocation_id) {
-            self.reserved_ram_bytes = self.reserved_ram_bytes.saturating_sub(ram_bytes);
-            self.reserved_cpu_cores = self.reserved_cpu_cores.saturating_sub(cores);
-            self.reserved_storage_bytes = self.reserved_storage_bytes.saturating_sub(storage_bytes);
+        if let Some(grant) = self.grants.remove(allocation_id) {
+            self.reserved_ram_bytes = self.reserved_ram_bytes.saturating_sub(grant.ram_bytes());
+            self.reserved_cpu_cores = self.reserved_cpu_cores.saturating_sub(grant.cores());
+            self.reserved_storage_bytes = self
+                .reserved_storage_bytes
+                .saturating_sub(grant.storage_bytes());
         }
+    }
+
+    /// Prolonge un bail encore vivant et rend sa nouvelle échéance.
+    ///
+    /// `None` signifie « inconnu ou déjà échu » : on ne ressuscite **jamais** un
+    /// bail que le balayage a rendu au pool. Sinon deux clients pourraient se
+    /// partager la même réservation, l'un ayant renouvelé ce que l'autre venait
+    /// de libérer.
+    pub fn renew(&mut self, allocation_id: &str, now: i64, lease: u64) -> Option<i64> {
+        let grant = self.grants.get(allocation_id)?;
+        if grant.expires_at().is_none() || grant.is_expired(now) {
+            return None;
+        }
+        let (cores, ram_bytes, storage_bytes) =
+            (grant.cores(), grant.ram_bytes(), grant.storage_bytes());
+        let deadline = now.saturating_add(lease as i64);
+        self.grants.insert(
+            allocation_id.to_string(),
+            Grant::current(cores, ram_bytes, storage_bytes, Some(deadline)),
+        );
+        Some(deadline)
+    }
+
+    /// Retire les baux échus et rend leurs identifiants, dans l'ordre.
+    ///
+    /// C'est la seule chose qui empêche un processus tué de garder sa marge
+    /// pour toujours. Un bail sans échéance (`None`, format historique) n'est
+    /// jamais retiré ici : c'est `adopt_legacy_grants` qui lui en donne une.
+    pub fn sweep_expired(&mut self, now: i64) -> Vec<String> {
+        let expired: Vec<String> = self
+            .grants
+            .iter()
+            .filter(|(_, grant)| grant.is_expired(now))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &expired {
+            self.release(id);
+        }
+        expired
+    }
+
+    /// Donne une échéance aux baux hérités d'un ledger d'ancien format.
+    ///
+    /// Sans cela, un bail écrit par un daemon antérieur resterait éternel après
+    /// la mise à jour : le défaut survivrait exactement à la version qui le
+    /// corrige. La grâce est d'une durée de bail à partir du démarrage.
+    pub fn adopt_legacy_grants(&mut self, now: i64, lease: u64) -> usize {
+        let deadline = now.saturating_add(lease as i64);
+        let mut adopted = 0;
+        for grant in self.grants.values_mut() {
+            if grant.expires_at().is_none() {
+                let cores = grant.cores();
+                let ram = grant.ram_bytes();
+                let storage = grant.storage_bytes();
+                *grant = Grant::current(cores, ram, storage, Some(deadline));
+                adopted += 1;
+            }
+        }
+        adopted
+    }
+
+    /// Nombre de réservations en cours.
+    pub fn len(&self) -> usize {
+        self.grants.len()
+    }
+
+    /// `true` si aucune réservation n'est en cours.
+    pub fn is_empty(&self) -> bool {
+        self.grants.is_empty()
     }
 }
 
@@ -748,6 +956,28 @@ pub fn dispatch(request: Request, state: &DaemonState, ledger: &mut Ledger) -> R
             }
             Reply::Released { id, allocation_id }
         }
+        Request::Renew { id, allocation_id } => {
+            let now = now_unix();
+            // Balayer d'abord : renouveler un bail échu le ressusciterait alors
+            // que ses agrégats ont déjà été rendus au pool.
+            ledger.sweep_expired(now);
+            match ledger.renew(&allocation_id, now, lease_secs()) {
+                Some(expires_at) => {
+                    if let Err(e) = ledger.persist() {
+                        eprintln!("Erreur lors de la persistance du ledger : {}", e);
+                    }
+                    Reply::Renewed {
+                        id,
+                        allocation_id,
+                        expires_at,
+                    }
+                }
+                None => Reply::AllocDenied {
+                    id,
+                    reason: REASON_UNKNOWN_ALLOCATION.to_string(),
+                },
+            }
+        }
         Request::Alloc {
             id,
             client,
@@ -807,6 +1037,22 @@ fn dispatch_alloc(
     }
 
     let requested_ram_bytes = (ram_gb as f64 * 1024.0 * 1024.0 * 1024.0) as u64;
+    // Un bail échu n'est plus une réservation : on balaie AVANT de décider,
+    // sinon un processus tué depuis des heures bloquerait encore la marge et
+    // le refus serait faux ("pas assez de RAM" alors que la RAM est libre).
+    let now = now_unix();
+    let expired = ledger.sweep_expired(now);
+    if !expired.is_empty() {
+        eprintln!(
+            "ledger : {} bail(s) échu(s) libéré(s) : {}",
+            expired.len(),
+            expired.join(", ")
+        );
+        if let Err(e) = ledger.persist() {
+            eprintln!("Erreur lors de la persistance du ledger : {}", e);
+        }
+    }
+
     // Décision contre la MARGE MOINS LES RÉSERVATIONS, pas contre la marge :
     // c'est ce qui empêche deux clients d'obtenir la même RAM.
     // Un `ram_gb` minuscule (`1e-12`) passe le contrôle ci-dessus mais arrondit à
@@ -890,11 +1136,13 @@ fn dispatch_alloc(
     // La réservation est prise ICI, dans le même souffle que la décision :
     // décider puis réserver en deux temps laisserait une fenêtre où deux
     // requêtes concurrentes lisent la même marge libre.
+    let expires_at = now.saturating_add(lease_secs() as i64);
     let allocation_id = ledger.reserve(
         make_allocation_id(state, client.as_deref(), cpu_cores, ram_gb),
         cpu_cores,
         requested_ram_bytes,
         requested_storage_bytes,
+        Some(expires_at),
     );
     // Persistance du ledger après chaque réservation.
     if let Err(e) = ledger.persist() {
@@ -917,7 +1165,10 @@ fn dispatch_alloc(
         ram_gb,
         gpu_vram_gb,
         storage_gb: granted_storage_gb,
-        expires_at: None,
+        // Annoncé au client pour qu'il sache quand renouveler. C'est une
+        // échéance réelle depuis l'expiration des baux, plus une valeur
+        // décorative : le balayage la fait respecter.
+        expires_at: Some(expires_at),
         // Calculé, jamais écrit en dur : vrai seulement si l'OS contraint au
         // moins ce qui vient d'être accordé. Aujourd'hui `enforced_ram_bytes`
         // vaut 0, donc ce champ vaut `false` — et le client doit lire
@@ -1393,6 +1644,25 @@ pub fn serve_with_timeout_at(
     // par toutes les connexions (c'est tout l'intérêt) et n'entre jamais dans
     // `DaemonState`, dont `publish_shared` reste le seul écrivain.
     let ledger = Arc::new(Mutex::new(Ledger::load_from(persistence_path)));
+    // Au démarrage : donner une échéance aux baux d'ancien format, puis retirer
+    // ceux déjà échus. Sans la première étape, un bail hérité d'une version
+    // antérieure resterait éternel — le défaut survivrait à son correctif.
+    {
+        let mut guard = lock_ledger(&ledger);
+        let now = now_unix();
+        let adopted = guard.adopt_legacy_grants(now, lease_secs());
+        let expired = guard.sweep_expired(now);
+        if adopted > 0 || !expired.is_empty() {
+            log::info!(
+                "socket: ledger — {} bail(aux) hérité(s) mis sous échéance, {} échu(s) libéré(s)",
+                adopted,
+                expired.len()
+            );
+            if let Err(e) = guard.persist() {
+                log::error!("socket: persistance du ledger après balayage : {}", e);
+            }
+        }
+    }
     log::info!(
         "socket: serveur en écoute (plafond {} connexions, inactivité {} s)",
         MAX_CONNECTIONS,
@@ -1661,7 +1931,7 @@ mod tests {
         let ledger_file = dir.path().join("ledger_persistence.json");
         // Crée un ledger, réserve des ressources, persiste, puis recharge.
         let mut ledger = Ledger::at_path(&ledger_file);
-        let alloc_id = ledger.reserve("test-alloc".to_string(), 2, 1024 * 1024 * 1024, 0);
+        let alloc_id = ledger.reserve("test-alloc".to_string(), 2, 1024 * 1024 * 1024, 0, None);
         // Vérifie la présence dans le ledger en mémoire.
         assert!(ledger.grants.contains_key(&alloc_id));
         // Persiste sur disque.
@@ -1976,14 +2246,14 @@ mod tests {
         let state = state();
         let mut ledger = Ledger::default();
 
-        let first = ledger.reserve("alloc-a".to_string(), 1, 5 * 1024u64 * 1024 * 1024, 0);
+        let first = ledger.reserve("alloc-a".to_string(), 1, 5 * 1024u64 * 1024 * 1024, 0, None);
         assert_eq!(first, "alloc-a", "un id libre est rendu tel quel");
         assert_eq!(ledger.free_ram_bytes(&state), 2 * 1024u64 * 1024 * 1024);
         assert_eq!(ledger.free_cpu_cores(&state), 2);
 
         // Même identifiant redemandé : il est départagé, et les DEUX réservations
         // comptent — c'est le bug que le ledger existe pour empêcher.
-        let second = ledger.reserve("alloc-a".to_string(), 1, 1, 0);
+        let second = ledger.reserve("alloc-a".to_string(), 1, 1, 0, None);
         assert_ne!(
             second, "alloc-a",
             "un id déjà pris ne doit pas écraser l'autre"
@@ -2021,11 +2291,23 @@ mod tests {
         );
 
         // Une réservation entame la marge du montant exact.
-        let a = ledger.reserve("alloc-s1".to_string(), 1, 0, 4 * 1024u64 * 1024 * 1024);
+        let a = ledger.reserve(
+            "alloc-s1".to_string(),
+            1,
+            0,
+            4 * 1024u64 * 1024 * 1024,
+            None,
+        );
         assert_eq!(ledger.free_storage_bytes(&state), 6 * 1024u64 * 1024 * 1024);
 
         // Les réservations s'agrègent : deux clients, deux débits.
-        let b = ledger.reserve("alloc-s2".to_string(), 1, 0, 2 * 1024u64 * 1024 * 1024);
+        let b = ledger.reserve(
+            "alloc-s2".to_string(),
+            1,
+            0,
+            2 * 1024u64 * 1024 * 1024,
+            None,
+        );
         assert_eq!(ledger.free_storage_bytes(&state), 4 * 1024u64 * 1024 * 1024);
 
         // Libérer un id inconnu ne rend rien (idempotence).
@@ -2164,6 +2446,7 @@ mod tests {
             2,
             2 * 1024 * 1024 * 1024,
             5 * 1024 * 1024 * 1024,
+            None,
         );
         // Ensure counters are set.
         assert_eq!(ledger.reserved_cpu_cores, 2);
@@ -2196,7 +2479,13 @@ mod tests {
         // --- "Premier processus" : réserve 5 Gio et persiste. ---
         let allocation_id = {
             let mut ledger = Ledger::at_path(&ledger_file);
-            let id = ledger.reserve("restart-alloc".to_string(), 1, 5 * 1024u64 * 1024 * 1024, 0);
+            let id = ledger.reserve(
+                "restart-alloc".to_string(),
+                1,
+                5 * 1024u64 * 1024 * 1024,
+                0,
+                None,
+            );
             assert_eq!(
                 ledger.free_ram_bytes(&state),
                 2 * 1024u64 * 1024 * 1024,
@@ -2291,6 +2580,10 @@ mod tests {
                 storage_gb: None,
             },
             Request::Release {
+                id: None,
+                allocation_id: "alloc-1".to_string(),
+            },
+            Request::Renew {
                 id: None,
                 allocation_id: "alloc-1".to_string(),
             },
@@ -3309,5 +3602,268 @@ mod server_tests {
         );
 
         stop_server(&shutdown, handle);
+    }
+
+    // ── Expiration des baux (DAEMON.1) ───────────────────────────────────
+    //
+    // Avant ce correctif, `expires_at` valait toujours `None` : un processus tué
+    // sans rendre son bail gardait sa marge pour toujours, et le daemon
+    // refusait ensuite des demandes que la machine pouvait satisfaire.
+
+    #[test]
+    fn test_expired_grant_is_swept_and_frees_its_share() {
+        let mut ledger = Ledger::default();
+        let id = ledger.reserve(
+            "bail-echu".to_string(),
+            1,
+            2 * 1024 * 1024 * 1024,
+            0,
+            Some(1_000),
+        );
+        assert_eq!(ledger.reserved_ram_bytes, 2 * 1024 * 1024 * 1024);
+        assert_eq!(ledger.reserved_cpu_cores, 1);
+
+        // Une seconde avant l'échéance : rien ne bouge.
+        assert!(ledger.sweep_expired(999).is_empty());
+        assert_eq!(ledger.reserved_ram_bytes, 2 * 1024 * 1024 * 1024);
+
+        // À l'échéance exacte : le bail tombe, les agrégats aussi.
+        assert_eq!(ledger.sweep_expired(1_000), vec![id.clone()]);
+        assert_eq!(ledger.reserved_ram_bytes, 0);
+        assert_eq!(ledger.reserved_cpu_cores, 0);
+        assert_eq!(ledger.len(), 0);
+        assert!(!ledger.grants.contains_key(&id));
+    }
+
+    #[test]
+    fn test_legacy_grant_gets_a_deadline_at_startup() {
+        // Un ledger écrit avant ce correctif n'a pas d'échéance. Sans adoption,
+        // le défaut survivrait exactement à la version qui le corrige.
+        let mut ledger = Ledger::default();
+        let id = ledger.reserve("herite".to_string(), 2, 1024 * 1024 * 1024, 0, None);
+        assert_eq!(ledger.grants[&id].expires_at(), None);
+
+        assert_eq!(ledger.adopt_legacy_grants(5_000, 60), 1);
+        assert_eq!(ledger.grants[&id].expires_at(), Some(5_060));
+        assert!(ledger.sweep_expired(5_059).is_empty());
+        assert_eq!(ledger.sweep_expired(5_060), vec![id]);
+    }
+
+    #[test]
+    fn test_legacy_ledger_file_is_still_readable() {
+        // Format historique : un triplet par réservation. Refuser ce fichier
+        // perdrait les baux en cours au moment de la mise à jour.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("ledger-legacy.json");
+        std::fs::write(
+            &path,
+            r#"{
+              "grants": { "ancien": [2, 1073741824, 0] },
+              "reserved_ram_bytes": 1073741824,
+              "reserved_cpu_cores": 2,
+              "reserved_storage_bytes": 0,
+              "disambiguator": 0
+            }"#,
+        )
+        .expect("écriture du ledger historique");
+
+        let loaded = Ledger::load_from(&path);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded.grants["ancien"].ram_bytes(), 1_073_741_824);
+        assert_eq!(loaded.grants["ancien"].cores(), 2);
+        assert_eq!(loaded.grants["ancien"].expires_at(), None);
+    }
+
+    #[test]
+    fn test_alloc_reply_announces_a_real_expiry() {
+        let st = DaemonState::new("balanced");
+        let mut ledger = Ledger::default();
+        let reply = dispatch(
+            Request::Alloc {
+                id: Some("expiry".to_string()),
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 0.25,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+
+        match reply {
+            Reply::AllocGranted {
+                allocation_id,
+                expires_at,
+                ..
+            } => {
+                let at = expires_at.expect("une allocation doit annoncer son échéance");
+                assert!(
+                    at > now_unix(),
+                    "l'échéance doit être dans le futur, obtenu {at} vs {}",
+                    now_unix()
+                );
+                assert_eq!(ledger.grants[&allocation_id].expires_at(), Some(at));
+            }
+            other => panic!("allocation refusée alors que la marge est libre : {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_expiry_lets_a_new_client_take_the_freed_margin() {
+        // Le refus doit être temporaire, pas définitif : après l'échéance, la
+        // même demande doit passer. C'est la propriété produit de ce correctif.
+        let st = DaemonState {
+            // Palier 50 % de 16 Gio = 8 Gio autorisés, 7 Gio déjà alloués :
+            // une demande de 1 Gio passe exactement, la suivante est refusée.
+            ram_bytes: 7 * 1024 * 1024 * 1024,
+            ..DaemonState::new("balanced")
+        };
+        let mut ledger = Ledger::default();
+        let first = dispatch(
+            Request::Alloc {
+                id: None,
+                client: Some("mort".to_string()),
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+        assert!(matches!(first, Reply::AllocGranted { .. }));
+
+        let blocked = dispatch(
+            Request::Alloc {
+                id: None,
+                client: Some("vivant".to_string()),
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+        assert_eq!(
+            blocked,
+            Reply::AllocDenied {
+                id: None,
+                reason: REASON_INSUFFICIENT_HEADROOM.to_string(),
+            },
+            "sans échéance respectée, le second client est refusé"
+        );
+
+        // L'horloge a avancé au-delà du bail : le balayage rend la marge.
+        let horizon = now_unix() + lease_secs() as i64 + 1;
+        assert_eq!(ledger.sweep_expired(horizon).len(), 1);
+
+        let after = dispatch(
+            Request::Alloc {
+                id: None,
+                client: Some("vivant".to_string()),
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+        assert!(
+            matches!(after, Reply::AllocGranted { .. }),
+            "après l'échéance, la marge libérée doit être réaccordable : {after:?}"
+        );
+    }
+
+    // ── Renouvellement du bail (DAEMON.3) ────────────────────────────────
+
+    #[test]
+    fn test_renew_pushes_the_deadline() {
+        let mut ledger = Ledger::default();
+        let id = ledger.reserve("vivant".to_string(), 1, 1024 * 1024 * 1024, 0, Some(1_000));
+
+        // Renouvelé 100 s avant l'échéance, pour 200 s : la nouvelle échéance
+        // (1 100) dépasse l'ancienne (1 000), donc le bail survit à l'instant
+        // où il serait mort sans renouvellement.
+        assert_eq!(ledger.renew(&id, 900, 200), Some(1_100));
+        assert_eq!(ledger.grants[&id].expires_at(), Some(1_100));
+
+        assert!(ledger.sweep_expired(1_000).is_empty());
+        assert_eq!(ledger.sweep_expired(1_100), vec![id]);
+    }
+
+    #[test]
+    fn test_renew_refuses_an_unknown_or_expired_lease() {
+        let mut ledger = Ledger::default();
+        assert_eq!(
+            ledger.renew("jamais-accorde", 1_000, 60),
+            None,
+            "un identifiant inconnu ne doit pas créer de réservation"
+        );
+        assert_eq!(ledger.len(), 0);
+
+        // Bail échu : le renouvellement ne le ressuscite pas, sinon les agrégats
+        // rendus au pool seraient comptés deux fois.
+        let id = ledger.reserve("mort".to_string(), 1, 1024 * 1024 * 1024, 0, Some(1_000));
+        assert_eq!(ledger.sweep_expired(1_000).len(), 1);
+        assert_eq!(ledger.renew(&id, 1_000, 60), None);
+        assert_eq!(ledger.reserved_ram_bytes, 0);
+    }
+
+    #[test]
+    fn test_dispatch_renew_replies_on_the_wire() {
+        let st = DaemonState::new("balanced");
+        let mut ledger = Ledger::default();
+        let granted = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 0.25,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+        let allocation_id = match granted {
+            Reply::AllocGranted { allocation_id, .. } => allocation_id,
+            other => panic!("allocation refusée : {other:?}"),
+        };
+
+        let renewed = dispatch(
+            Request::Renew {
+                id: Some("r1".to_string()),
+                allocation_id: allocation_id.clone(),
+            },
+            &st,
+            &mut ledger,
+        );
+        match renewed {
+            Reply::Renewed { expires_at, .. } => {
+                assert!(expires_at > now_unix(), "l'échéance renouvelée est future")
+            }
+            other => panic!("renouvellement refusé : {other:?}"),
+        }
+
+        // Le protocole refuse explicitement un bail inconnu, au lieu de répondre
+        // « renewed » sur quelque chose qui n'existe pas.
+        let refused = dispatch(
+            Request::Renew {
+                id: None,
+                allocation_id: "fantome".to_string(),
+            },
+            &st,
+            &mut ledger,
+        );
+        assert_eq!(
+            refused,
+            Reply::AllocDenied {
+                id: None,
+                reason: REASON_UNKNOWN_ALLOCATION.to_string(),
+            }
+        );
     }
 }
