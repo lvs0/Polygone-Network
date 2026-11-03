@@ -86,6 +86,13 @@ pub fn runtime_state(
         // fiable de quota disque n'est branchée. Toute demande de stockage
         // sera refusée (0 = rien d'allouable).
         total_storage_bytes: 0,
+        // Rien n'est contraint par l'OS, et c'est mesuré, pas supposé :
+        // `GlowUpEngine::apply` ne pose qu'une priorité `nice` ; aucun
+        // plafond mémoire de cgroup, aucun quota CPU, aucune affinité écrits par le
+        // daemon. Publier autre chose que 0 ici serait la revendication que
+        // tout le projet combat.
+        enforced_ram_bytes: 0,
+        enforced_storage_bytes: 0,
     }
 }
 

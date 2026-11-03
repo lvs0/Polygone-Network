@@ -134,6 +134,15 @@ pub const REASON_INSUFFICIENT_CPU: &str = "insufficient_cpu";
 pub const REASON_INSUFFICIENT_VRAM: &str = "insufficient_vram";
 pub const REASON_INSUFFICIENT_STORAGE: &str = "insufficient_storage";
 pub const REASON_POLICY_SHRINKING: &str = "policy_shrinking";
+/// La demande dépasse ce que la **machine possède**, pas seulement ce qui reste
+/// réservable. Distinct de `insufficient_headroom` : le premier est un refus
+/// définitif (aucune libération ne le rendra possible), le second est un refus
+/// temporaire qui se débloque quand un pair rend son bail.
+///
+/// Un client qui reçoit `insufficient_headroom` doit réessayer ; un client qui
+/// reçoit `exceeds_measured` doit réduire sa demande, sans quoi il réessaiera
+/// indéfiniment contre un mur.
+pub const REASON_EXCEEDS_MEASURED: &str = "exceeds_measured";
 
 /// Pourquoi une ligne n'a pas pu être décodée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -268,6 +277,14 @@ pub enum Reply {
         storage_gb: Option<f32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         expires_at: Option<i64>,
+        /// `true` seulement si l'OS contraint réellement ce qui vient d'être
+        /// accordé. `false` = licence que le client doit s'auto-imposer.
+        ///
+        /// `#[serde(default)]` : un daemon antérieur qui n'envoie pas ce champ
+        /// produit `false`, ce qui est le repli le plus sûr — on ne prétend
+        /// jamais une garantie qu'on n'a pas reçue.
+        #[serde(default)]
+        enforced: bool,
     },
     #[serde(rename = "alloc_denied")]
     AllocDenied {
@@ -327,6 +344,15 @@ pub struct DaemonState {
     /// le sens v1 : un état sans ce champ (ou 0) signifie qu'aucune capacité
     /// de stockage n'est annoncée — toute demande de stockage sera refusée.
     pub total_storage_bytes: u64,
+    /// RAM réellement **contrainte** par l'OS sur les consommateurs.
+    ///
+    /// Vaut `0` aujourd'hui, et c'est la vérité : `GlowUpEngine::apply` ne pose
+    /// qu'une priorité `nice` ; ni plafond mémoire ni quota CPU de cgroup ne
+    /// sont écrits par le daemon (garde structurel : `runtime::tests`). Ce champ existe pour que le jour où une isolation est écrite
+    /// il devienne non nul **par mesure**, et jamais par déclaration.
+    pub enforced_ram_bytes: u64,
+    /// Idem pour le stockage : `0` signifie qu'aucun quota disque n'est imposé.
+    pub enforced_storage_bytes: u64,
 }
 
 impl DaemonState {
@@ -355,6 +381,10 @@ impl DaemonState {
             daemon_version: env!("CARGO_PKG_VERSION").to_string(),
             platform: "unknown".to_string(),
             total_storage_bytes: 0,
+            // Rien n'est contraint dans un état de test inerte : si un test
+            // veut simuler une isolation, il le fait explicitement.
+            enforced_ram_bytes: 0,
+            enforced_storage_bytes: 0,
         }
     }
 
@@ -460,6 +490,38 @@ pub fn decode_reply(line: &str) -> Result<Reply, DecodeError> {
     serde_json::from_value(value).map_err(|_| DecodeError::MalformedJson)
 }
 
+/// Ce que le daemon peut dire d'une ressource, en trois grandeurs distinctes.
+///
+/// Le défaut historique du projet tient dans la confusion de ces trois mots :
+/// un client lisait un chiffre et croyait à une garantie. Les séparer rend le
+/// mensonge structurellement impossible à écrire.
+///
+/// - `measured` : ce que la machine possède réellement, mesuré au tick.
+/// - `reservable` : ce qui peut **encore** être promis — mesuré, moins le
+///   plafond du palier et les marges, moins les réservations en cours.
+/// - `enforced` : ce que le système d'exploitation **impose** effectivement au
+///   consommateur. Zéro signifie « rien n'est contraint » : une allocation
+///   accordée est alors une **licence**, que le client peut dépasser.
+///
+/// Invariant, testé : `reservable <= measured`. Un `enforced` qui dépasserait
+/// `reservable` serait une contrainte sur une ressource qui n'a pas été promise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Capacity {
+    pub measured: u64,
+    pub reservable: u64,
+    /// Ce que l'OS applique réellement. `0` = licence, pas garantie.
+    pub enforced: u64,
+}
+
+impl Capacity {
+    /// Vrai seulement si l'intégralité de la capacité annoncée est contrainte
+    /// par l'OS. Un `reservable > 0` avec `enforced == 0` doit être présenté à
+    /// l'utilisateur comme un engagement, jamais comme un quota appliqué.
+    pub fn is_enforced(&self) -> bool {
+        self.enforced > 0 && self.enforced >= self.reservable
+    }
+}
+
 /// Réservations d'allocation en cours, une par `allocation_id`.
 ///
 /// **Ce ledger vit dans le serveur, jamais dans `DaemonState`.** `publish_shared`
@@ -562,6 +624,31 @@ impl Ledger {
         state
             .storage_headroom_bytes()
             .saturating_sub(self.reserved_storage_bytes)
+    }
+
+    /// Les trois grandeurs de la RAM, dans un seul objet.
+    ///
+    /// `measured` est le total physique publié par le tick ; `reservable` est
+    /// ce qui reste après plafond de palier, marges et réservations ; `enforced`
+    /// vient de l'état, qui vaut 0 tant que le daemon n'impose aucun plafond
+    /// mémoire de cgroup (c'est le cas aujourd'hui : `apply` ne pose qu'un `nice`).
+    pub fn ram_capacity(&self, state: &DaemonState) -> Capacity {
+        Capacity {
+            measured: state.total_ram_bytes,
+            reservable: self.free_ram_bytes(state),
+            enforced: state.enforced_ram_bytes,
+        }
+    }
+
+    /// Idem pour le stockage. `measured` = ce que le daemon s'autorise à servir
+    /// (le total annoncé, engagement ferme — voir `storage_headroom_bytes`),
+    /// jamais le disque entier de la machine.
+    pub fn storage_capacity(&self, state: &DaemonState) -> Capacity {
+        Capacity {
+            measured: state.total_storage_bytes,
+            reservable: self.free_storage_bytes(state),
+            enforced: state.enforced_storage_bytes,
+        }
     }
 
     /// Réserve `ram_bytes`, `cpu_cores` et `storage_bytes` sous `allocation_id`,
@@ -744,6 +831,17 @@ fn dispatch_alloc(
         };
     }
 
+    // Trois refus distincts, dans cet ordre : la demande dépasse la machine
+    // (définitif), puis dépasse ce qui reste réservable (temporaire), puis la
+    // politique de retrait. Confondre les deux premiers poussait un client à
+    // réessayer indéfiniment une demande que rien ne pourrait satisfaire.
+    if requested_ram_bytes > state.total_ram_bytes {
+        return Reply::AllocDenied {
+            id,
+            reason: REASON_EXCEEDS_MEASURED.to_string(),
+        };
+    }
+
     if requested_ram_bytes > ledger.free_ram_bytes(state) {
         return Reply::AllocDenied {
             id,
@@ -820,6 +918,11 @@ fn dispatch_alloc(
         gpu_vram_gb,
         storage_gb: granted_storage_gb,
         expires_at: None,
+        // Calculé, jamais écrit en dur : vrai seulement si l'OS contraint au
+        // moins ce qui vient d'être accordé. Aujourd'hui `enforced_ram_bytes`
+        // vaut 0, donc ce champ vaut `false` — et le client doit lire
+        // l'allocation comme une licence, pas comme un quota appliqué.
+        enforced: ledger.ram_capacity(state).enforced >= requested_ram_bytes,
     }
 }
 
@@ -1655,6 +1758,138 @@ mod tests {
         }
     }
 
+    // ---- P1.1 : mesuré / réservable / contraint ----------------------------
+
+    /// Une demande qui dépasse la **machine** ne doit pas être confondue avec
+    /// une demande qui dépasse le **reste réservable**. Le premier refus est
+    /// définitif ; le second se débloque quand un pair rend son bail.
+    #[test]
+    fn test_alloc_over_measured_is_not_headroom() {
+        // `state()` : 16 Gio mesurés, plafond de palier à 50 %, donc 7 Gio
+        // réservables. Une demande de 20 Gio dépasse la machine elle-même.
+        let reply = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 20.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &state(),
+            &mut Ledger::default(),
+        );
+        match reply {
+            Reply::AllocDenied { reason, .. } => assert_eq!(
+                reason, REASON_EXCEEDS_MEASURED,
+                "dépasser la machine n'est pas un manque de marge"
+            ),
+            other => panic!("attendu AllocDenied, obtenu {:?}", other),
+        }
+    }
+
+    /// Entre les deux : sous la capacité mesurée, au-dessus du réservable.
+    /// C'est le refus temporaire, et il doit porter son propre motif.
+    #[test]
+    fn test_alloc_over_reservable_reports_headroom() {
+        let reply = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 10.0, // < 16 Gio mesurés, > 7 Gio réservables
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &state(),
+            &mut Ledger::default(),
+        );
+        match reply {
+            Reply::AllocDenied { reason, .. } => assert_eq!(
+                reason, REASON_INSUFFICIENT_HEADROOM,
+                "sous la machine mais au-dessus du réservable"
+            ),
+            other => panic!("attendu AllocDenied, obtenu {:?}", other),
+        }
+    }
+
+    /// L'allocation réellement accordée porte son degré de contrainte.
+    /// Tant que le daemon n'impose aucun plafond mémoire, c'est une licence.
+    #[test]
+    fn test_granted_says_licence_when_nothing_enforced() {
+        let reply = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &state(),
+            &mut Ledger::default(),
+        );
+        match reply {
+            Reply::AllocGranted { enforced, .. } => assert!(
+                !enforced,
+                "rien n'est contraint par l'OS : accorder ne doit pas promettre un quota"
+            ),
+            other => panic!("attendu AllocGranted, obtenu {:?}", other),
+        }
+    }
+
+    /// Et si l'état dit qu'une contrainte existe, le champ la reflète — la
+    /// valeur est calculée, jamais écrite en dur.
+    #[test]
+    fn test_granted_reports_enforcement_when_state_says_so() {
+        let mut st = state();
+        st.enforced_ram_bytes = 2 * 1024 * 1024 * 1024;
+        let reply = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut Ledger::default(),
+        );
+        match reply {
+            Reply::AllocGranted { enforced, .. } => {
+                assert!(enforced, "2 Gio contraints couvrent une demande de 1 Gio")
+            }
+            other => panic!("attendu AllocGranted, obtenu {:?}", other),
+        }
+    }
+
+    /// Invariant : on ne promet jamais plus que ce que la machine possède, et
+    /// le degré de contrainte ne peut pas dépasser ce qui a été promis.
+    #[test]
+    fn test_capacity_invariant() {
+        let st = state();
+        let ledger = Ledger::default();
+        let ram = ledger.ram_capacity(&st);
+        assert_eq!(ram.measured, st.total_ram_bytes);
+        assert!(
+            ram.reservable <= ram.measured,
+            "réservable {} > mesuré {}",
+            ram.reservable,
+            ram.measured
+        );
+        assert_eq!(ram.enforced, 0, "aucune contrainte OS dans état inerte");
+        assert!(
+            !ram.is_enforced(),
+            "0 contraint ne doit jamais être présenté comme appliqué"
+        );
+
+        // Le stockage non annoncé (0) ne peut rien réserver : c'est le repli sûr.
+        let storage = ledger.storage_capacity(&st);
+        assert_eq!(storage.measured, 0);
+        assert_eq!(storage.reservable, 0);
+    }
+
     #[test]
     fn test_dispatch_alloc_denied_during_policy_shrink() {
         let shrinking = DaemonState {
@@ -2023,6 +2258,7 @@ mod tests {
                 gpu_vram_gb: None,
                 storage_gb: None,
                 expires_at: None,
+                enforced: false,
             },
             Reply::AllocDenied {
                 id: None,

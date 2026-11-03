@@ -25,6 +25,7 @@
 | Les 65 fichiers non commités du canonique sont-ils perdables ? | **Non** — 60 fichiers byte-identiques ici, 3 dossiers identiques (`diff -rq`), les 2 restants sont `.freebuff-tasks/` et `.specify/` (outillage). Déjà commités sur `realign/v1`. | 2026-11-03 |
 | P0.3 : documentation factuellement fausse | **Corrigé** — `ARCHITECTURE.md` passe de « 4 crates, ~9 600 LOC, 109 tests » à **7 membres, 28 456 LOC, 4 binaires, 348 tests** (mesuré). `threat-commodity.md` ne recopie plus de compte. `CORE-COMPLETE.md` reçoit un bandeau d'instantané daté. | 2026-11-03 |
 | `cargo test --workspace` sur `realign/v1` | **348 tests, 17 suites, 0 échec** | 2026-11-03 |
+| P1.1 : capacités séparées (`Capacity`, `enforced`, refus distingué) | **353 tests, 0 échec** · `cargo clippy --workspace --all-targets -- -D warnings` **exit 0** · `cargo fmt --all -- --check` **OK** | 2026-11-03 |
 
 ## Décisions tranchées
 
@@ -53,9 +54,10 @@
 
 ## Prochaine action
 
-`P1.1` — séparer **capacité mesurée**, **capacité réservable** et **capacité
-contrainte** dans le daemon et l'API de bail ; refuser explicitement toute
-réservation qui ne peut pas être garantie (`ROADMAP.md`, `docs/DAEMON_STATE.md`).
+`P1.2` — contrat de bail complet : durée, heartbeat, expiration, révocation,
+crash, reprise, idempotence. Le ledger persiste aujourd'hui les réservations
+mais rien ne les expire : `expires_at` est toujours `None` dans `alloc_granted`.
+C'est le prochain trou réel entre ce que le protocole promet et ce qu'il tient.
 
 > **Correction du 2026-11-03** : la note précédente demandait de committer les
 > 65 fichiers non suivis du dépôt canonique. **C'était inutile.** Vérifié par

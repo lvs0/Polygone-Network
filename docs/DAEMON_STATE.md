@@ -207,6 +207,28 @@ Chaque point est adossé à une preuve : nom de fonction ou nom de test réellem
 - Le bail demeure une licence que le consommateur s'engage à respecter ; le
   daemon n'impose pas de quota OS au processus consommateur.
 
+#### Les trois grandeurs, désormais séparées (2026-11-03)
+
+Le défaut tenait dans un seul mot : « capacité ». Un client lisait un chiffre et
+croyait à une garantie. Trois notions distinctes existent maintenant dans le
+type `Capacity` (`daemon/src/socket.rs`) et dans `Reply::AllocGranted.enforced` :
+
+| Grandeur | Sens | Aujourd'hui |
+|---|---|---|
+| `measured` | ce que la machine possède, mesuré au tick | total physique réel |
+| `reservable` | ce qui peut encore être promis (mesuré − plafond de palier − marges − réservations en cours) | ~7 Gio sur une machine de 16 Gio à 50 % |
+| `enforced` | ce que l'OS **impose** au consommateur | **0** — `apply()` ne pose qu'un `nice` |
+
+Conséquences visibles sur le protocole :
+
+- `alloc_granted` porte `enforced: bool`, **calculé** (jamais écrit en dur) :
+  `false` signifie licence, `true` signifie qu'un quota couvre réellement la
+  demande. Aujourd'hui il vaut `false` et c'est la vérité.
+- Le refus distingué : `exceeds_measured` (définitif : la demande dépasse la
+  machine, réessayer ne servira à rien) vs `insufficient_headroom` (temporaire :
+  un pair qui rend son bail le débloque). Les confondre poussait un client à
+  réessayer indéfiniment contre un mur.
+
 ### 3.2 Le CPU n'est jamais réellement alloué
 
 - `set_cpu_affinity` (Linux) et `cpu::apply_thread_affinity` **n'ont aucun appelant** :
