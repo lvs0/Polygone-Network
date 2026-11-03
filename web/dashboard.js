@@ -18,8 +18,6 @@
     traffic_out: 0,
     frag_ready: 3,
     frag_needed: 4,
-    balance: 10,
-    consumption: 0.1,
     modules: [
       { name: "Msg",   icon: "💬", status: "running", label: "Running" },
       { name: "Hide",  icon: "👻", status: "running", label: "Running" },
@@ -48,8 +46,6 @@
   const elFragReady = $("frag-ready");
   const elFragNeed  = $("frag-needed");
   const elFragBar   = $("frag-bar");
-  const elBalance   = $("balance");
-  const elConsump   = $("consumption");
   const elModules   = $("modules");
   const elLog       = $("log");
   const sparkIn     = $("spark-in").querySelector("polyline");
@@ -85,8 +81,6 @@
     elFragReady.textContent = state.frag_ready;
     elFragNeed.textContent  = state.frag_needed;
     elFragBar.style.width   = `${Math.min(100, (state.frag_ready / state.frag_needed) * 100)}%`;
-    elBalance.textContent   = state.balance;
-    elConsump.textContent   = state.consumption.toFixed(2);
   };
 
   const renderSpark = () => {
@@ -137,8 +131,6 @@
   // ── Local simulation (fallback) ──────────────────────────────────
   const tick = () => {
     state.uptime += 1;
-    state.balance = Math.max(0, state.balance - 0.01);
-    state.consumption = 0.05 + Math.random() * 0.2;
 
     // Smooth traffic with random walk
     const step = () => (Math.random() - 0.5) * 200;
