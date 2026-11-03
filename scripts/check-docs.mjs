@@ -21,6 +21,7 @@
 // Zéro dépendance. Node >= 22.
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -154,13 +155,18 @@ function checkArchitecture(facts) {
   // est aussi faux qu'un chiffre faux, et plus difficile à voir.
   const totalColumn = (name) => header.findIndex((h) => new RegExp(name, "i").test(h));
   const filesCol = totalColumn("fichiers");
+  const locCol = totalColumn("LOC");
   const testsCol = totalColumn("tests");
   const rows = lines
     .slice(headerIndex + 2, totalIndex)
     .filter((l) => l.startsWith("|"))
     .map((l) => l.split("|").slice(1, -1).map((c) => c.replace(/[*\s\u00a0]/g, "")));
 
-  for (const [index, name] of [[filesCol, "fichiers"], [testsCol, "tests"]]) {
+  for (const [index, name] of [
+    [filesCol, "fichiers"],
+    [locCol, "LOC"],
+    [testsCol, "tests"],
+  ]) {
     if (index < 0) continue;
     const sum = rows.reduce((s, r) => s + (Number.isFinite(Number(r[index])) ? Number(r[index]) : 0), 0);
     const declared = num(cells[index]);
@@ -317,7 +323,56 @@ function checkClaims(files) {
   }
 }
 
-/* ─────────────────────────── 5. Nombre de tests ─────────────────────────── */
+/* ─────────────── 5. Les compteurs d'état ne sont pas périmés ─────────────── */
+
+// `STATE.md` a annoncé pendant deux sessions une branche (`realign/v1`)
+// différente du checkout réel (`realign/v2`). Un agent qui pilote le produit
+// depuis cette ligne travaille sur le mauvais historique. La comparaison se
+// fait contre git, jamais contre un chiffre recopié.
+function checkStateBranch() {
+  let actual;
+  try {
+    actual = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    notes.push("branche : NON VÉRIFIÉE (git indisponible dans cet environnement)");
+    return;
+  }
+  if (!actual || actual === "HEAD") {
+    notes.push("branche : checkout détaché, non vérifiée");
+    return;
+  }
+
+  const text = read("STATE.md");
+  const row = text.split("\n").find((line) => /^\|\s*Branche\s*\|/.test(line));
+  if (!row) {
+    fail("state.branche", "STATE.md n'a plus de ligne « | Branche | » : l'état n'est plus lisible");
+    return;
+  }
+  // La cellule porte souvent un commentaire après la branche (« locale, non
+  // poussée… »). C'est le premier fragment en code qui nomme la branche ;
+  // comparer la cellule entière ferait échouer un document pourtant juste, et
+  // pousserait à appauvrir `STATE.md` au lieu de le rendre vérifiable.
+  const cell = (row.split("|")[2] ?? "").trim();
+  const declared = ((cell.match(/`([^`]+)`/) ?? [null, cell])[1] ?? "").replace(/[`*\s]/g, "");
+  if (!declared) {
+    fail("state.branche", "STATE.md : ligne « Branche » vide");
+    return;
+  }
+  if (declared !== actual) {
+    fail(
+      "state.branche",
+      `STATE.md déclare la branche ${declared}, le checkout est sur ${actual}`,
+    );
+    return;
+  }
+  notes.push(`branche : STATE.md et le checkout concordent (${actual})`);
+}
+
+/* ─────────────────────────── 6. Nombre de tests ─────────────────────────── */
 
 function checkTestCount() {
   const flagIndex = process.argv.indexOf("--tests");
@@ -346,6 +401,7 @@ checkArchitecture(facts);
 const { text: etat } = checkEtatReel();
 checkProofs(etat);
 checkClaims(["README.md", "ARCHITECTURE.md", "web/index.html", "web/landing.html"]);
+checkStateBranch();
 checkTestCount();
 
 console.log(`membres : ${facts.members} (${facts.memberNames.join(", ")})`);

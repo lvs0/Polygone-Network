@@ -86,7 +86,7 @@ partagées sur toutes les plateformes. »
 
 | Plateforme | Compilation | Tests | Isolation OS | Statut autorisé |
 |---|---|---|---|---|
-| Linux | oui | 333 | `--isoler` systemd/cgroup v2 | **Supporté** |
+| Linux | oui | 370 | `--isoler` systemd/cgroup v2 | **Supporté** |
 | macOS | oui | partiels | aucune | **Expérimental** |
 | Windows | portage | non testé runner | aucune | **Non supporté** |
 

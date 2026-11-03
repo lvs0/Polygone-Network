@@ -7,11 +7,11 @@
 
 | Champ | Valeur |
 |---|---|
-| Date | 2026-11-03 |
-| Branche | `realign/v1` |
+| Date | 2026-11-04 |
+| Branche | `realign/v2` — locale, non poussée ; `realign/v1` est la branche publiée |
 | HEAD | voir `git log -1 --format='%h %s'` (jamais recopié à la main) |
 | Arbre | propre |
-| Origine | `lvs0/Polygone-Network`, branche `realign/v1` |
+| Origine | `lvs0/Polygone-Network` ; `origin/realign/v1` existe, `origin/realign/v2` non |
 
 ## Vérifications exécutées
 
@@ -38,6 +38,14 @@
 | hope-gateway : suite et démarrage | **44 tests, 0 échec** ; `server.mjs` + `GET /healthz` → **200** au premier essai ; CI ajoutée (`83ed22a`) | 2026-11-03 |
 | MSG.1 : TTL de session contre les documents | **fait** — constante 300 s → **30 s**, reliée à `PUBLISHED_SESSION_TTL_SECS` ; trois documents alignés et lus à la compilation par `test_session_ttl_matches_the_published_promise` · `ac71668` | 2026-11-03 |
 | DAEMON.13 : crash réel (SIGKILL du consommateur, puis du daemon) | **fait** — `node scripts/crash-recovery.mjs` → **9/9 PASS**, exit 0 : bail durable après SIGKILL du daemon, marge rendue à l'échéance, redémarrage qui répond | 2026-11-03 |
+| MESH.1 : aucune annonce sur une interface non autorisée | **fait** — `parse_ip_addr_output` + `select_interfaces` remplacent le broadcast depuis `0.0.0.0` ; loopback, link-local, VPN et conteneurs exclus, `POLYGONE_MESH_IFACE` ne peut que restreindre. 4 tests, dont « une allowlist ne ressuscite pas `tailscale0` » et le témoin positif d'un datagramme bien reçu | 2026-11-04 |
+| SEC.4 : usurpation de `from` figée en régression nommée | **fait** — `refuse_from_spoofing_through_relay` : trame forgée refusée **et** trame légitime acceptée dans la même session ; `cargo test -p polygone-relay` → **17/17** | 2026-11-04 |
+| `cargo test --workspace -j 2` après ce lot | **370 tests, 0 échec** (exit 0) | 2026-11-04 |
+| `cargo fmt --all -- --check` | **OK** (exit 0) | 2026-11-04 |
+| `scripts/check-docs.mjs` : branche de `STATE.md` comparée au checkout | **ajouté** — `git rev-parse --abbrev-ref HEAD` contre la ligne `| Branche |` ; une divergence nomme les deux branches et sort en 1 | 2026-11-04 |
+| `scripts/check-docs.mjs` : somme des LOC du tableau vérifiée comme celle des tests | **ajouté** — c'est ce contrôle qui manquait quand `client` affichait 11 365 pour 11 677 mesurées | 2026-11-04 |
+| `node scripts/check-docs.mjs --tests 370` | **documents cohérents**, exit 0 ; deux négatifs vérifiés : branche forcée à `realign/v1` → exit 1 (`[state.branche]`), LOC volontairement faussées → exit 1 (`[architecture.somme.LOC]`) | 2026-11-04 |
+| `node --test ../04-AGENT/tests/backlog.test.mjs` | **5/5**, exit 0 — 19 tâches ouvertes, 15 fermées, JSON valide | 2026-11-04 |
 
 ## Décisions tranchées
 
@@ -68,19 +76,21 @@
 
 ## Prochaine action
 
-**`DOC.2` — inventaire des documents avec date et statut.** ~34 documents dans
-`docs/` : pour chacun, la date, le statut (à jour / daté / faux) et la preuve qui
-le justifie. C'est la tête de file du backlog et la seule tâche P0 restante
-avant d'ouvrir G1.
+**`SEC.3` — prouver l'anti-rejeu à travers le relais.** L'anti-rejeu existe et
+n'est testé qu'en unitaire (`replayed_session_is_rejected`) : capturer une
+enveloppe sur le fil, la renvoyer à l'identique vers le relais, et vérifier le
+refus explicite **deux fois de suite**. Ne demande aucun second hôte : relais et
+client tournent sur cette machine.
 
-Ensuite : `CI.1` (retirer Windows de la matrice bloquante alors que le code
-contient un `compile_error!`), `SEC.8` (secrets), `OPS.2` (compteurs de refus) —
-puis `BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui exige
-deux machines physiques.
+Ensuite : `CLI.1` (`polygone doctor` avec mesuré / réservable / contraint),
+`DOC.2` (inventaire daté des documents), `CI.1` (matrice Windows honnête),
+`SEC.8` (secrets), `OPS.2` (compteurs de refus) — puis `BLOCKS.9`, la preuve la
+plus ancienne qui manque au projet et qui **exige deux machines physiques** :
+non réalisable ici, scripts à préparer.
 
-**L'autorité d'ordre est `../04-AGENT/backlog.json`** : 23 tâches restantes,
-3 bloquées (D2, D3, D8 + `BLOCKS.9`), 7 fermées avec leur preuve dans
-`completed`. Les vagues W0…W5 de `../02-PLAN/PLAN-ECOSYSTEME.md` §8 placent le
+**L'autorité d'ordre est `../04-AGENT/backlog.json`** : 19 tâches restantes,
+4 bloquées (D2, D3, D8, `BLOCKS.9` + `RECIP.1`), 15 fermées avec leur preuve
+dans `completed`. Les vagues W0…W5 de `../02-PLAN/PLAN-ECOSYSTEME.md` §8 placent le
 gateway, l'agent et le corpus sur le même calendrier.
 
 > **Correction du 2026-11-03** : la note précédente demandait de committer les
