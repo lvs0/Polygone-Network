@@ -1,7 +1,9 @@
 # P0 — preuves de protection (P0.1 archive, P0.2 inventaire)
 
-> Copie du rapport produit le 2026-11-03 par `_work/p0-1-archive.sh`.
+> Copie du rapport produit le 2026-11-03 par `scripts/p0-1-archive.sh`.
 > L'archive elle-même vit hors dépôt : `/home/lvs0/Backups/`.
+> Le script qui la produit est versionné et rejouable :
+> [`../scripts/p0-1-archive.sh`](../scripts/p0-1-archive.sh).
 
 # P0.1 — Archive restaurable · rapport
 
