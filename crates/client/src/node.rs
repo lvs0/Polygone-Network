@@ -806,6 +806,7 @@ mod tests {
                             gpu_vram_gb: None,
                             storage_gb: None,
                             expires_at: None,
+                            enforced: false,
                         },
                         polygoned::socket::Request::Alloc { id, .. } => {
                             polygoned::socket::Reply::AllocDenied {

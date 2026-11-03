@@ -83,6 +83,9 @@ fn le_client_sait_lire_une_reponse_reelle_du_daemon() {
         gpu_vram_gb: None,
         storage_gb: None,
         expires_at: None,
+        // Licence : un faux daemon ne contraint rien, et le contrat de
+        // protocole doit le dire au lieu de laisser croire à un quota.
+        enforced: false,
     };
     let line = encode(&reply);
 
