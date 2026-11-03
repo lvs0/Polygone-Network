@@ -16,7 +16,7 @@
 
 ### Ce que Polygone protège
 - **Lien message ↔ identité** chiffré en clair (ML-KEM-1024)
-- **Persistance** des messages après TTL (≤ 30 s sur relay)
+- **Persistance** des messages après TTL (≤ 30 s côté destinataire ; le relais ne conserve rien)
 - **Contenu du message** (AES-256-GCM bout-en-bout)
 - **Tamper-evident** des signatures (ML-DSA-65)
 

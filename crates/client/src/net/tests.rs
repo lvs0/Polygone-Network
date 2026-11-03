@@ -1316,3 +1316,38 @@ fn out_of_range_fragment_index_is_dropped() {
         }
     }
 }
+
+#[test]
+fn test_session_ttl_matches_the_published_promise() {
+    // MSG.1 : la constante valait 300 s alors que trois documents publiés
+    // annonçaient 30 s. Ce test relie les deux, dans les deux sens.
+    assert_eq!(
+        SESSION_TTL_SECS, PUBLISHED_SESSION_TTL_SECS,
+        "la valeur implémentée et la valeur publiée doivent être la même"
+    );
+
+    let expected = format!("≤ {} s", PUBLISHED_SESSION_TTL_SECS);
+    let documents: [(&str, &str); 3] = [
+        ("LEGAL.md", include_str!("../../../../LEGAL.md")),
+        (
+            "THREAT_MODEL.md",
+            include_str!("../../../../THREAT_MODEL.md"),
+        ),
+        (
+            "docs/threat-commodity.md",
+            include_str!("../../../../docs/threat-commodity.md"),
+        ),
+    ];
+    for (name, text) in documents {
+        assert!(
+            text.contains(&expected),
+            "{name} doit annoncer « {expected} » : c'est la durée que le code applique"
+        );
+    }
+
+    // Et le relais ne doit pas être décrit comme stockant : il ne stocke rien.
+    assert!(
+        !documents[0].1.contains("≤ 30 s sur relay"),
+        "LEGAL.md ne doit pas situer le TTL sur le relais, qui ne conserve aucun fragment"
+    );
+}

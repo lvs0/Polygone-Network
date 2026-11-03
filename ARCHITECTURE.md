@@ -14,7 +14,7 @@
 > cette date. `gateway`, `petals` et `serverless` ont été intégrés le
 > 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
 > **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
-> `cargo test --workspace` (18 suites, **361 tests, 0 échec**) pour les tests.
+> `cargo test --workspace` (18 suites, **362 tests, 0 échec**) pour les tests.
 
 ---
 
@@ -107,18 +107,18 @@ polygone/
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
 | `core`       | 11       | 1 373      | — (lib)              | 29    |
-| `client`     | 24       | 11 307     | `polygone`           | 130   |
+| `client`     | 24       | 11 365     | `polygone`           | 131   |
 | `relay`      | 2        | 979        | `polygone-relay`     | 17    |
 | `gateway`    | 7        | 1 796      | `polygone-gateway`   | 40    |
 | `petals`     | 13       | 3 241      | — (lib)              | 18    |
 | `serverless` | 3        | 776        | — (lib)              | 17    |
 | `daemon`     | 17       | 9 792      | `polygoned`          | 109   |
 | doc-tests    | —        | —          | —                    | 1     |
-| **Total**    | **77**   | **29 274** | **4 binaires**       | **361** |
+| **Total**    | **77**   | **29 322** | **4 binaires**       | **362** |
 
 > Re-mesuré le **2026-11-03** après le contrat de ressources (P1.1),
-> l'expiration des baux (DAEMON.1) et le renouvellement (DAEMON.3) : 77 fichiers,
-> 29 274 lignes, 361 tests en 18 suites.
+> l'expiration des baux (DAEMON.1), le renouvellement (DAEMON.3) et le TTL de
+> session (MSG.1) : 77 fichiers, 29 322 lignes, 362 tests en 18 suites.
 > Le contrôleur `scripts/check-docs.mjs` recalcule ces valeurs et échoue si elles
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 

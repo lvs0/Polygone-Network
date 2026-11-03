@@ -187,8 +187,21 @@ pub fn node_id(identity: &LocalIdentity) -> String {
 pub const MAX_TS_SKEW_SECS: u64 = 300;
 /// Max buffered sessions (anti-DoS memory) — fail closed beyond the cap.
 pub const MAX_SESSIONS: usize = 1024;
-/// Incomplete sessions are purged after this long without activity.
-pub const SESSION_TTL_SECS: u64 = 300;
+/// Durée annoncée publiquement (« TTL ≤ 30 s » dans `LEGAL.md`,
+/// `THREAT_MODEL.md` et `docs/threat-commodity.md`). Le code s'y rattache au
+/// lieu de recopier le chiffre : il n'y a donc qu'un seul endroit à changer.
+pub const PUBLISHED_SESSION_TTL_SECS: u64 = 30;
+
+/// Durée de vie d'une session incomplète, mesurée **depuis le dernier fragment
+/// reçu** (pas depuis le premier) : c'est le silence entre deux fragments qui
+/// libère la mémoire, pas la durée totale du transfert.
+///
+/// Elle valait 300 s alors que les trois documents annonçaient 30 s : une
+/// promesse de confidentialité tenue cinq fois moins bien que ce qui est écrit.
+/// `test_session_ttl_matches_the_published_promise` relie le code aux documents
+/// et échoue si l'un bouge sans l'autre.
+pub const SESSION_TTL_SECS: u64 = PUBLISHED_SESSION_TTL_SECS;
+
 /// Cap on the completed-session anti-replay cache.
 pub const MAX_COMPLETED: usize = 16_384;
 /// Bound attacker-controlled session map keys before allocating them.
