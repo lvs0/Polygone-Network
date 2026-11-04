@@ -30,18 +30,6 @@
       ]
     },
     {
-      "id": "CLI.1",
-      "phase": "P3",
-      "priority": 1,
-      "title": "Ajouter polygone doctor qui dit les contraintes réelles",
-      "detail": "polygoned doctor existe, pas polygone doctor. Afficher capacité mesurée, réservable et contrainte (le type Capacity existe depuis P1.1), et l'état de l'isolation OS réellement active.",
-      "proof": "sortie de polygone doctor sur Linux avec et sans --isoler : la ligne 'contraint' passe de 0 à la valeur du cgroup, vérifiée par une lecture de cgroup dans le même test.",
-      "ref": "docs/atlas/plan/epiques/04-interfaces.md#CLI.1",
-      "files": [
-        "crates/client/src/main.rs"
-      ]
-    },
-    {
       "id": "CLI.2",
       "phase": "P3",
       "priority": 2,
@@ -360,6 +348,12 @@
       "id": "DOC.2",
       "date": "2026-11-04",
       "proof": "docs/INDEX.md couvre les 62 fichiers Markdown récursifs. cargo test -p polygone-client --test doc_index : 1/1 ; test négatif : retrait temporaire de docs/BUDGET.md refusé et chemin nommé. cargo test --workspace -j 2 : 372/372 ; check-docs --tests 372, fmt, clippy, check-atlas et 6 tests agent verts."
+    },
+    {
+      "id": "CLI.1",
+      "date": "2026-11-04",
+      "proof": "polygone doctor lit /proc/self/cgroup, memory.max et cpu.max : sortie réelle contre le daemon du projet (Cgroup session-42, MemoryMax illimitée, exit 0) ; max → « illimitée », fichier illisible → « Non mesurée » ; 7 tests doctor + 7 node_isolation ; 384 tests workspace, clippy 0, check-docs 384",
+      "commit": "7201739"
     }
   ]
 }
