@@ -111,6 +111,16 @@ Chaque message est signé ML-DSA-65 et horodaté (±300 s) : le rejeu est imposs
 - En cours : `shell` — voir [`STAGING.md`](./STAGING.md)
 - Audit externe : pas encore réalisé
 
+## Plan de finalisation et orchestration
+
+- Atlas d’ingénierie : docs/atlas/README.md — audit, plan, épiques et preuves.
+- Plan de finition (132 tâches spécifiées) : docs/atlas/plan/PLAN-FINITION.md.
+- Mission de l’agent : docs/atlas/agent/MISSION-FINALISATION-PRODUIT.md.
+- Backlog opérationnel : docs/atlas/agent/backlog.json.
+- État de synchronisation : docs/atlas/STATUS-2026-11-04.md.
+
+Les conversations brutes, corpus privés et données runtime ne sont pas inclus.
+
 ## Documentation
 
 - [`docs/cli.md`](./docs/cli.md) — référence de la commande

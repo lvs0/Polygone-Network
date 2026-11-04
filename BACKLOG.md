@@ -1,6 +1,13 @@
+> Mise à jour du 4 novembre 2026 : ce fichier est conservé comme relevé
+> historique. Le backlog opérationnel actuel est
+> [docs/atlas/agent/backlog.json](docs/atlas/agent/backlog.json), et les
+> 132 spécifications détaillées sont dans
+> [docs/atlas/plan/epiques/](docs/atlas/plan/epiques/). Ne pas maintenir deux
+> files de tâches concurrentes.
+
 # BACKLOG — travail restant, par priorité
 
-> Source machine : `../04-AGENT/backlog.json` (lu par l'orchestrateur).
+> Source machine : `docs/atlas/agent/backlog.json` (lu par l'orchestrateur).
 > Ce fichier est la vue humaine. Les deux doivent rester cohérents.
 > Une tâche cochée ici doit avoir une preuve exécutée dans `STATE.md`.
 
