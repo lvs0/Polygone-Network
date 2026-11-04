@@ -1,5 +1,7 @@
 # PLAN_REPRISE — état extrait et plan, 2026-10-03
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-10-03 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > Reprise demandée : « extraire pleins de datas pour comprendre et former un plan ».
 > Ce document ne fait que consigner ce qui a été **lu et exécuté** ce jour.
 > Aucun code modifié. Preuves : commandes et sorties brutes en marge.

@@ -1,5 +1,7 @@
 # HISTORIQUE GIT — diagnostic et plan de nettoyage
 
+> **Instantané daté — ne pas lire comme l'état courant.** Ce document est rédigé le 2026-11-03 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../../../ETAT-REEL.md) et [`STATE.md`](../../../STATE.md).
+
 > Mesuré le 2026-11-03. **Aucune réécriture n'a été exécutée.** Ce document dit
 > ce qui est cassé, ce qu'un historique propre devrait être, et les commandes
 > exactes — à lancer seulement après sauvegarde et accord.

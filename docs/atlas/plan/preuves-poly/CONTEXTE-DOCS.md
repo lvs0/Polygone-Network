@@ -1,5 +1,7 @@
 # POLY — ce que les documents du projet en disent
 
+> **Instantané daté — ne pas lire comme l'état courant.** Ce document est rédigé le 2026-11-04 (import) ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../../../../ETAT-REEL.md) et [`STATE.md`](../../../../STATE.md).
+
 > NOTE DE PORTAGE — 4 novembre 2026 : comparaison de documents historiques ; les chemins locaux ont été retirés.
 
 Relevé en lecture seule, sans opinion ajoutée. Chaque affirmation porte son

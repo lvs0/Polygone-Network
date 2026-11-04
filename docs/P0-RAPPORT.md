@@ -1,5 +1,7 @@
 # P0 — preuves de protection (P0.1 archive, P0.2 inventaire)
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-11-03 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > Copie du rapport produit le 2026-11-03 par `scripts/p0-1-archive.sh`.
 > L'archive elle-même vit hors dépôt : `/home/lvs0/Backups/`.
 > Le script qui la produit est versionné et rejouable :

@@ -1,5 +1,7 @@
 # RECONCILIATION — les 6 commits locaux et les 17 distants
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-11-03 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > Rédigé le 2026-11-03. **Aucun merge, aucun reset, aucun push sur `main`.**
 > Ce document décide *quoi* reprendre ; il ne modifie pas l'historique.
 >

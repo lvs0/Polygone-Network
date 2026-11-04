@@ -1,5 +1,7 @@
 # Inventaire des 15 versions historiques de Polygone
 
+> **Instantané daté — ne pas lire comme l'état courant.** Ce document est rédigé le 2026-11-04 (import) ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../../../ETAT-REEL.md) et [`STATE.md`](../../../STATE.md).
+
 > Synthèse d'audit portée le 4 novembre 2026. Les noms de versions sont
 > conservés pour la traçabilité ; les chemins locaux, tailles privées et
 > artefacts de données ne sont pas publiés ici.

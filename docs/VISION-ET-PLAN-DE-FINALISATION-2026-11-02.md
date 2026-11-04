@@ -1,5 +1,7 @@
 # Polygone — vision consolidée, dilemmes et plan de finalisation
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-11-02 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 **État du dossier :** analyse de reprise du 2 novembre 2026  
 **Sources examinées :** extraction dédiée `Downloads/Data Graph/extract-polygone`, base historique `state.db.bak` (inventoriée en lecture seule dans le rapport de reprise), dépôt local `Projects/Polygone-real`, documentation et code du workspace.  
 **Règle :** ce document distingue les demandes de l'utilisateur, les décisions réellement actées, les propositions d'agents et les faits vérifiés dans le code.

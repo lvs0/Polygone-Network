@@ -1,5 +1,7 @@
 # Reprise Polygone — extraction historique et état réel (2026-11-02)
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-11-02 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > Note de travail issue d'une lecture en mode SQLite read-only de
 > `~/Downloads/Data Graph/state.db.bak`, de l'inspection du dépôt local
 > `~/Projects/Polygone-real` et de ses références GitHub.

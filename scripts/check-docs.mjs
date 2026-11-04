@@ -372,7 +372,40 @@ function checkStateBranch() {
   notes.push(`branche : STATE.md et le checkout concordent (${actual})`);
 }
 
-/* ─────────────────────────── 6. Nombre de tests ─────────────────────────── */
+/* ────────────── 6. Les documents datés portent leur bandeau ────────────── */
+
+// DOC.3 : un instantané classé `daté` dans l'index doit dire qu'il ne décrit
+// pas l'état courant. Sans ce contrôle, la phrase « leur correction relève de
+// DOC.3 » reste vraie indéfiniment et le bandeau disparaît au premier ajout.
+function checkSnapshots() {
+  const text = read("docs/INDEX.md");
+  const rows = text
+    .split("\n")
+    .filter((line) => line.startsWith("| `"))
+    .map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()))
+    .filter((cells) => cells.length >= 6);
+
+  let dated = 0;
+  for (const [file, , , statut] of rows) {
+    if (statut !== "daté") continue;
+    const rel = file.replace(/`/g, "");
+    const path = join(ROOT, rel);
+    if (!existsSync(path)) {
+      fail("docs.instantané", `${rel} est classé daté dans INDEX.md mais n'existe pas`);
+      continue;
+    }
+    dated += 1;
+    if (!readFileSync(path, "utf8").includes("Instantané daté")) {
+      fail(
+        "docs.instantané",
+        `${rel} est classé daté dans INDEX.md mais ne porte pas « Instantané daté »`,
+      );
+    }
+  }
+  notes.push(`documents datés : ${dated} vérifiés, tous bandeautés`);
+}
+
+/* ─────────────────────────── 7. Nombre de tests ─────────────────────────── */
 
 function checkTestCount() {
   const flagIndex = process.argv.indexOf("--tests");
@@ -402,6 +435,7 @@ const { text: etat } = checkEtatReel();
 checkProofs(etat);
 checkClaims(["README.md", "ARCHITECTURE.md", "web/index.html", "web/landing.html"]);
 checkStateBranch();
+checkSnapshots();
 checkTestCount();
 
 console.log(`membres : ${facts.members} (${facts.memberNames.join(", ")})`);

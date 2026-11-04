@@ -1,3 +1,4 @@
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-08-12 (nom du fichier) ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║              ✅ MISSION TERMINÉE — Idées minées et implémentées               ║

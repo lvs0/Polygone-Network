@@ -1,5 +1,7 @@
 # Polygone — Vision canonique
 
+> **Instantané daté — ne pas lire comme l'état courant.** Sa date de rédaction n'est pas indiquée ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > Document de référence unique. Il a été rédigé uniquement à partir du bundle de
 > synthèse déjà clusterisé (`bundle-polygone-v2`, 12 thèmes + vision + index).
 > Rien n'a été inventé : quand une information n'existe pas dans le bundle, c'est dit

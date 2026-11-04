@@ -1,5 +1,7 @@
 # Polygone — vision unifiée et état vérifié
 
+> **Instantané daté — ne pas lire comme l'état courant.** Sa date de rédaction n'est pas indiquée ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > Document de cadrage : distinguer les capacités réellement exécutées, les prototypes locaux et les objectifs futurs. Une fonction présente ou un test unitaire ne suffit pas à déclarer un service livré.
 > Audit détaillé : `AUDIT_VERACITE_VISION.md`.
 

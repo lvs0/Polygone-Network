@@ -1,5 +1,7 @@
 # STRATEGIE.md — Pourquoi Polygone existe, et par où il va
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-08-06 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > *Consolidé le 2026-08-06 depuis les notes Bear (11/07) + la synthèse
 > actionnable + l'état réel du produit v2.0.0-rc2.*
 > *Posture : honesty-first. Ce document dit ce qu'on fait, et ce qu'on ne

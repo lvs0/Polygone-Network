@@ -1,5 +1,7 @@
 # La maquette TUI et le solde POLY — ce que l'écran promettait
 
+> **Instantané daté — ne pas lire comme l'état courant.** Ce document est rédigé le 2026-11-04 (import) ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../../../../ETAT-REEL.md) et [`STATE.md`](../../../../STATE.md).
+
 > NOTE DE PORTAGE — 4 novembre 2026 : analyse d’une maquette historique ; les choix de navigation restent à confirmer dans le produit réel.
 
 > Périmètre : `source documentaire historique/` (3 fichiers) et

@@ -21,7 +21,9 @@
 > restent les fichiers racine `VISION.md`, `ETAT-REEL.md` et `STATE.md`.
 > Aucun fichier n'est classé « à supprimer » : aucun doublon exact n'a été prouvé.
 > Les documents datés ne sont pas réécrits pour faire disparaître leurs anciennes
-> affirmations ; leur correction éventuelle relève de DOC.3.
+> affirmations : depuis DOC.3, chacun porte le bandeau `Instantané daté` et un
+> lien vers `ETAT-REEL.md`/`STATE.md`. `scripts/check-docs.mjs` refuse un
+> document classé `daté` qui n'aurait plus son bandeau.
 >
 | Fichier | Titre | Date du document | Statut | Thème | Justification / preuve |
 |---|---|---|---|---|---|

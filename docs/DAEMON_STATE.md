@@ -1,5 +1,7 @@
 # DAEMON_STATE — état réel du daemon `polygoned`
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-11-02 (mise à jour d'un rapport du 29-09) ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > Rapport initial du 29 septembre 2026, conservé comme trace historique.
 > **Ne pas lire les sections historiques ci-dessous comme l'état courant sans
 > tenir compte de la mise à jour du 2 novembre 2026.**
