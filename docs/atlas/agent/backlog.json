@@ -30,18 +30,6 @@
       ]
     },
     {
-      "id": "CLI.5",
-      "phase": "P3",
-      "priority": 3,
-      "title": "polygone desinstaller propre, énuméré, confirmé",
-      "detail": "Énumérer ce qui sera supprimé avant de le supprimer, exiger une confirmation, et ne rien laisser derrière.",
-      "proof": "diff de l'arborescence $HOME et de ~/.config avant/après : aucune entrée résiduelle.",
-      "ref": "docs/atlas/plan/epiques/04-interfaces.md#CLI.5",
-      "files": [
-        "crates/client/src/main.rs"
-      ]
-    },
-    {
       "id": "INST.2",
       "phase": "P3",
       "priority": 4,
@@ -348,6 +336,12 @@
       "date": "2026-11-04",
       "proof": "session réelle : pause --duree 10m exit 0 et pause.json (resumes_at = paused_at + 600) ; reprendre exit 0, bail 0.25 Gio/1 cœur obtenu puis rendu, intention consommée ; refus nommés : aucune pause (1), 9m hors bornes (1), intention antidatée → pause expirée, aucun bail demandé (1) ; 7 tests pause ; 391 tests workspace, clippy 0, check-docs 391",
       "commit": "b486713"
+    },
+    {
+      "id": "CLI.5",
+      "date": "2026-11-04",
+      "proof": "HOME temporaire : sans --confirmer exit 1 et arborescence identique (5 fichiers) ; avec --confirmer exit 0, 6 chemins supprimés, seul Documents/keep.txt subsiste ; chemin hors racines refusé ; 4 tests uninstall ; 395 tests workspace, clippy 0, check-docs 395",
+      "commit": "2a210ac"
     }
   ]
 }
