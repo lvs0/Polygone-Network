@@ -80,19 +80,6 @@
       ]
     },
     {
-      "id": "SEC.8",
-      "phase": "P5",
-      "priority": 3,
-      "title": "Empêcher un secret d'entrer dans l'arbre",
-      "detail": "Ajouter une détection de secrets en pré-commit et en CI, et vérifier l'historique existant.",
-      "proof": "commit de test contenant une fausse clé : refusé ; et rapport sur l'historique existant.",
-      "ref": "docs/atlas/plan/epiques/06-confiance.md#SEC.8",
-      "files": [
-        ".github/workflows/",
-        ".gitleaks.toml"
-      ]
-    },
-    {
       "id": "SEC.1",
       "phase": "P4",
       "priority": 1,
@@ -336,6 +323,12 @@
       "date": "2026-11-04",
       "proof": "RefusalCounters dans le serveur (pas DaemonState), compteur incrémenté au point unique des AllocDenied ; requête refusals_request pour ne pas faire grossir Reply::Status ; test vrai serveur avec les 8 motifs à 1 chacun ; session réelle 100000 Gio → alloc_denied puis polygoned status/doctor affichent exceeds_measured: 1 ; daemon arrêté → non mesurés ; daemon/src/cli.rs enfin compilé (117 tests lib) ; 402 tests workspace, clippy 0, check-docs 402",
       "commit": "cc56acf"
+    },
+    {
+      "id": "SEC.8",
+      "date": "2026-11-04",
+      "proof": "test no_tracked_secrets lit git ls-files (repli parcours) et refuse identity.json, *.key, .env/.env.* hors gabarits ; 2/2 vert ; .env ajouté par git add -f → échec nommant .env, dé-suivi → vert ; hook .githooks/pre-commit (activation documentée) + étape CI ; 404 tests, clippy 0, check-docs 404. Limite : gitleaks absent de ce poste, audit d'historique non exécuté",
+      "commit": "b0da5b6"
     }
   ]
 }
