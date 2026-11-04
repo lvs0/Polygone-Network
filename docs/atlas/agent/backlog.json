@@ -1,0 +1,372 @@
+{
+  "generated_at": "2026-11-04",
+  "source": "docs/atlas/plan/PLAN-FINITION.md + docs/atlas/plan/epiques/",
+  "rule": "Une tâche n'est 'faite' que si sa preuve a été exécutée et citée. Une tâche bloquée reste bloquée, elle ne se coche pas. La première action de chaque tâche est de reproduire son constat.",
+  "note": "Ce backlog contient les tâches débloquées ou déblocables maintenant. Les 132 spécifications complètes vivent dans docs/atlas/plan/epiques/ ; une tâche est promue ici quand sa porte est franchie. completed garde les tâches fermées avec leur preuve. Les tâches non promues ne sont pas déclarées en cours. Les tâches P0.1, P0.2, P0.3 et P1.1 déjà clôturées dans l’état persistant ont été réconciliées dans completed.",
+  "tasks": [
+    {
+      "id": "BLOCKS.9",
+      "phase": "P2",
+      "priority": 1,
+      "title": "Prouver un transfert de bloc entre deux machines physiques",
+      "detail": "Le test le plus ancien qui manque au projet. Deux hôtes distincts, pare-feu réel, transfert de bloc comparé octet à octet. Ne pas conclure depuis deux processus locaux.",
+      "proof": "journal horodaté avec deux hôtes nommés, hash BLAKE3 identique des deux côtés, latence et débit consignés.",
+      "ref": "docs/atlas/plan/epiques/02-stockage.md#BLOCKS.9",
+      "files": [
+        "crates/client/src/blocks.rs",
+        "scripts/"
+      ]
+    },
+    {
+      "id": "MSG.6",
+      "phase": "P2",
+      "priority": 3,
+      "title": "Mesurer le débit réel, pas le débit espéré",
+      "detail": "Aucune mesure de débit n'est branchée. Instrumenter un envoi et une réception, publier une valeur mesurée.",
+      "proof": "mesure répétée 10 fois, médiane et écart cités, comparaison avec la taille divisée par le temps écoulé.",
+      "ref": "docs/atlas/plan/epiques/01-transport-confidentialite.md#MSG.6",
+      "files": [
+        "crates/client/src/net/"
+      ]
+    },
+    {
+      "id": "CLI.1",
+      "phase": "P3",
+      "priority": 1,
+      "title": "Ajouter polygone doctor qui dit les contraintes réelles",
+      "detail": "polygoned doctor existe, pas polygone doctor. Afficher capacité mesurée, réservable et contrainte (le type Capacity existe depuis P1.1), et l'état de l'isolation OS réellement active.",
+      "proof": "sortie de polygone doctor sur Linux avec et sans --isoler : la ligne 'contraint' passe de 0 à la valeur du cgroup, vérifiée par une lecture de cgroup dans le même test.",
+      "ref": "docs/atlas/plan/epiques/04-interfaces.md#CLI.1",
+      "files": [
+        "crates/client/src/main.rs"
+      ]
+    },
+    {
+      "id": "CLI.2",
+      "phase": "P3",
+      "priority": 2,
+      "title": "polygone pause et reprendre avec une durée réelle",
+      "detail": "La pause doit avoir un effet observable sur le bail et les services, avec une durée (10 min à 4 h) et une reprise automatique.",
+      "proof": "session : pause 10 min, vérifier que le bail est libéré et que les services sont arrêtés ; reprise, vérifier qu'un nouveau bail est obtenu.",
+      "ref": "docs/atlas/plan/epiques/04-interfaces.md#CLI.2",
+      "files": [
+        "crates/client/src/main.rs"
+      ]
+    },
+    {
+      "id": "CLI.5",
+      "phase": "P3",
+      "priority": 3,
+      "title": "polygone desinstaller propre, énuméré, confirmé",
+      "detail": "Énumérer ce qui sera supprimé avant de le supprimer, exiger une confirmation, et ne rien laisser derrière.",
+      "proof": "diff de l'arborescence $HOME et de ~/.config avant/après : aucune entrée résiduelle.",
+      "ref": "docs/atlas/plan/epiques/04-interfaces.md#CLI.5",
+      "files": [
+        "crates/client/src/main.rs"
+      ]
+    },
+    {
+      "id": "INST.2",
+      "phase": "P3",
+      "priority": 4,
+      "title": "Ajouter --uninstall qui retire tout",
+      "detail": "install.sh ne sait pas se défaire. Ajouter un mode --uninstall symétrique, y compris le PATH et le service utilisateur.",
+      "proof": "install --uninstall puis diff de l'arborescence : zéro résidu ; et PATH identique à l'état d'origine.",
+      "ref": "docs/atlas/plan/epiques/05-livraison.md#INST.2",
+      "files": [
+        "install.sh"
+      ]
+    },
+    {
+      "id": "INST.9",
+      "phase": "P3",
+      "priority": 5,
+      "title": "Installer sur une VM neuve",
+      "detail": "Parcours complet sur une VM vierge : installation, première exécution, désinstallation, absence de résidu. C'est la preuve de F1 côté installation.",
+      "proof": "transcript de la VM avec les commandes et leurs sorties, plus le diff final de l'arborescence.",
+      "ref": "docs/atlas/plan/epiques/05-livraison.md#INST.9",
+      "files": [
+        "install.sh",
+        "scripts/"
+      ]
+    },
+    {
+      "id": "UI.4",
+      "phase": "P3",
+      "priority": 6,
+      "title": "Livrer les quatre onglets de la maquette",
+      "detail": "Accueil, Favoris, Services, Paramètres : la maquette d'origine. Chaque écran doit afficher un état réel, jamais simulé.",
+      "proof": "capture produite par une commande reproductible (script de session tmux), et test qui vérifie que chaque onglet lit une source de données réelle.",
+      "ref": "docs/atlas/plan/epiques/04-interfaces.md#UI.4",
+      "files": [
+        "crates/client/src/tui.rs"
+      ]
+    },
+    {
+      "id": "CI.1",
+      "phase": "P5",
+      "priority": 1,
+      "title": "Rendre la matrice honnête sur Windows",
+      "detail": "ci.yml met windows-latest dans la matrice bloquante alors que daemon/src/resources/mod.rs contient un compile_error!. Soit le job est rouge en permanence, soit il n'a jamais tourné. Retirer Windows de la matrice bloquante et dire 'non supporté'.",
+      "proof": "CI verte sur Linux ; le nom du job Windows ne figure plus dans les required checks ; ETAT-REEL §6 et le README disent la même chose.",
+      "ref": "docs/atlas/plan/epiques/05-livraison.md#CI.1",
+      "files": [
+        ".github/workflows/ci.yml"
+      ]
+    },
+    {
+      "id": "CI.3",
+      "phase": "P5",
+      "priority": 2,
+      "title": "Auditer les dépendances en CI",
+      "detail": "Aucun cargo audit ni cargo deny. Ajouter, avec une politique d'échec explicite et une liste d'exceptions datées.",
+      "proof": "job CI qui échoue sur une vulnérabilité connue (test négatif avec une dépendance volontairement vulnérable sur une branche jetable).",
+      "ref": "docs/atlas/plan/epiques/05-livraison.md#CI.3",
+      "files": [
+        ".github/workflows/ci.yml",
+        "deny.toml"
+      ]
+    },
+    {
+      "id": "SEC.8",
+      "phase": "P5",
+      "priority": 3,
+      "title": "Empêcher un secret d'entrer dans l'arbre",
+      "detail": "Ajouter une détection de secrets en pré-commit et en CI, et vérifier l'historique existant.",
+      "proof": "commit de test contenant une fausse clé : refusé ; et rapport sur l'historique existant.",
+      "ref": "docs/atlas/plan/epiques/06-confiance.md#SEC.8",
+      "files": [
+        ".github/workflows/",
+        ".gitleaks.toml"
+      ]
+    },
+    {
+      "id": "OPS.2",
+      "phase": "P5",
+      "priority": 4,
+      "title": "Compter les refus d'allocation par motif",
+      "detail": "Les motifs existent (insufficient_headroom, exceeds_measured, insufficient_cpu...) sans aucun compteur. Compter, et exposer en JSON.",
+      "proof": "test : provoquer 3 refus de motifs différents, lire le compteur, vérifier 3 entrées distinctes.",
+      "ref": "docs/atlas/plan/epiques/06-confiance.md#OPS.2",
+      "files": [
+        "daemon/src/socket.rs"
+      ]
+    },
+    {
+      "id": "DOC.2",
+      "phase": "P0",
+      "priority": 5,
+      "title": "Inventorier les documents avec date et statut",
+      "detail": "~34 documents dans docs/. Pour chacun : date, statut (à jour / daté / faux), et la preuve qui justifie le statut.",
+      "proof": "tableau complet, chaque 'faux' accompagné de la citation contredite et de sa source.",
+      "ref": "docs/atlas/plan/epiques/06-confiance.md#DOC.2",
+      "files": [
+        "docs/"
+      ]
+    },
+    {
+      "id": "SEC.1",
+      "phase": "P4",
+      "priority": 1,
+      "title": "Écrire le modèle de menace de chaque service",
+      "detail": "msg, drive, hide, daemon, serverless, petals : un modèle par service, avec ce qui est protégé et ce qui ne l'est pas. Condition d'entrée de la porte G4.",
+      "proof": "un fichier par service, chacun citant au moins une limite réelle du code (fichier:ligne).",
+      "ref": "docs/atlas/plan/epiques/06-confiance.md#SEC.1",
+      "files": [
+        "docs/"
+      ]
+    },
+    {
+      "id": "GW.1",
+      "phase": "P4",
+      "priority": 2,
+      "title": "Recevoir un heartbeat de nœud et le persister",
+      "detail": "nodes.insert n'existe que dans pair_accept : le statut Gateway ne reflète pas le réseau. Ajouter un heartbeat et une persistance bornée.",
+      "proof": "test : un nœud cesse d'émettre, le statut passe à 'inactif' après la fenêtre, sans redémarrage.",
+      "ref": "docs/atlas/plan/epiques/04-interfaces.md#GW.1",
+      "files": [
+        "crates/gateway/src/routes.rs",
+        "crates/gateway/src/status.rs"
+      ]
+    },
+    {
+      "id": "DAEMON.10",
+      "phase": "P1",
+      "priority": 10,
+      "title": "Rendre --isoler le défaut sous Linux",
+      "detail": "GATE-LÉVY D2 : changer le défaut modifie le comportement au premier lancement. Tant que ce n'est pas tranché, la tâche reste bloquée.",
+      "blocked_by": {
+        "decisions": [
+          "D2"
+        ]
+      },
+      "proof": "session réelle : premier lancement, scope systemd créé, MemoryMax et CPUQuota lus pendant l'exécution, scope déchargé après arrêt.",
+      "ref": "docs/atlas/plan/epiques/03-calcul-ia.md#DAEMON.10",
+      "files": [
+        "daemon/src/",
+        "crates/client/src/main.rs"
+      ]
+    },
+    {
+      "id": "DRIVE.1",
+      "phase": "P4",
+      "priority": 3,
+      "title": "Trancher le sort du module Drive",
+      "detail": "GATE-LÉVY D3 : drive.rs n'est monté nulle part. Décider s'il redevient un module produit, et avec quel service minimal. Les 8 tâches suivantes en dépendent.",
+      "blocked_by": {
+        "decisions": [
+          "D3"
+        ]
+      },
+      "proof": "décision écrite dans VISION.md §8 ; si 'monté', la tâche produit un module déclaré qui compile et un test nommé.",
+      "ref": "docs/atlas/plan/epiques/02-stockage.md#DRIVE.1",
+      "files": [
+        "crates/client/src/drive.rs",
+        "VISION.md"
+      ]
+    },
+    {
+      "id": "RECIP.1",
+      "phase": "P4",
+      "priority": 4,
+      "title": "Unité de réciprocité (pas de cryptomonnaie)",
+      "detail": "Étendre le Ledger avec un solde borné (dette plafonnée, crédit plafonné, zéro intérêt) et le reçu signé des DEUX côtés en ML-DSA-65. Interdits : blockchain, transfert, convertibilité, émission, accès à hope-gateway. NE PAS COMMENCER avant que BLOCKS.9 soit prouvé.",
+      "blocked_by": {
+        "tasks": [
+          "BLOCKS.9"
+        ],
+        "decisions": [
+          "D8"
+        ]
+      },
+      "proof": "cargo test : reçu à double signature accepté, signature unique refusée, solde négatif bloqué au plafond, aucune API de transfert.",
+      "ref": "docs/atlas/plan/DECISION-POLY.md",
+      "files": [
+        "daemon/src/socket.rs",
+        "crates/core/src/"
+      ]
+    }
+  ],
+  "completed": [
+    {
+      "id": "MESH.1",
+      "date": "2026-11-04",
+      "proof": "announce/discover : un socket par interface autorisée, broadcast dirigé ; loopback, link-local, VPN et conteneurs exclus ; 4 tests dont « allowlist ne ressuscite pas tailscale0 »",
+      "commit": "9198135"
+    },
+    {
+      "id": "SEC.4",
+      "date": "2026-11-04",
+      "proof": "refuse_from_spoofing_through_relay : trame forgée refusée + témoin positif ; cargo test -p polygone-relay 17/17",
+      "commit": "be872a7"
+    },
+    {
+      "id": "DAEMON.1",
+      "date": "2026-11-03",
+      "proof": "bail à échéance + balayage ; test_expired_grant_is_swept_and_frees_its_share",
+      "commit": "315f0eb"
+    },
+    {
+      "id": "DAEMON.3",
+      "date": "2026-11-03",
+      "proof": "Request::Renew + test_dispatch_renew_replies_on_the_wire",
+      "commit": "315f0eb"
+    },
+    {
+      "id": "DAEMON.4",
+      "date": "2026-11-03",
+      "proof": "commentaire de reserved_storage_bytes corrigé (il est sérialisé)",
+      "commit": "315f0eb"
+    },
+    {
+      "id": "DOC.1",
+      "date": "2026-11-03",
+      "proof": "scripts/check-docs.mjs : « documents cohérents avec le code » ; rouge sur un chiffre cassé",
+      "commit": "288d67e"
+    },
+    {
+      "id": "UI.1",
+      "date": "2026-11-03",
+      "proof": "grep Math.random web/dashboard.js → 0 ; valeurs « — » hors ligne",
+      "commit": "f2e0a59"
+    },
+    {
+      "id": "UI.2",
+      "date": "2026-11-03",
+      "proof": "le sondage ne s'arrête plus après le premier succès",
+      "commit": "f2e0a59"
+    },
+    {
+      "id": "UI.5",
+      "date": "2026-11-03",
+      "proof": "libp2p / Five tabs / Sparklines retirés des deux pages publiques",
+      "commit": "f2e0a59"
+    },
+    {
+      "id": "MSG.1",
+      "date": "2026-11-03",
+      "proof": "TTL 300 s → 30 s ; test_session_ttl_matches_the_published_promise lit les 3 documents",
+      "commit": "ac71668"
+    },
+    {
+      "id": "DAEMON.13",
+      "date": "2026-11-03",
+      "proof": "node scripts/crash-recovery.mjs → 9/9 PASS (SIGKILL client puis daemon)",
+      "commit": "d074b7c"
+    },
+    {
+      "id": "AGT.1",
+      "date": "2026-11-03",
+      "proof": "orchestrateur lit blocked_by ; backlog invalide refuse de démarrer",
+      "commit": "5600ed2"
+    },
+    {
+      "id": "AGT.2",
+      "date": "2026-11-03",
+      "proof": "--status partitionne ouvert/bloqué/terminé ; refus en code 3 nommant le bloqueur",
+      "commit": "5600ed2"
+    },
+    {
+      "id": "GWX.1",
+      "date": "2026-11-03",
+      "proof": "npm test → 44/44, 0 échec, consigné dans LIMITS.md",
+      "commit": "83ed22a"
+    },
+    {
+      "id": "GWX.2",
+      "date": "2026-11-03",
+      "proof": "CI Node 22/24 + démarrage réel (/healthz 200) + cron hebdomadaire",
+      "commit": "83ed22a"
+    },
+    {
+      "id": "SEC.3",
+      "date": "2026-11-04",
+      "proof": "replay_through_relay_is_refused_with_an_explicit_code : session déchiffrée à travers le vrai relais, rejeu immédiat refusé (REPLAY.SESSION_ALREADY_COMPLETED), rejeu à +10 min contre un récepteur frais refusé (REPLAY.STALE_TIMESTAMP)",
+      "commit": "c59e7a6"
+    },
+    {
+      "id": "P0.1",
+      "date": "2026-11-03",
+      "proof": "Archive restaurable : listing + extraction, tar exit 0, stderr vide, cmp ×3 et HEAD vérifié ; 6 204 entrées ; 65 modifications du checkout historique comparées sans perte.",
+      "commit": "beda7de"
+    },
+    {
+      "id": "P0.2",
+      "date": "2026-11-03",
+      "proof": "Inventaire des lignées Git : commits locaux et distants comparés, divergences documentées dans docs/RECONCILIATION.md ; aucune fusion destructive.",
+      "commit": "beda7de"
+    },
+    {
+      "id": "P0.3",
+      "date": "2026-11-03",
+      "proof": "Documentation factuellement corrigée : architecture mesurée, compteurs de tests et contrôleur check-docs ajoutés ; chiffres volontairement faux rejetés.",
+      "commit": "9401b56 + 64c4e91"
+    },
+    {
+      "id": "P1.1",
+      "date": "2026-11-03",
+      "proof": "Capacity sépare capacité mesurée, réservable et contrainte ; refus distingués ; cargo test 353/353, fmt et clippy réussis à cette étape.",
+      "commit": "0884449"
+    }
+  ]
+}
