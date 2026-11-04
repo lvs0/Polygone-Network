@@ -120,7 +120,9 @@ polygone/
 > 81 fichiers Rust, 31 410 lignes et 395 tests, dont le contrôle de couverture de `docs/INDEX.md`.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
-> et `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines.
+> `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
+> `DOC.3` un bandeau `Instantané daté` sur les 29 documents historiques, dont
+> l'absence fait échouer `scripts/check-docs.mjs`.
 > Le contrôleur `scripts/check-docs.mjs` recalcule ces valeurs et échoue si elles
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 

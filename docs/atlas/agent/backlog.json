@@ -342,6 +342,12 @@
       "date": "2026-11-04",
       "proof": "HOME temporaire : sans --confirmer exit 1 et arborescence identique (5 fichiers) ; avec --confirmer exit 0, 6 chemins supprimés, seul Documents/keep.txt subsiste ; chemin hors racines refusé ; 4 tests uninstall ; 395 tests workspace, clippy 0, check-docs 395",
       "commit": "2a210ac"
+    },
+    {
+      "id": "DOC.3",
+      "date": "2026-11-04",
+      "proof": "29 documents datés de docs/INDEX.md bandeautés « Instantané daté » avec lien ETAT-REEL/STATE ; grep -L vide sur ces 29 ; check-docs contrôle docs.instantané, porte négative exit 1 puis restauration exit 0 ; contenu historique non réécrit",
+      "commit": "0962e6e"
     }
   ]
 }
