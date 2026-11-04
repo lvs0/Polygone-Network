@@ -67,18 +67,6 @@
       ]
     },
     {
-      "id": "CI.1",
-      "phase": "P5",
-      "priority": 1,
-      "title": "Rendre la matrice honnête sur Windows",
-      "detail": "ci.yml met windows-latest dans la matrice bloquante alors que daemon/src/resources/mod.rs contient un compile_error!. Soit le job est rouge en permanence, soit il n'a jamais tourné. Retirer Windows de la matrice bloquante et dire 'non supporté'.",
-      "proof": "CI verte sur Linux ; le nom du job Windows ne figure plus dans les required checks ; ETAT-REEL §6 et le README disent la même chose.",
-      "ref": "docs/atlas/plan/epiques/05-livraison.md#CI.1",
-      "files": [
-        ".github/workflows/ci.yml"
-      ]
-    },
-    {
       "id": "CI.3",
       "phase": "P5",
       "priority": 2,
@@ -348,6 +336,12 @@
       "date": "2026-11-04",
       "proof": "29 documents datés de docs/INDEX.md bandeautés « Instantané daté » avec lien ETAT-REEL/STATE ; grep -L vide sur ces 29 ; check-docs contrôle docs.instantané, porte négative exit 1 puis restauration exit 0 ; contenu historique non réécrit",
       "commit": "0962e6e"
+    },
+    {
+      "id": "CI.1",
+      "date": "2026-11-04",
+      "proof": "windows-latest retiré du job bloquant (compile_error! dans daemon/src/resources/mod.rs) ; windows-canary continue-on-error: true qui imprime la raison ; node scripts/check-ci-honesty.mjs exit 0, réinjection de windows dans la matrice → exit 1 nommant le job, restauration → 0. Limite : run GitHub Actions non exécuté localement, aucun push autorisé",
+      "commit": "8ef18d3"
     }
   ]
 }
