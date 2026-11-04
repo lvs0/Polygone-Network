@@ -14,7 +14,7 @@
 > cette date. `gateway`, `petals` et `serverless` ont été intégrés le
 > 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
 > **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
-> `cargo test --workspace -j 2` (**395 tests, 0 échec**) pour les tests.
+> `cargo test --workspace -j 2` (**402 tests, 0 échec**) pour les tests.
 
 ---
 
@@ -107,27 +107,29 @@ polygone/
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
 | `core`       | 11       | 1 373      | — (lib)              | 29    |
-| `client`     | 27       | 13 350     | `polygone`           | 162   |
+| `client`     | 27       | 13 358     | `polygone`           | 162   |
 | `relay`      | 3        | 1 016      | `polygone-relay`     | 17    |
 | `gateway`    | 7        | 1 796      | `polygone-gateway`   | 36    |
 | `petals`     | 13       | 3 241      | — (lib)              | 18    |
 | `serverless` | 3        | 776        | — (lib)              | 21    |
-| `daemon`     | 17       | 9 858      | `polygoned`          | 112   |
+| `daemon`     | 17       | 10 237     | `polygoned`          | 119   |
 | doc-tests    | —        | —          | —                    | comptés dans leur crate |
-| **Total**    | **81**   | **31 410** | **4 binaires**       | **395** |
+| **Total**    | **81**   | **31 797** | **4 binaires**       | **402** |
 
 > Re-mesuré le **2026-11-04** après le contrôle exhaustif de l'index documentaire (DOC.2) :
-> 81 fichiers Rust, 31 410 lignes et 395 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> 81 fichiers Rust, 31 797 lignes et 402 tests, dont le contrôle de couverture de `docs/INDEX.md`.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
 > `DOC.3` un bandeau `Instantané daté` sur les 29 documents historiques, dont
-> l'absence fait échouer `scripts/check-docs.mjs`.
+> l'absence fait échouer `scripts/check-docs.mjs` ; `CI.1` une matrice Windows
+> honnête ; `OPS.2` des compteurs de refus par motif, lus par `polygoned status`
+> et `doctor`, avec « non mesurés » plutôt que zéro quand le daemon est absent.
 > Le contrôleur `scripts/check-docs.mjs` recalcule ces valeurs et échoue si elles
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **395 tests, 0 échec**.
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **402 tests, 0 échec**.
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is

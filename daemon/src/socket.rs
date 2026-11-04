@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
@@ -104,7 +104,7 @@ pub const MAX_LINE_BYTES: usize = 64 * 1024;
 /// Cette liste est vérifiée par `test_known_request_types_covers_every_variant` :
 /// un variant ajouté au type mais oublié ici serait refusé en `unknown_type`,
 /// des deux côtés du fil.
-pub const KNOWN_REQUEST_TYPES: [&str; 5] = [
+pub const KNOWN_REQUEST_TYPES: [&str; 6] = [
     "status_request",
     "ping",
     "alloc_request",
@@ -112,6 +112,9 @@ pub const KNOWN_REQUEST_TYPES: [&str; 5] = [
     // `renew` existe parce que les baux expirent : sans renouvellement, un
     // consommateur légitime perdrait sa réservation au bout de `lease_secs()`.
     "renew",
+    // Compteurs de refus (OPS.2) : requête séparée pour ne pas faire grossir
+    // `Reply::Status`, déjà au plafond de taille porté par `NodeError`.
+    "refusals_request",
 ];
 
 /// Types de réponses que le client sait lire (noms sérialisés des variants de
@@ -119,7 +122,7 @@ pub const KNOWN_REQUEST_TYPES: [&str; 5] = [
 ///
 /// Vérifiée par `test_known_reply_types_covers_every_variant` : sans ce test, la
 /// liste dériverait du type au premier variant ajouté, en silence.
-pub const KNOWN_REPLY_TYPES: [&str; 8] = [
+pub const KNOWN_REPLY_TYPES: [&str; 9] = [
     "hello",
     "status_response",
     "alloc_granted",
@@ -128,6 +131,7 @@ pub const KNOWN_REPLY_TYPES: [&str; 8] = [
     "renewed",
     "pong",
     "error",
+    "refusals_response",
 ];
 
 /// Codes d'erreur publiés sur le fil (champ `code` d'un `Reply::Error`).
@@ -157,6 +161,45 @@ pub const REASON_EXCEEDS_MEASURED: &str = "exceeds_measured";
 /// déjà échu. Distinct de `insufficient_headroom` : aucune libération ne rendra
 /// ce bail, il faut en redemander un.
 pub const REASON_UNKNOWN_ALLOCATION: &str = "unknown_allocation";
+
+/// Compteurs de refus d'allocation, par motif (OPS.2).
+///
+/// Ils vivent dans le **serveur**, jamais dans `DaemonState` : celui-ci a un
+/// écrivain unique (`publish_shared`) et y ajouter un compteur mutable romprait
+/// cet invariant. Ils sont locaux au processus, non exportés et perdus à
+/// l'arrêt — c'est cohérent avec l'absence de télémétrie : on répond à « pourquoi
+/// mes nœuds sont refusés ? » sans rien envoyer nulle part.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RefusalCounters {
+    counts: BTreeMap<String, u64>,
+}
+
+impl RefusalCounters {
+    /// Incrémente le compteur du motif. Un motif inconnu n'est pas avalé : il
+    /// apparaît dans l'instantané, ce qui rend visible un refus ajouté sans
+    /// passer par les constantes.
+    pub fn record(&mut self, reason: &str) {
+        *self.counts.entry(reason.to_string()).or_insert(0) += 1;
+    }
+
+    /// Copie triée (BTreeMap) pour publication dans `Status`.
+    pub fn snapshot(&self) -> BTreeMap<String, u64> {
+        self.counts.clone()
+    }
+
+    /// Nombre total de refus comptés.
+    pub fn total(&self) -> u64 {
+        self.counts.values().sum()
+    }
+
+    /// Motif le plus fréquent, s'il y en a un — pour un résumé d'une ligne.
+    pub fn top(&self) -> Option<(&str, u64)> {
+        self.counts
+            .iter()
+            .max_by_key(|(_, count)| **count)
+            .map(|(reason, count)| (reason.as_str(), *count))
+    }
+}
 
 /// Pourquoi une ligne n'a pas pu être décodée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -238,6 +281,15 @@ pub enum Request {
         id: Option<String>,
         allocation_id: String,
     },
+    /// Compteurs de refus d'allocation depuis le démarrage (OPS.2).
+    ///
+    /// Requête séparée, et non un champ de `status_request` : `Reply::Status`
+    /// est déjà au plafond de taille de `Reply` (portée par `NodeError`), et
+    /// quelques octets de plus déclenchent `clippy::result_large_err` chez le
+    /// client. Un daemon antérieur répond `unknown_type` : le client le dit
+    /// « non mesuré », il n'invente pas zéro.
+    #[serde(rename = "refusals_request")]
+    Refusals { id: Option<String> },
 }
 
 /// Message daemon → client.
@@ -349,6 +401,14 @@ pub enum Reply {
         id: Option<String>,
         code: String,
         message: String,
+    },
+    /// Répartition des refus d'allocation par motif (OPS.2).
+    #[serde(rename = "refusals_response")]
+    Refusals {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// Motifs triés par nom ; vide = aucun refus depuis le démarrage.
+        counts: BTreeMap<String, u64>,
     },
 }
 
@@ -954,6 +1014,13 @@ pub fn dispatch(request: Request, state: &DaemonState, ledger: &mut Ledger) -> R
             ram_capacity: Some(Box::new(ledger.ram_capacity(state))),
             storage_capacity: Some(Box::new(ledger.storage_capacity(state))),
         },
+        // `dispatch` est pur : il ne voit jamais les compteurs du serveur. Le
+        // serveur répond lui-même à cette requête (voir `handle_client`) ; un
+        // appel direct obtient une carte vide plutôt qu'un mensonge chiffré.
+        Request::Refusals { id } => Reply::Refusals {
+            id,
+            counts: BTreeMap::new(),
+        },
         Request::Ping { id } => Reply::Pong { id },
         Request::Release { id, allocation_id } => {
             // Libération immédiate : sans elle, la marge resterait consommée
@@ -1493,6 +1560,14 @@ fn lock_ledger(ledger: &Mutex<Ledger>) -> MutexGuard<'_, Ledger> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Même politique que `lock_ledger` : un panic d'un client ne doit pas rendre
+/// les compteurs inutilisables pour les autres.
+fn lock_refusals(refusals: &Mutex<RefusalCounters>) -> MutexGuard<'_, RefusalCounters> {
+    refusals
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Garde RAII des réservations d'UNE connexion.
 ///
 /// Libère **toutes** les allocations accordées sur cette connexion quand elle se
@@ -1653,6 +1728,9 @@ pub fn serve_with_timeout_at(
     // par toutes les connexions (c'est tout l'intérêt) et n'entre jamais dans
     // `DaemonState`, dont `publish_shared` reste le seul écrivain.
     let ledger = Arc::new(Mutex::new(Ledger::load_from(persistence_path)));
+    // Même contrainte que le ledger : un seul point d'écriture, partagé par les
+    // connexions, jamais dans `DaemonState`.
+    let refusals = Arc::new(Mutex::new(RefusalCounters::default()));
     // Au démarrage : donner une échéance aux baux d'ancien format, puis retirer
     // ceux déjà échus. Sans la première étape, un bail hérité d'une version
     // antérieure resterait éternel — le défaut survivrait à son correctif.
@@ -1698,12 +1776,13 @@ pub fn serve_with_timeout_at(
 
                 let state = Arc::clone(&state);
                 let ledger = Arc::clone(&ledger);
+                let refusals = Arc::clone(&refusals);
                 thread::spawn(move || {
                     // Le garde vit dans ce thread : le compteur est rendu même
                     // si `handle_client` panique (le déroulement lâche `_guard`).
                     let _guard = guard;
                     let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
-                        handle_client(stream, state, ledger, idle_timeout)
+                        handle_client(stream, state, ledger, refusals, idle_timeout)
                     }));
                     if let Err(payload) = outcome {
                         log::error!(
@@ -1749,6 +1828,7 @@ pub fn handle_client(
     mut stream: UnixStream,
     state: Arc<RwLock<DaemonState>>,
     ledger: Arc<Mutex<Ledger>>,
+    refusals: Arc<Mutex<RefusalCounters>>,
     idle_timeout: Duration,
 ) {
     // Posé avant la salutation : une connexion non bornée dans le temps occupe
@@ -1805,8 +1885,27 @@ pub fn handle_client(
                     // Verrou relâché AVANT l'écriture réseau : on lit, on clone,
                     // on lâche le garde, puis on dispatche. Le verrou n'est
                     // jamais tenu pendant une E/S.
-                    let snapshot = read_shared(&state);
-                    let reply = bookings.dispatch(request, &snapshot);
+                    // Les compteurs vivent dans le serveur : cette requête est
+                    // la seule à ne pas passer par `dispatch`.
+                    let reply = match request {
+                        Request::Refusals { id } => Reply::Refusals {
+                            id,
+                            counts: lock_refusals(&refusals).snapshot(),
+                        },
+                        other => {
+                            let snapshot = read_shared(&state);
+                            let reply = bookings.dispatch(other, &snapshot);
+                            // Un seul point de comptage : toute réponse
+                            // `AllocDenied` passe ici, y compris `renew` d'un
+                            // bail inconnu. Compter dans chaque branche de
+                            // `dispatch` aurait laissé la prochaine branche
+                            // ajoutée silencieusement hors du compteur.
+                            if let Reply::AllocDenied { reason, .. } = &reply {
+                                lock_refusals(&refusals).record(reason);
+                            }
+                            reply
+                        }
+                    };
                     if write_reply(&mut stream, &reply).is_err() {
                         return;
                     }
@@ -1878,6 +1977,7 @@ fn write_reply(stream: &mut UnixStream, reply: &Reply) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufRead;
 
     /// État servant de référence : 16 Gio, palier 50 % → 8 Gio autorisés,
     /// 1 Gio déjà alloué → 7 Gio de marge, 3 cœurs disponibles.
@@ -2568,6 +2668,125 @@ mod tests {
             "le cœur réservé doit survivre au redémarrage"
         );
     }
+    /// OPS.2 : chaque motif de refus est provoqué sur un VRAI serveur, puis la
+    /// répartition est relue depuis `status_response` — le chemin que la CLI
+    /// affiche, pas un compteur interne inspecté en douce.
+    #[test]
+    fn refusals_are_counted_by_reason_through_the_server() {
+        let dir = tempfile::tempdir().expect("dossier temporaire");
+        let path = dir.path().join("refusals.sock");
+        let listener = bind_listener(&path).expect("bind sur un socket temporaire");
+        let ledger_file = dir.path().join("ledger.json");
+        let state = Arc::new(RwLock::new(DaemonState::new("balanced")));
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let serve_state = Arc::clone(&state);
+        let serve_shutdown = Arc::clone(&shutdown);
+        let handle = thread::spawn(move || {
+            serve_with_timeout_at(
+                listener,
+                serve_state,
+                serve_shutdown,
+                Duration::from_secs(5),
+                ledger_file,
+            )
+        });
+
+        let mut stream = UnixStream::connect(&path).expect("connexion au serveur de test");
+        {
+            let mut reader = BufReader::new(stream.try_clone().expect("clone du flux"));
+            let mut hello = String::new();
+            reader.read_line(&mut hello).expect("salutation");
+            assert!(hello.contains("hello"), "salutation reçue : {hello}");
+        }
+
+        let alloc = |ram_gb: f32,
+                     cpu_cores: u32,
+                     gpu_vram_gb: Option<f32>,
+                     storage_gb: Option<f32>| Request::Alloc {
+            id: None,
+            client: None,
+            cpu_cores,
+            ram_gb,
+            gpu_vram_gb,
+            storage_gb,
+        };
+
+        let requests = [
+            (alloc(0.0, 1, None, None), REASON_INVALID_REQUEST),
+            (alloc(1000.0, 1, None, None), REASON_EXCEEDS_MEASURED),
+            (alloc(7.5, 1, None, None), REASON_INSUFFICIENT_HEADROOM),
+            (alloc(0.1, 99, None, None), REASON_INSUFFICIENT_CPU),
+            (alloc(0.1, 1, Some(1.0), None), REASON_INSUFFICIENT_VRAM),
+            (alloc(0.1, 1, None, Some(1.0)), REASON_INSUFFICIENT_STORAGE),
+            (
+                Request::Renew {
+                    id: None,
+                    allocation_id: "bail-inconnu".to_string(),
+                },
+                REASON_UNKNOWN_ALLOCATION,
+            ),
+        ];
+
+        for (request, expected) in requests {
+            match ask(&mut stream, &request) {
+                Reply::AllocDenied { reason, .. } => assert_eq!(
+                    reason, expected,
+                    "le motif attendu pour {request:?} doit être nommé"
+                ),
+                other => panic!("refus attendu pour {request:?}, reçu {other:?}"),
+            }
+        }
+
+        // `policy_shrinking` exige un état en retrait : on le pose APRÈS le
+        // démarrage, comme le ferait la boucle du daemon.
+        state.write().expect("verrou d'état").shrinking = true;
+        match ask(&mut stream, &alloc(0.1, 1, None, None)) {
+            Reply::AllocDenied { reason, .. } => {
+                assert_eq!(reason, REASON_POLICY_SHRINKING)
+            }
+            other => panic!("refus de politique attendu, reçu {other:?}"),
+        }
+        state.write().expect("verrou d'état").shrinking = false;
+
+        match ask(&mut stream, &Request::Refusals { id: None }) {
+            Reply::Refusals { counts, .. } => {
+                for reason in [
+                    REASON_INVALID_REQUEST,
+                    REASON_EXCEEDS_MEASURED,
+                    REASON_INSUFFICIENT_HEADROOM,
+                    REASON_INSUFFICIENT_CPU,
+                    REASON_INSUFFICIENT_VRAM,
+                    REASON_INSUFFICIENT_STORAGE,
+                    REASON_UNKNOWN_ALLOCATION,
+                    REASON_POLICY_SHRINKING,
+                ] {
+                    assert_eq!(
+                        counts.get(reason),
+                        Some(&1),
+                        "motif {reason} attendu une fois dans {counts:?}"
+                    );
+                }
+                assert_eq!(counts.len(), 8, "aucun motif inventé : {counts:?}");
+                assert_eq!(counts.values().sum::<u64>(), 8);
+            }
+            other => panic!("Refusals attendu, reçu {other:?}"),
+        }
+
+        shutdown.store(true, Ordering::SeqCst);
+        handle.join().expect("arrêt du serveur");
+    }
+
+    /// Envoie une requête sur un flux déjà salué et rend la réponse décodée.
+    fn ask(stream: &mut UnixStream, request: &Request) -> Reply {
+        stream
+            .write_all(encode_line(request).as_bytes())
+            .expect("écriture de la requête");
+        stream.flush().expect("vidage du flux");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone du flux"));
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("lecture de la réponse");
+        decode_reply(&line).expect("réponse décodable")
+    }
 
     /// Tous les variants de `Reply`. Existe pour que la liste blanche et le type
     /// ne puissent pas diverger sans qu'un test le dise.
@@ -2628,6 +2847,10 @@ mod tests {
                 id: None,
                 code: ERR_UNKNOWN_TYPE.to_string(),
                 message: "type de message inconnu".to_string(),
+            },
+            Reply::Refusals {
+                id: None,
+                counts: BTreeMap::from([(REASON_INSUFFICIENT_CPU.to_string(), 2)]),
             },
         ]
     }

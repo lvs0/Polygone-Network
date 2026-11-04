@@ -15,7 +15,9 @@ use polygoned::{
     create_platform, socket::socket_path, Allocation, DaemonConfig, GlowUpEngine, SystemSnapshot,
 };
 
+use polygoned::client::DaemonClient;
 use polygoned::runtime::{publish_runtime_state, run_tick, runtime_state};
+use polygoned::socket::Reply;
 #[cfg(unix)]
 use polygoned::socket::{bind_listener, serve};
 use std::sync::RwLock;
@@ -290,6 +292,9 @@ fn handle_command(
                 sock.display(),
                 if sock.exists() { "✅" } else { "❌" }
             );
+            // Les compteurs vivent dans le serveur : les lire ici, c'est le
+            // seul chemin qui répond à « pourquoi mes nœuds sont refusés ? ».
+            println!("  Refus       : {}", refusal_lines().join(" | "));
             println!();
             Ok(())
         }
@@ -403,7 +408,35 @@ fn run_doctor(platform: &dyn polygoned::Platform) {
         if sock.exists() { "✅" } else { "❌" }
     );
 
+    // Aucun chiffre inventé quand le daemon ne répond pas : « non mesurés »
+    // n'est pas « zéro refus ».
+    println!("\n  Refus d'allocation :");
+    for line in refusal_lines() {
+        println!("    {line}");
+    }
+
     println!("\n  ✅ All checks complete");
+}
+
+/// Refus d'allocation lus depuis le daemon qui les compte (OPS.2).
+///
+/// Sans daemon joignable : « non mesurés », jamais une carte vide présentée
+/// comme un zéro mesuré.
+fn refusal_lines() -> Vec<String> {
+    let sock = socket_path();
+    match DaemonClient::connect_with_timeout(&sock, Duration::from_millis(800))
+        .and_then(|mut client| client.refusals())
+    {
+        Ok(Reply::Refusals { counts, .. }) if counts.is_empty() => {
+            vec!["aucun depuis le démarrage".to_string()]
+        }
+        Ok(Reply::Refusals { counts, .. }) => counts
+            .iter()
+            .map(|(reason, count)| format!("{reason}: {count}"))
+            .collect(),
+        Ok(other) => vec![format!("non mesurés (réponse inattendue : {other:?})")],
+        Err(_) => vec!["non mesurés (daemon absent)".to_string()],
+    }
 }
 
 fn load_or_create_config(args: &Args) -> Result<DaemonConfig> {

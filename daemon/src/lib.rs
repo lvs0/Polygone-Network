@@ -5,7 +5,11 @@
 //! Embeddable library + standalone binary.
 
 pub mod allocator;
+// `cli.rs` n'était atteignable depuis aucune cible : ses tests ne tournaient
+// jamais. Le module est déclaré ici pour que le chemin testé et le chemin
+// compilé soient le même.
 pub mod bandwidth;
+pub mod cli;
 pub mod client;
 pub mod cpu;
 pub mod gpu;

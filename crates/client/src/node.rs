@@ -817,6 +817,14 @@ mod tests {
                                 reason: polygoned::socket::REASON_INSUFFICIENT_HEADROOM.to_string(),
                             }
                         }
+                        // Le faux daemon ne tient pas de compteurs ; il répond
+                        // une carte vide, ce que le nœud n'interroge pas.
+                        polygoned::socket::Request::Refusals { id } => {
+                            polygoned::socket::Reply::Refusals {
+                                id,
+                                counts: Default::default(),
+                            }
+                        }
                         polygoned::socket::Request::Status { id } => status_reply(id),
                         polygoned::socket::Request::Release { id, allocation_id } => {
                             polygoned::socket::Reply::Released { id, allocation_id }
