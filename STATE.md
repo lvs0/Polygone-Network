@@ -68,6 +68,8 @@
 | `node scripts/check-docs.mjs --tests 395` | **documents cohérents**, exit 0 | 2026-11-04 |
 | DOC.3 : bandeaux `Instantané daté` sur les documents faux | **fait** — les **29** documents classés `daté` dans `docs/INDEX.md` portent le bandeau et un lien vers `ETAT-REEL.md`/`STATE.md` ; `grep -L "Instantané daté"` sur ces 29 → **aucun fichier** ; `check-docs` gagne le contrôle `docs.instantané` : bandeau retiré de `RECONCILIATION.md` → **exit 1** nommant le fichier, restauré → **exit 0**. Aucun contenu historique réécrit | 2026-11-04 |
 | `node scripts/check-docs.mjs --tests 395` après DOC.3 | **documents cohérents**, exit 0 — « documents datés : 29 vérifiés, tous bandeautés » | 2026-11-04 |
+| CI.1 : matrice honnête sur Windows | **fait** — `windows-latest` retiré du job bloquant `test` (il ne peut pas être vert : `daemon/src/resources/mod.rs` porte un `compile_error!`) ; job `windows-canary` en `continue-on-error: true` qui imprime la raison. Contrôle local `node scripts/check-ci-honesty.mjs` → exit 0 ; négatif : `windows-latest` réinjecté dans la matrice bloquante → **exit 1** nommant le job, fichier restauré → exit 0. **Limite : le run GitHub Actions n'a pas été exécuté ici (aucun push autorisé) — la structure est vérifiée, pas le runner.** | 2026-11-04 |
+| `node scripts/check-docs.mjs --tests 395` après CI.1 | **documents cohérents**, exit 0 | 2026-11-04 |
 
 ## Décisions tranchées
 
@@ -102,9 +104,9 @@
 
 **`CLI.1`, `CLI.2` et `CLI.5` fermés le 2026-11-04.** `doctor` lit l'isolation OS au lieu de la déclarer ; `pause --duree` rend le bail et écrit une intention bornée, `reprendre` la consomme et redemande un bail ; `desinstaller` énumère, exige `--confirmer`, ne touche que ses racines et ne laisse aucun reste.
 
-**Prochaine tâche réalisable sur ce poste : `CI.1`** — une matrice Windows qui dit ce qu'elle prouve (compilation) et ce qu'elle ne prouve pas (isolation OS non exercée), plutôt qu'un badge vert sans portée. Ensuite : `SEC.8` (secrets), `OPS.2` (compteurs de refus), `CLI.3` (profils d'usage), `DOC.4` (refuser un document sans date ni statut) — puis `BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui **exige deux machines physiques** : non réalisable ici, scripts à préparer.
+**Prochaine tâche réalisable sur ce poste : `OPS.2`** — compter les refus d'allocation par motif dans le serveur (jamais dans `DaemonState`), les exposer dans `status` et `doctor`, avec un test qui provoque chaque motif. Ensuite : `SEC.8` (secrets), `CLI.3` (profils d'usage), `DOC.4` (refuser un document sans date ni statut), `CI.3` (audit de dépendances, dépend de la licence) — puis `BLOCKS.9` et `MSG.6`, qui **exigent deux machines physiques** : non réalisables ici, scripts à préparer.
 
-**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 14 tâches restantes (11 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 24 tâches fermées avec leur preuve dans `completed`. DOC.2, DOC.3, CLI.1, CLI.2 et CLI.5 sont fermés depuis le 4 novembre 2026. `DOC.3` n'était pas promue dans les tâches opérationnelles : sa preuve est ajoutée directement à `completed`. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
+**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 13 tâches restantes (10 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 25 tâches fermées avec leur preuve dans `completed`. DOC.2, DOC.3, CLI.1, CLI.2 et CLI.5 sont fermés depuis le 4 novembre 2026. `DOC.3` n'était pas promue dans les tâches opérationnelles : sa preuve est ajoutée directement à `completed`. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
 
 > **Correction du 2026-11-03** : la note précédente demandait de committer les
 > 65 fichiers non suivis du dépôt canonique. **C'était inutile.** Vérifié par
