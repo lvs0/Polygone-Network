@@ -75,6 +75,10 @@
 | `cargo test --workspace -j 2` après OPS.2 | **402 tests, 0 échec** (exit 0) | 2026-11-04 |
 | `cargo clippy --workspace --all-targets -- -D warnings` après OPS.2 | **exit 0** — le champ a été retiré de `Status` précisément parce que 8 octets suffisaient à déclencher `result_large_err` | 2026-11-04 |
 | `node scripts/check-docs.mjs --tests 402` | **documents cohérents**, exit 0 | 2026-11-04 |
+| SEC.8 : empêcher un secret d'entrer dans l'arbre | **fait** — `crates/client/tests/no_tracked_secrets.rs` lit ce que git **suit** (`git ls-files -z`, repli par parcours si git absent) et refuse `identity.json`, `*.key`, `.env`/`.env.*` (gabarits `.env.example|sample|template` permis). Positif **2/2** ; porte : `.env` réellement ajouté avec `git add -f` → **échec nommant `.env`**, dé-suivi puis retiré → vert. Hook `.githooks/pre-commit` (activation documentée : `git config core.hooksPath .githooks`) + étape CI | 2026-11-04 |
+| `cargo test --workspace -j 2` après SEC.8 | **404 tests, 0 échec** (exit 0) | 2026-11-04 |
+| `cargo clippy --workspace --all-targets -- -D warnings` après SEC.8 | **exit 0** | 2026-11-04 |
+| `node scripts/check-docs.mjs --tests 404` | **documents cohérents**, exit 0 | 2026-11-04 |
 
 ## Décisions tranchées
 
@@ -109,9 +113,9 @@
 
 **`CLI.1`, `CLI.2` et `CLI.5` fermés le 2026-11-04.** `doctor` lit l'isolation OS au lieu de la déclarer ; `pause --duree` rend le bail et écrit une intention bornée, `reprendre` la consomme et redemande un bail ; `desinstaller` énumère, exige `--confirmer`, ne touche que ses racines et ne laisse aucun reste.
 
-**Prochaine tâche réalisable sur ce poste : `SEC.8`** — un test qui refuse un chemin suivi ressemblant à une clé (`identity.json`, `*.key`, `.env`) et un audit de secrets en pré-commit/CI ; le refus ne nettoie pas l'historique, il empêche la première fuite. Ensuite : `CLI.3` (profils d'usage), `DOC.4` (refuser un document sans date ni statut), `SEC.1` (modèle de menace par service), `GW.1` (heartbeat persisté) — puis `CI.3` (audit de dépendances, dépend de la licence) et `BLOCKS.9`/`MSG.6`, qui **exigent deux machines physiques** : non réalisables ici, scripts à préparer.
+**Prochaine tâche réalisable sur ce poste : `CLI.3`** — des profils d'usage nommés (`--profil eco|equilibre|performance`) qui écrivent une configuration réellement relue, plutôt qu'un palier recopié dans trois fichiers. Ensuite : `DOC.4` (refuser un document sans date ni statut), `SEC.1` (modèle de menace par service), `GW.1` (heartbeat persisté) — puis `CI.3` (audit de dépendances, dépend de la licence) et `BLOCKS.9`/`MSG.6`, qui **exigent deux machines physiques** : non réalisables ici, scripts à préparer. **Limite SEC.8** : `gitleaks` n'est pas installé sur ce poste ; l'audit d'historique annoncé par la spec n'a pas été exécuté, seul le refus des chemins suivis est prouvé.
 
-**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 12 tâches restantes (9 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 26 tâches fermées avec leur preuve dans `completed`. DOC.2, DOC.3, CLI.1, CLI.2, CLI.5, CI.1 et OPS.2 sont fermés depuis le 4 novembre 2026. `DOC.3` n'était pas promue dans les tâches opérationnelles : sa preuve est ajoutée directement à `completed`. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
+**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 11 tâches restantes (8 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 27 tâches fermées avec leur preuve dans `completed`. DOC.2, DOC.3, CLI.1, CLI.2, CLI.5, CI.1, OPS.2 et SEC.8 sont fermés depuis le 4 novembre 2026. `DOC.3` n'était pas promue dans les tâches opérationnelles : sa preuve est ajoutée directement à `completed`. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
 
 > **Correction du 2026-11-03** : la note précédente demandait de committer les
 > 65 fichiers non suivis du dépôt canonique. **C'était inutile.** Vérifié par

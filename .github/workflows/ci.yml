@@ -79,6 +79,8 @@ jobs:
         shell: bash
       - name: CI matrix honesty (CI.1)
         run: node scripts/check-ci-honesty.mjs
+      - name: No tracked secret paths (SEC.8)
+        run: cargo test -p polygone-client --test no_tracked_secrets
       - name: Product smoke tests
         run: |
           chmod +x scripts/*.sh
