@@ -78,7 +78,7 @@ logs/*-P1.2.log               rapport de session par tâche
 `dispatch.json` exécute, dans l'ordre :
 
 1. `cargo fmt --all -- --check`
-2. `node scripts/check-docs.mjs --tests 371`
+2. `node scripts/check-docs.mjs --tests 372`
 3. `node scripts/check-atlas.mjs`
 4. `node --test docs/atlas/agent/tests/backlog.test.mjs`
 5. `cargo test --workspace -j 2`

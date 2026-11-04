@@ -98,8 +98,7 @@ node docs/atlas/agent/orchestrateur.mjs --loop --hours 4 --execute --commit
 1. **Valider le gateway seul** : `curl` sur `/v1/models`, puis un petit chat
    `hope/free`. Si ça échoue, l'agent échouera aussi.
 2. **Un dry-run** : `node docs/atlas/agent/orchestrateur.mjs --once` → lire le brief produit.
-3. **Un worker unique** sur une tâche à faible risque (`DOC.2`,
-   documentation), avec `--execute` mais **sans** `--commit`.
+3. **Un worker unique** sur `CLI.1` (`polygone doctor`, diagnostic en lecture seule), avec `--execute` mais **sans** `--commit`.
 4. **Lire le diff**. C'est l'étape que tous les harnais précédents ont sautée.
 5. **Activer `--commit`** seulement après un diff propre.
 6. **Passer au parallélisme** (`maxParallel: 3`) uniquement quand un worker

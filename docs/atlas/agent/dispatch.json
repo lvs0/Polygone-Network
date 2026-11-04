@@ -30,7 +30,7 @@
         "node",
         "scripts/check-docs.mjs",
         "--tests",
-        "371"
+        "372"
       ]
     },
     {

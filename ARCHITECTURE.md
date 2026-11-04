@@ -3,7 +3,7 @@
 > *For contributors. Read [`ECOSYSTEM.md`](./ECOSYSTEM.md) first to
 > understand what we are building. This document is about how.*
 >
-> **Status 2026-11-03** : this document describes the **real** workspace
+> **Status 2026-11-04** : this document describes the **real** workspace
 > (**7 members**, 4 binaries). The previous `src/` monolith (libp2p, HTTP
 > relay, 4-tab TUI) was archived to `archive/2026-07-src/` — it is not built,
 > not tested, not the product. The code is the source of truth; this document
@@ -14,7 +14,7 @@
 > cette date. `gateway`, `petals` et `serverless` ont été intégrés le
 > 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
 > **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
-> `cargo test --workspace` (18 suites, **371 tests, 0 échec**) pour les tests.
+> `cargo test --workspace -j 2` (**372 tests, 0 échec**) pour les tests.
 
 ---
 
@@ -102,28 +102,27 @@ polygone/
 └── .github/workflows/            ci.yml · release.yml
 ```
 
-**Reality check — measured 2026-11-03 :**
+**Reality check — measured 2026-11-04 :**
 
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
 | `core`       | 11       | 1 373      | — (lib)              | 29    |
-| `client`     | 24       | 11 959     | `polygone`           | 140   |
+| `client`     | 25       | 12 084     | `polygone`           | 141   |
 | `relay`      | 3        | 1 016      | `polygone-relay`     | 17    |
 | `gateway`    | 7        | 1 796      | `polygone-gateway`   | 40    |
 | `petals`     | 13       | 3 241      | — (lib)              | 19    |
 | `serverless` | 3        | 776        | — (lib)              | 17    |
 | `daemon`     | 17       | 9 792      | `polygoned`          | 109   |
 | doc-tests    | —        | —          | —                    | inclus dans `petals` |
-| **Total**    | **78**   | **29 953** | **4 binaires**       | **371** |
+| **Total**    | **79**   | **30 078** | **4 binaires**       | **372** |
 
-> Re-mesuré le **2026-11-03** après le contrat de ressources (P1.1),
-> l'expiration des baux (DAEMON.1), le renouvellement (DAEMON.3) et le TTL de
-> session (MESH.1, SEC.3, SEC.4) : 78 fichiers, 29 953 lignes, 371 tests en 18 suites.
+> Re-mesuré le **2026-11-04** après le contrôle exhaustif de l'index documentaire (DOC.2) :
+> 79 fichiers Rust, 30 078 lignes et 372 tests, dont le contrôle de couverture de `docs/INDEX.md`.
 > Le contrôleur `scripts/check-docs.mjs` recalcule ces valeurs et échoue si elles
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-inclus), `cargo test --workspace` pour les tests — 18 suites, **0 échec**.
+inclus), `cargo test --workspace -j 2` pour les tests — **372 tests, 0 échec**.
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is

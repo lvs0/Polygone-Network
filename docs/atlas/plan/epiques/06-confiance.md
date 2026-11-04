@@ -137,12 +137,12 @@
 - **Preuve** : `cargo test --test doc_consistency` vert, **puis preuve de la porte** : retirer un membre de `Cargo.toml` doit faire échouer le test en nommant fichier et ligne. Un test de cohérence qui ne peut pas échouer ne prouve rien.
 - **Refus** : ne vérifie ni la prose, ni les opinions, ni les dates de rédaction — seulement les chiffres contredits par le code.
 
-### DOC.2 — Inventorier les 34 documents avec date et statut
-- **Phase** : P1 · **Dépend de** : DOC.1
-- **Constat** : `docs/` n'a pas d'index. Certains fichiers sont datés dans leur nom (`REPRISE-ET-EXTRACTION-2026-11-02.md`), d'autres pas (`VISION-COMPLETE.md`, `ARCHITECTURE_RESEAU.md`), et rien ne dit lesquels font autorité : une décision et un brouillon se ressemblent.
-- **Travail** : `docs/INDEX.md` avec titre, date, statut (`autorité` / `daté` / `brouillon` / `à supprimer`) et thème.
-- **Preuve** : `cargo test --test doc_index` échoue si un `.md` de `docs/` manque à l'index ou si son statut est absent.
-- **Refus** : l'index ne juge pas la qualité ; il empêche l'oubli.
+### DOC.2 — Inventorier les documents avec date et statut — LIVRÉ 2026-11-04
+- **Phase** : P1 · **Dépend de** : DOC.1 (**fait**)
+- **Constat initial** : `docs/` n'avait pas d'index. Le chiffre de 34 documents était antérieur au portage Atlas ; à l'exécution, `find docs -type f -name '*.md'` a trouvé 61 fichiers, avant la création de l'index.
+- **Travail livré** : `docs/INDEX.md` référence les 62 fichiers Markdown récursifs, index compris, avec chemin, titre, date (ou « Non indiquée »), statut (`autorité` / `daté` / `brouillon` / `à supprimer`), thème et justification. Les dates d'import Atlas sont explicitement distinguées des dates de rédaction inconnues.
+- **Preuve** : `cargo test -p polygone-client --test doc_index` passe (1/1) ; retrait temporaire de `docs/BUDGET.md` → échec du test qui nomme le fichier ; `cargo test --workspace -j 2` passe (372 tests) ; `node scripts/check-docs.mjs --tests 372` passe.
+- **Refus** : l'index ne juge pas la qualité ; il empêche l'oubli. Aucun statut « à supprimer » n'est attribué sans preuve d'un doublon exact.
 
 ### DOC.3 — Bandeauter ou retirer les documents faux
 - **Phase** : P1 · **Dépend de** : DOC.2
@@ -158,7 +158,7 @@
 
 ### DOC.4 — Refuser un document sans date ni statut
 - **Phase** : P1 · **Dépend de** : DOC.2
-- **Constat** : rien n'empêche un nouveau `.md` d'arriver sans date — c'est ainsi que 34 documents de statuts différents ont cohabité.
+- **Constat** : rien n'empêche un nouveau `.md` d'arriver sans date — c'est ainsi que 61 fichiers Markdown cohabitaient avant la création de l'index (62 avec `INDEX.md`).
 - **Travail** : hook `pre-commit` + étape CI exigeant, pour tout `.md` ajouté sous `docs/`, un en-tête contenant `Date` **et** `Statut`.
 - **Preuve** : commit de test avec un `.md` sans en-tête refusé, message nommant le fichier ; même fichier avec en-tête accepté.
 - **Refus** : ne s'applique pas aux fichiers d'outillage, listés en exclusion explicite.

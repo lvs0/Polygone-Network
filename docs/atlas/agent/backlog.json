@@ -153,18 +153,6 @@
       ]
     },
     {
-      "id": "DOC.2",
-      "phase": "P0",
-      "priority": 5,
-      "title": "Inventorier les documents avec date et statut",
-      "detail": "~34 documents dans docs/. Pour chacun : date, statut (à jour / daté / faux), et la preuve qui justifie le statut.",
-      "proof": "tableau complet, chaque 'faux' accompagné de la citation contredite et de sa source.",
-      "ref": "docs/atlas/plan/epiques/06-confiance.md#DOC.2",
-      "files": [
-        "docs/"
-      ]
-    },
-    {
       "id": "SEC.1",
       "phase": "P4",
       "priority": 1,
@@ -367,6 +355,11 @@
       "date": "2026-11-03",
       "proof": "Capacity sépare capacité mesurée, réservable et contrainte ; refus distingués ; cargo test 353/353, fmt et clippy réussis à cette étape.",
       "commit": "0884449"
+    },
+    {
+      "id": "DOC.2",
+      "date": "2026-11-04",
+      "proof": "docs/INDEX.md couvre les 62 fichiers Markdown récursifs. cargo test -p polygone-client --test doc_index : 1/1 ; test négatif : retrait temporaire de docs/BUDGET.md refusé et chemin nommé. cargo test --workspace -j 2 : 372/372 ; check-docs --tests 372, fmt, clippy, check-atlas et 6 tests agent verts."
     }
   ]
 }
