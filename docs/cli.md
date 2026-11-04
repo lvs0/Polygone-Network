@@ -180,6 +180,30 @@ Consomme l'intention et redemande un bail au daemon.
 - Bail obtenu : l'allocation est rendue aussitôt et la ligne le dit — le service
   lui-même se relance avec `node servir`, qui rouvre sa prise d'écoute.
 
+### `polygone desinstaller [--confirmer]`
+
+Énumère **tout** ce que la désinstallation toucherait, puis ne supprime qu'avec
+`--confirmer`.
+
+```
+⬡ Désinstallation — 6 chemin(s) existant(s) sur 12 énuméré(s)
+  • identity.json — fichier (21550 o)
+  • ledger.json — fichier (425 o)
+  • blocks/ — dossier (12 entrée(s))
+  · received/ — absent
+  • ~/.local/bin/polygone
+⬡ 9 chemin(s) supprimé(s). Retirez la ligne PATH de votre rc shell…
+```
+
+- Sans `--confirmer` : exit 1, `confirmation requise`, **aucune écriture**.
+- Racines connues uniquement : `~/.polygone`, `~/.config/polygone`,
+  `~/.local/share/polygone`, et les binaires `~/.local/bin/polygone*`. Un chemin
+  hors de là est refusé, jamais supprimé.
+- Un daemon qui répond encore fait échouer la commande : supprimer son socket
+  pendant qu'il tourne le ferait recréer une arborescence à moitié.
+- La ligne `PATH` du rc shell n'est **pas** retirée automatiquement : elle
+  appartient à votre configuration, la sortie le rappelle.
+
 ### `polygone node status`
 Affiche l'état local du service, l'âge réel du bail, les compteurs et une
 découverte mesh mesurée à l'instant. Un état périmé est explicitement marqué.

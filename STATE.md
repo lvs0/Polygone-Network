@@ -62,6 +62,10 @@
 | `cargo test --workspace -j 2` après CLI.2 | **391 tests, 0 échec** (exit 0) | 2026-11-04 |
 | `cargo clippy --workspace --all-targets -- -D warnings` après CLI.2 | **exit 0** | 2026-11-04 |
 | `node scripts/check-docs.mjs --tests 391` | **documents cohérents**, exit 0 | 2026-11-04 |
+| CLI.5 : désinstallation énumérée, confirmée, sans reste | **fait** — session dans un `HOME` temporaire : sans `--confirmer`, exit 1 `confirmation requise` et **arborescence identique** (5 fichiers intacts) ; avec `--confirmer`, exit 0, 6 chemins supprimés, il ne reste que `Documents/keep.txt` (jamais touché) ; un chemin hors racines est refusé par `remove`. 4 tests `uninstall` | 2026-11-04 |
+| `cargo test --workspace -j 2` après CLI.5 | **395 tests, 0 échec** (exit 0) | 2026-11-04 |
+| `cargo clippy --workspace --all-targets -- -D warnings` après CLI.5 | **exit 0** | 2026-11-04 |
+| `node scripts/check-docs.mjs --tests 395` | **documents cohérents**, exit 0 | 2026-11-04 |
 
 ## Décisions tranchées
 
@@ -94,11 +98,11 @@
 
 **Priorité du backlog : `BLOCKS.9`** — prouver un transfert de blocs entre deux machines physiques. Cette preuve ne peut pas être simulée par deux processus locaux ; elle nécessite un second hôte réel.
 
-**`CLI.1` et `CLI.2` fermés le 2026-11-04.** `doctor` lit l'isolation OS au lieu de la déclarer ; `pause --duree` rend le bail et écrit une intention bornée, `reprendre` la consomme et redemande un bail — un refus laisse l'intention en place.
+**`CLI.1`, `CLI.2` et `CLI.5` fermés le 2026-11-04.** `doctor` lit l'isolation OS au lieu de la déclarer ; `pause --duree` rend le bail et écrit une intention bornée, `reprendre` la consomme et redemande un bail ; `desinstaller` énumère, exige `--confirmer`, ne touche que ses racines et ne laisse aucun reste.
 
-**Prochaine tâche réalisable sur ce poste : `CLI.5` — `polygone desinstaller`** : énumérer ce qui sera supprimé, exiger une confirmation, ne rien laisser derrière. Le refus de CLI.2 est explicite et doit être respecté : la pause ne survit pas à un redémarrage tant que CLI.8 n'existe pas. Ensuite : `MSG.6`, `DOC.3` (bandeauter les documents historiques faux), `CI.1` (matrice Windows honnête), `SEC.8` (secrets), `OPS.2` (compteurs de refus) — puis `BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui **exige deux machines physiques** : non réalisable ici, scripts à préparer.
+**Prochaine tâche réalisable sur ce poste : `DOC.3`** — bandeauter les documents historiques qui affirment plus que le code (le contrôle `check-docs` couvre les chiffres, pas les promesses en prose). Ensuite : `CI.1` (matrice Windows honnête), `SEC.8` (secrets), `OPS.2` (compteurs de refus), `CLI.3` (profils d'usage) — puis `BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui **exige deux machines physiques** : non réalisable ici, scripts à préparer.
 
-**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 15 tâches restantes (12 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 23 tâches fermées avec leur preuve dans `completed`. DOC.2, CLI.1 et CLI.2 sont fermés depuis le 4 novembre 2026. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
+**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 14 tâches restantes (11 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 24 tâches fermées avec leur preuve dans `completed`. DOC.2, CLI.1, CLI.2 et CLI.5 sont fermés depuis le 4 novembre 2026. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
 
 > **Correction du 2026-11-03** : la note précédente demandait de committer les
 > 65 fichiers non suivis du dépôt canonique. **C'était inutile.** Vérifié par

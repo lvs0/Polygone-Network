@@ -39,7 +39,7 @@ mod tui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use polygone_client::{node, node_isolation, pause};
+use polygone_client::{node, node_isolation, pause, uninstall};
 use polygoned::socket::{self, Reply};
 use polygoned::DaemonClient;
 use std::path::Path;
@@ -77,6 +77,12 @@ enum Commands {
     },
     /// Consommer la pause et redemander un bail au daemon.
     Reprendre,
+    /// Énumérer ce qui sera supprimé, puis supprimer après confirmation.
+    Desinstaller {
+        /// Supprimer réellement. Sans ce drapeau, seule l'énumération est faite.
+        #[arg(long)]
+        confirmer: bool,
+    },
     /// Launch the TUI (default) — :envoyer / :quitter
     Tui,
     /// Run the flagship E2E demo: Alice → blind relay → Bob + relay audit
@@ -440,6 +446,48 @@ fn run_reprendre() -> Result<()> {
     })
     .map_err(anyhow::Error::msg)?;
     println!("⬡ {message}");
+    Ok(())
+}
+
+fn run_desinstaller(confirmer: bool) -> Result<()> {
+    let home = uninstall::home_dir().map_err(anyhow::Error::msg)?;
+    let plan = uninstall::plan(&home);
+    println!(
+        "⬡ Désinstallation — {} chemin(s) existant(s) sur {} énuméré(s)",
+        plan.existing_count(),
+        plan.entries.len() + plan.binaries.len()
+    );
+    for entry in &plan.entries {
+        println!("  {} {}", if entry.exists { "•" } else { "·" }, entry.label);
+    }
+    for binary in &plan.binaries {
+        println!(
+            "  {} {}",
+            if binary.exists() { "•" } else { "·" },
+            binary.display()
+        );
+    }
+
+    if !confirmer {
+        anyhow::bail!("confirmation requise : rien n'a été supprimé (relancez avec --confirmer)");
+    }
+
+    let socket = socket::socket_path();
+    if DaemonClient::connect_with_timeout(&socket, Duration::from_millis(300)).is_ok() {
+        anyhow::bail!(
+            "le daemon répond sur {} : arrêtez-le avant de désinstaller",
+            socket.display()
+        );
+    }
+
+    let removed = uninstall::remove(&plan).map_err(anyhow::Error::msg)?;
+    for path in &removed {
+        println!("  ✓ supprimé : {path}");
+    }
+    println!(
+        "\n⬡ {} chemin(s) supprimé(s). Retirez la ligne PATH de votre rc shell si l'installateur en a ajouté une.",
+        removed.len()
+    );
     Ok(())
 }
 
@@ -863,6 +911,10 @@ async fn main() -> Result<()> {
         run_reprendre()?;
         return Ok(());
     }
+    if let Some(Commands::Desinstaller { confirmer }) = args.command.as_ref() {
+        run_desinstaller(*confirmer)?;
+        return Ok(());
+    }
 
     // First run: materialise the local identity (keys + pseudo).
     let identity = identity::LocalIdentity::load_or_create()?;
@@ -1243,6 +1295,9 @@ async fn main() -> Result<()> {
             unreachable!("handled before identity load")
         }
         Some(Commands::Pause { .. }) | Some(Commands::Reprendre) => {
+            unreachable!("handled before identity load")
+        }
+        Some(Commands::Desinstaller { .. }) => {
             unreachable!("handled before identity load")
         }
         Some(Commands::Duress { .. }) => {
