@@ -39,7 +39,7 @@ mod tui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use polygone_client::{node, node_isolation};
+use polygone_client::{node, node_isolation, pause};
 use polygoned::socket::{self, Reply};
 use polygoned::DaemonClient;
 use std::path::Path;
@@ -69,6 +69,14 @@ struct Args {
 enum Commands {
     /// Diagnostic des capacités réellement mesurées, réservables et contraintes.
     Doctor,
+    /// Suspendre le service : libérer le bail et écrire une intention bornée.
+    Pause {
+        /// Durée de la pause, entre 10 min et 4 h (`30m`, `2h`).
+        #[arg(long, default_value = "30m")]
+        duree: String,
+    },
+    /// Consommer la pause et redemander un bail au daemon.
+    Reprendre,
     /// Launch the TUI (default) — :envoyer / :quitter
     Tui,
     /// Run the flagship E2E demo: Alice → blind relay → Bob + relay audit
@@ -352,6 +360,100 @@ fn format_doctor_report(
 fn doctor_report(socket_path: &Path) -> Result<String> {
     let reply = doctor_status(socket_path)?;
     format_doctor_report(&reply, node_isolation::measure_current())
+}
+
+/// Arrête le service qui tient un bail, s'il y en a un de vivant.
+///
+/// Le bail ne se « libère » pas par un message : il meurt avec la connexion du
+/// processus qui le détient (`LedgerGuard` côté daemon). Arrêter ce processus
+/// est donc la seule libération honnête depuis un autre processus.
+fn stop_serving_node() -> String {
+    let path = node::default_state_path();
+    let (state, age) = match node::read_state(&path) {
+        Ok(read) => read,
+        Err(_) => return "aucun service en cours".to_string(),
+    };
+    if state.status != "serving" || age > node::STATE_STALE_AFTER {
+        return format!(
+            "aucun service vivant (dernier état : {} · {} s)",
+            state.status,
+            age.as_secs()
+        );
+    }
+    #[cfg(unix)]
+    {
+        let killed = std::process::Command::new("kill")
+            .args(["-TERM", &state.pid.to_string()])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if killed {
+            format!("service pid {} arrêté (SIGTERM), bail rendu", state.pid)
+        } else {
+            format!(
+                "service pid {} non arrêté — arrêtez-le à la main avant la reprise",
+                state.pid
+            )
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        format!(
+            "service pid {} : arrêtez-le à la main (aucun SIGTERM sur cette plateforme)",
+            state.pid
+        )
+    }
+}
+
+fn run_reprendre() -> Result<()> {
+    let path = pause::default_intent_path();
+    let message = pause::resume(&path, pause::now_unix(), || {
+        let socket = socket::socket_path();
+        let mut client = DaemonClient::connect_with_timeout(&socket, Duration::from_secs(2))
+            .map_err(|error| format!("daemon indisponible sur {} : {error}", socket.display()))?;
+        let reply = client
+            .allocate(node::DEFAULT_BAIL_RAM_GB, node::DEFAULT_BAIL_CPU_CORES)
+            .map_err(|error| format!("allocation refusée : {error}"))?;
+        match reply {
+            Reply::AllocGranted {
+                allocation_id,
+                cpu_cores,
+                ram_gb,
+                enforced,
+                ..
+            } => {
+                // Rendu aussitôt : `reprendre` prouve que le bail est de nouveau
+                // accordable ; c'est `node servir` qui le tiendra ensuite.
+                let released = client.release(&allocation_id).is_ok();
+                Ok(format!(
+                    "{ram_gb:.2} Gio · {cpu_cores} cœur(s){} — rendu aussitôt : {}",
+                    if enforced {
+                        " · contraint par l'OS"
+                    } else {
+                        ""
+                    },
+                    if released { "oui" } else { "non" }
+                ))
+            }
+            other => Err(format!("réponse inattendue du daemon : {other:?}")),
+        }
+    })
+    .map_err(anyhow::Error::msg)?;
+    println!("⬡ {message}");
+    Ok(())
+}
+
+fn run_pause(duree: &str) -> Result<()> {
+    let duration = pause::parse_duration(duree).map_err(anyhow::Error::msg)?;
+    let intent = pause::intent(pause::now_unix(), duration).map_err(anyhow::Error::msg)?;
+    let stopped = stop_serving_node();
+    let path = pause::default_intent_path();
+    pause::write_intent(&path, &intent).map_err(anyhow::Error::msg)?;
+    println!("⬡ Pause enregistrée : {}", pause::describe(&intent));
+    println!("  Bail : {stopped}");
+    println!("  Intention : {}", path.display());
+    println!("  Reprise : `polygone reprendre` (refusée une fois la pause expirée)");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -751,6 +853,16 @@ async fn main() -> Result<()> {
         print!("{report}");
         return Ok(());
     }
+    // Pause et reprise ne créent pas d'identité : elles parlent au daemon et au
+    // fichier d'intention, rien d'autre.
+    if let Some(Commands::Pause { duree }) = args.command.as_ref() {
+        run_pause(duree)?;
+        return Ok(());
+    }
+    if matches!(args.command.as_ref(), Some(Commands::Reprendre)) {
+        run_reprendre()?;
+        return Ok(());
+    }
 
     // First run: materialise the local identity (keys + pseudo).
     let identity = identity::LocalIdentity::load_or_create()?;
@@ -1128,6 +1240,9 @@ async fn main() -> Result<()> {
             unreachable!("handled before identity load")
         }
         Some(Commands::Doctor) => {
+            unreachable!("handled before identity load")
+        }
+        Some(Commands::Pause { .. }) | Some(Commands::Reprendre) => {
             unreachable!("handled before identity load")
         }
         Some(Commands::Duress { .. }) => {

@@ -58,6 +58,10 @@
 | `cargo test --workspace -j 2` après CLI.1 | **384 tests, 0 échec** (exit 0) | 2026-11-04 |
 | `cargo clippy --workspace --all-targets -- -D warnings` après CLI.1 | **exit 0** | 2026-11-04 |
 | `node scripts/check-docs.mjs --tests 384` | **documents cohérents**, exit 0 | 2026-11-04 |
+| CLI.2 : pause bornée, bail rendu, reprise refusée si expirée | **fait** — session réelle contre le daemon du projet : `pause --duree 10m` → exit 0, `pause.json` écrit (`resumes_at = paused_at + 600`) ; `reprendre` → `bail obtenu … 0.25 Gio · 1 cœur(s) — rendu aussitôt : oui`, exit 0, intention consommée ; sans pause → exit 1 `aucune pause en cours` ; `--duree 9m` → exit 1 `durée hors bornes` ; intention antidatée → exit 1 `pause expirée depuis 60 s`, aucun bail demandé. 7 tests `pause` | 2026-11-04 |
+| `cargo test --workspace -j 2` après CLI.2 | **391 tests, 0 échec** (exit 0) | 2026-11-04 |
+| `cargo clippy --workspace --all-targets -- -D warnings` après CLI.2 | **exit 0** | 2026-11-04 |
+| `node scripts/check-docs.mjs --tests 391` | **documents cohérents**, exit 0 | 2026-11-04 |
 
 ## Décisions tranchées
 
@@ -90,11 +94,11 @@
 
 **Priorité du backlog : `BLOCKS.9`** — prouver un transfert de blocs entre deux machines physiques. Cette preuve ne peut pas être simulée par deux processus locaux ; elle nécessite un second hôte réel.
 
-**`CLI.1` fermé le 2026-11-04.** `polygone doctor` répond aux trois questions réelles et dit « non mesurée » plutôt que d'inventer : capacité du ledger, isolation OS lue dans le cgroup, une seule cause d'échec quand le daemon manque.
+**`CLI.1` et `CLI.2` fermés le 2026-11-04.** `doctor` lit l'isolation OS au lieu de la déclarer ; `pause --duree` rend le bail et écrit une intention bornée, `reprendre` la consomme et redemande un bail — un refus laisse l'intention en place.
 
-**Prochaine tâche réalisable sur ce poste : `CLI.2` — `polygone pause` et `reprendre`** avec une durée réelle (10 min à 4 h), un bail effectivement rendu et une reprise automatique. Ensuite : `CLI.5` (désinstallation énumérée), `MSG.6`, `DOC.3` (bandeauter les documents historiques faux), `CI.1` (matrice Windows honnête), `SEC.8` (secrets), `OPS.2` (compteurs de refus) — puis `BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui **exige deux machines physiques** : non réalisable ici, scripts à préparer.
+**Prochaine tâche réalisable sur ce poste : `CLI.5` — `polygone desinstaller`** : énumérer ce qui sera supprimé, exiger une confirmation, ne rien laisser derrière. Le refus de CLI.2 est explicite et doit être respecté : la pause ne survit pas à un redémarrage tant que CLI.8 n'existe pas. Ensuite : `MSG.6`, `DOC.3` (bandeauter les documents historiques faux), `CI.1` (matrice Windows honnête), `SEC.8` (secrets), `OPS.2` (compteurs de refus) — puis `BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui **exige deux machines physiques** : non réalisable ici, scripts à préparer.
 
-**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 16 tâches restantes (13 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 22 tâches fermées avec leur preuve dans `completed`. DOC.2 et CLI.1 sont fermés depuis le 4 novembre 2026. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
+**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 15 tâches restantes (12 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 23 tâches fermées avec leur preuve dans `completed`. DOC.2, CLI.1 et CLI.2 sont fermés depuis le 4 novembre 2026. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
 
 > **Correction du 2026-11-03** : la note précédente demandait de committer les
 > 65 fichiers non suivis du dépôt canonique. **C'était inutile.** Vérifié par

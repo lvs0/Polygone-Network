@@ -150,6 +150,36 @@ auto-imposé par le processus et aucune limite CPU/RAM OS n'est appliquée. Avec
 au processus. Ce service ne transforme pas la RAM distante en RAM locale.
 macOS n'a pas encore de mécanisme d'isolation équivalent branché.
 
+### `polygone pause [--duree <30m|2h>]`
+
+Suspend le service pendant une durée **bornée** (10 min à 4 h) : arrête le
+processus qui sert (le bail meurt avec sa connexion — le daemon ne conserve
+rien), puis écrit une intention horodatée dans `~/.polygone/pause.json`.
+
+```
+⬡ Pause enregistrée : 30 min, jusqu'à 1793771400 (epoch)
+  Bail : service pid 4242 arrêté (SIGTERM), bail rendu
+  Intention : /home/moi/.polygone/pause.json
+```
+
+- Une durée hors bornes (`9m`, `5h`, `30s`) est refusée : ce n'est pas une pause.
+- Aucun service vivant : la pause est quand même enregistrée, et la ligne le dit.
+- **Ce n'est pas un état système** : la pause ne survit pas à un redémarrage tant
+  que CLI.8 n'existe pas. C'est écrit sur disque pour être relu, pas pour être
+  garanti après reboot.
+
+### `polygone reprendre`
+
+Consomme l'intention et redemande un bail au daemon.
+
+- Aucune intention : refus nommé (`aucune pause en cours`).
+- Intention expirée : refus nommé (`pause expirée depuis N s`) — aucun bail
+  n'est demandé, et l'intention est consommée par ce refus.
+- Bail refusé par le daemon : l'intention **reste** en place, pour réessayer
+  sans perdre la durée restante.
+- Bail obtenu : l'allocation est rendue aussitôt et la ligne le dit — le service
+  lui-même se relance avec `node servir`, qui rouvre sa prise d'écoute.
+
 ### `polygone node status`
 Affiche l'état local du service, l'âge réel du bail, les compteurs et une
 découverte mesh mesurée à l'instant. Un état périmé est explicitement marqué.
