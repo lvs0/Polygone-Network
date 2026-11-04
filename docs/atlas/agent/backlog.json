@@ -93,18 +93,6 @@
       ]
     },
     {
-      "id": "OPS.2",
-      "phase": "P5",
-      "priority": 4,
-      "title": "Compter les refus d'allocation par motif",
-      "detail": "Les motifs existent (insufficient_headroom, exceeds_measured, insufficient_cpu...) sans aucun compteur. Compter, et exposer en JSON.",
-      "proof": "test : provoquer 3 refus de motifs différents, lire le compteur, vérifier 3 entrées distinctes.",
-      "ref": "docs/atlas/plan/epiques/06-confiance.md#OPS.2",
-      "files": [
-        "daemon/src/socket.rs"
-      ]
-    },
-    {
       "id": "SEC.1",
       "phase": "P4",
       "priority": 1,
@@ -342,6 +330,12 @@
       "date": "2026-11-04",
       "proof": "windows-latest retiré du job bloquant (compile_error! dans daemon/src/resources/mod.rs) ; windows-canary continue-on-error: true qui imprime la raison ; node scripts/check-ci-honesty.mjs exit 0, réinjection de windows dans la matrice → exit 1 nommant le job, restauration → 0. Limite : run GitHub Actions non exécuté localement, aucun push autorisé",
       "commit": "8ef18d3"
+    },
+    {
+      "id": "OPS.2",
+      "date": "2026-11-04",
+      "proof": "RefusalCounters dans le serveur (pas DaemonState), compteur incrémenté au point unique des AllocDenied ; requête refusals_request pour ne pas faire grossir Reply::Status ; test vrai serveur avec les 8 motifs à 1 chacun ; session réelle 100000 Gio → alloc_denied puis polygoned status/doctor affichent exceeds_measured: 1 ; daemon arrêté → non mesurés ; daemon/src/cli.rs enfin compilé (117 tests lib) ; 402 tests workspace, clippy 0, check-docs 402",
+      "commit": "cc56acf"
     }
   ]
 }
