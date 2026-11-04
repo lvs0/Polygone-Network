@@ -872,6 +872,9 @@ mod tests {
             gpu_free_vram_mb: 0,
             shrinking: false,
             uptime_secs: 0,
+            // Faux daemon legacy : le nœud n'a pas besoin de ces diagnostics.
+            ram_capacity: None,
+            storage_capacity: None,
         }
     }
 

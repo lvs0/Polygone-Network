@@ -171,6 +171,80 @@ pub fn current_scope_matches(ram_gb: f32, cpu_cores: u32) -> Result<bool, String
     Ok(true)
 }
 
+/// Ce que l'OS applique réellement au processus courant, lu dans les fichiers
+/// du cgroup — jamais déduit d'un drapeau de configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OsIsolation {
+    /// Chemin cgroup v2 du processus, tel que publié par `/proc/self/cgroup`.
+    pub cgroup_path: String,
+    /// Vrai seulement si ce chemin est un scope `polygone-node-*.scope` dédié.
+    pub dedicated_scope: bool,
+    /// `memory.max` fini, en octets. `None` = `max`, donc aucune limite.
+    pub memory_max: Option<u64>,
+    /// `(quota, période)` de `cpu.max`. `None` = `max`, donc aucun quota.
+    pub cpu_quota: Option<(u64, u64)>,
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn optional_limit(value: &str, name: &str) -> Result<Option<u64>, String> {
+    if value.trim() == "max" {
+        return Ok(None);
+    }
+    parse_limit(value, name).map(Some)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn optional_cpu_max(value: &str) -> Result<Option<(u64, u64)>, String> {
+    if value.split_whitespace().next() == Some("max") {
+        return Ok(None);
+    }
+    parse_cpu_max(value).map(Some)
+}
+
+/// Mesure l'isolation à partir du contenu de `/proc/self/cgroup` et d'un lecteur
+/// de fichiers injectable : le test relit les **mêmes octets** que le rapport
+/// affiche, sans toucher au vrai cgroup de la machine.
+#[cfg(any(target_os = "linux", test))]
+pub fn measure_from(
+    proc_cgroup: &str,
+    read: impl Fn(&Path) -> std::io::Result<String>,
+) -> Result<OsIsolation, String> {
+    let relative = unified_path(proc_cgroup)?;
+    let directory = Path::new(CGROUP_ROOT).join(relative.trim_start_matches('/'));
+
+    let memory_file = directory.join(MEMORY_FILE);
+    let memory_text = read(&memory_file)
+        .map_err(|error| format!("lecture de {} impossible : {error}", memory_file.display()))?;
+    let memory_max = optional_limit(&memory_text, "memory.max")?;
+
+    let cpu_file = directory.join(CPU_FILE);
+    let cpu_text = read(&cpu_file)
+        .map_err(|error| format!("lecture de {} impossible : {error}", cpu_file.display()))?;
+    let cpu_quota = optional_cpu_max(&cpu_text)?;
+
+    Ok(OsIsolation {
+        cgroup_path: relative.to_string(),
+        dedicated_scope: is_polygone_app_scope(relative),
+        memory_max,
+        cpu_quota,
+    })
+}
+
+/// Mesure l'isolation du processus courant depuis les vrais fichiers cgroup.
+#[cfg(target_os = "linux")]
+pub fn measure_current() -> Result<OsIsolation, String> {
+    let contents = std::fs::read_to_string("/proc/self/cgroup")
+        .map_err(|error| format!("lecture de /proc/self/cgroup impossible : {error}"))?;
+    measure_from(&contents, |path| std::fs::read_to_string(path))
+}
+
+/// Hors Linux, il n'y a pas de cgroup v2 : le diagnostic le dit au lieu de
+/// laisser croire à une isolation absente.
+#[cfg(not(target_os = "linux"))]
+pub fn measure_current() -> Result<OsIsolation, String> {
+    Err("isolation cgroup v2 non mesurable hors Linux".to_string())
+}
+
 /// Chemin de cgroup actuel (utile au diagnostic ; jamais renvoyé comme preuve
 /// d'isolation à lui seul).
 #[cfg(target_os = "linux")]
@@ -216,6 +290,51 @@ mod tests {
         assert!(parse_cpu_max("max 100000").is_err());
         assert!(parse_cpu_max("100000 0").is_err());
         assert!(parse_cpu_max("100000 100000 extra").is_err());
+    }
+
+    #[test]
+    fn measures_the_limits_the_kernel_exposes() {
+        let scope = "/user.slice/user-1000.slice/user@1000.service/app.slice/polygone-node-7.scope";
+        let isolation = measure_from(&format!("0::{scope}\n"), |path| {
+            if path.ends_with("memory.max") {
+                Ok("4294967296\n".to_string())
+            } else {
+                Ok("200000 100000\n".to_string())
+            }
+        })
+        .expect("cgroup lisible");
+        assert_eq!(isolation.cgroup_path, scope);
+        assert!(isolation.dedicated_scope);
+        assert_eq!(isolation.memory_max, Some(4_294_967_296));
+        assert_eq!(isolation.cpu_quota, Some((200_000, 100_000)));
+    }
+
+    #[test]
+    fn reports_unlimited_when_the_kernel_says_max() {
+        let isolation = measure_from("0::/user.slice/session-3.scope\n", |path| {
+            if path.ends_with("memory.max") {
+                Ok("max\n".to_string())
+            } else {
+                Ok("max 100000\n".to_string())
+            }
+        })
+        .expect("cgroup lisible");
+        assert!(
+            !isolation.dedicated_scope,
+            "session-3 n'est pas un scope Polygone"
+        );
+        assert_eq!(isolation.memory_max, None);
+        assert_eq!(isolation.cpu_quota, None);
+    }
+
+    #[test]
+    fn fails_closed_when_a_limit_file_is_unreadable() {
+        let error = measure_from("0::/user.slice/session-3.scope\n", |_| {
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        })
+        .expect_err("fichier illisible : pas de conclusion");
+        assert!(error.starts_with("lecture de "), "{error}");
+        assert!(!error.contains("illimité"), "{error}");
     }
 
     #[test]

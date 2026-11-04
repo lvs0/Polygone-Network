@@ -7,6 +7,7 @@
 //! polygone recevoir [fichier]       → reconstruire + déchiffrer (4/7)
 //! polygone clef                     → votre clef publique (à partager)
 //! polygone id                       → identité nœud
+//! polygone doctor                   → mesure réelle du daemon et de ses capacités
 //! ```
 //!
 //! « On voit rien. Et c'est comme ça que ça devrait être. »
@@ -39,6 +40,10 @@ mod tui;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use polygone_client::{node, node_isolation};
+use polygoned::socket::{self, Reply};
+use polygoned::DaemonClient;
+use std::path::Path;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -62,6 +67,8 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Diagnostic des capacités réellement mesurées, réservables et contraintes.
+    Doctor,
     /// Launch the TUI (default) — :envoyer / :quitter
     Tui,
     /// Run the flagship E2E demo: Alice → blind relay → Bob + relay audit
@@ -252,6 +259,268 @@ mod compute_grant_tests {
     fn signed_success_is_accepted() {
         let grant = r#"{"ok":true,"node":"ghost","output":"42"}"#;
         assert!(display_compute_grant(grant, "RÉSULTAT").unwrap());
+    }
+}
+
+/// Demande un statut au daemon avec les délais courts d'une sonde.
+/// L'absence du daemon produit une erreur unique, jamais un rapport rempli de zéros.
+fn doctor_status(socket_path: &Path) -> Result<Reply> {
+    let mut client = DaemonClient::connect_with_timeout(socket_path, Duration::from_secs(2))
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "daemon indisponible sur {} : {error}",
+                socket_path.display()
+            )
+        })?;
+    client
+        .status()
+        .map_err(|error| anyhow::anyhow!("lecture du statut daemon impossible : {error}"))
+}
+
+fn gibibytes(bytes: u64) -> f64 {
+    bytes as f64 / 1_073_741_824.0
+}
+
+/// Formate les valeurs publiées par le ledger du daemon, puis l'isolation que
+/// le noyau applique réellement à ce processus — mesurée, jamais déclarée.
+fn format_doctor_report(
+    reply: &Reply,
+    isolation: Result<node_isolation::OsIsolation, String>,
+) -> Result<String> {
+    let (tier, seq, capacity) = match reply {
+        Reply::Status {
+            tier,
+            seq,
+            ram_capacity: Some(capacity),
+            ..
+        } => (tier, seq, capacity),
+        Reply::Status {
+            ram_capacity: None, ..
+        } => {
+            anyhow::bail!("le daemon répond, mais ne publie pas Capacity ; mettez-le à jour avant de conclure")
+        }
+        other => anyhow::bail!("réponse inattendue du daemon : {other:?}"),
+    };
+
+    if capacity.reservable > capacity.measured || capacity.enforced > capacity.reservable {
+        anyhow::bail!("le daemon a publié une Capacity incohérente ; aucune conclusion n'est sûre");
+    }
+
+    let conclusion = if capacity.is_enforced() {
+        "contraint par l'OS"
+    } else if capacity.enforced == 0 {
+        "licence à respecter — aucune limite OS confirmée"
+    } else {
+        "licence à respecter — la limite OS ne couvre qu'une partie du réservable"
+    };
+
+    let mut report = format!(
+        "⬡ Polygone doctor\n  Daemon : joignable · palier {tier} · séquence {seq}\n\n  Capacité RAM\n    Mesurée   : {:.2} Gio\n    Réservable: {:.2} Gio\n    Contrainte: {:.2} Gio\n\n",
+        gibibytes(capacity.measured),
+        gibibytes(capacity.reservable),
+        gibibytes(capacity.enforced),
+    );
+
+    report.push_str("  Isolation OS (ce processus)\n");
+    match isolation {
+        Ok(state) => {
+            let memory = match state.memory_max {
+                Some(bytes) => format!("{:.2} Gio", gibibytes(bytes)),
+                None => "illimitée (memory.max = max)".to_string(),
+            };
+            let cpu = match state.cpu_quota {
+                Some((quota, period)) => format!(
+                    "{:.2} % ({:.2} cœur(s))",
+                    quota as f64 * 100.0 / period as f64,
+                    quota as f64 / period as f64
+                ),
+                None => "illimitée (cpu.max = max)".to_string(),
+            };
+            report.push_str(&format!(
+                "    Cgroup    : {} (scope Polygone : {})\n    MemoryMax : {memory}\n    CPUQuota  : {cpu}\n",
+                state.cgroup_path,
+                if state.dedicated_scope { "oui" } else { "non" },
+            ));
+        }
+        Err(reason) => report.push_str(&format!("    Non mesurée : {reason}\n")),
+    }
+
+    report.push_str(&format!("\n  Conclusion : {conclusion}\n"));
+    Ok(report)
+}
+
+fn doctor_report(socket_path: &Path) -> Result<String> {
+    let reply = doctor_status(socket_path)?;
+    format_doctor_report(&reply, node_isolation::measure_current())
+}
+
+#[cfg(test)]
+mod doctor_tests {
+    use super::node_isolation::{measure_from, OsIsolation};
+    use super::{doctor_report, format_doctor_report};
+    use polygoned::socket::{Capacity, Reply};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    const GIO: u64 = 1_073_741_824;
+
+    /// Isolation neutre : cgroup de session, aucune limite. Les tests qui ne
+    /// parlent pas d'isolation passent celle-ci et n'en disent rien.
+    fn unlimited() -> Result<OsIsolation, String> {
+        Ok(OsIsolation {
+            cgroup_path: "/user.slice/user-1000.slice/session-1.scope".into(),
+            dedicated_scope: false,
+            memory_max: None,
+            cpu_quota: None,
+        })
+    }
+
+    fn status(capacity: Option<Capacity>) -> Reply {
+        Reply::Status {
+            id: None,
+            tier: "balanced".into(),
+            seq: 7,
+            max_cpu_percent: 50,
+            max_ram_percent: 50,
+            max_bandwidth_percent: 60,
+            max_gpu_percent: 40,
+            ram_bytes: 1_073_741_824,
+            ram_mb: 1024,
+            bandwidth_mbps: 10,
+            cpu_cores: 2,
+            gpu_free_vram_mb: 0,
+            shrinking: false,
+            uptime_secs: 60,
+            ram_capacity: capacity.map(Box::new),
+            storage_capacity: None,
+        }
+    }
+
+    #[test]
+    fn doctor_reports_licence_when_nothing_enforced() {
+        let reply = status(Some(Capacity {
+            measured: 8 * 1_073_741_824,
+            reservable: 3 * 1_073_741_824,
+            enforced: 0,
+        }));
+        let report = format_doctor_report(&reply, unlimited()).expect("capacités publiées");
+        assert!(report.contains("Mesurée   : 8.00 Gio"), "{report}");
+        assert!(report.contains("Réservable: 3.00 Gio"), "{report}");
+        assert!(report.contains("Contrainte: 0.00 Gio"), "{report}");
+        assert!(report.contains("licence à respecter"), "{report}");
+        assert!(!report.contains("contraint par l'OS"), "{report}");
+    }
+
+    #[test]
+    fn doctor_fails_with_one_cause_when_daemon_absent() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket = PathBuf::from(format!(
+            "/tmp/polygone-doctor-{}-{nonce}.sock",
+            std::process::id()
+        ));
+        let error = doctor_report(&socket)
+            .expect_err("daemon absent : le doctor doit échouer")
+            .to_string();
+        assert!(error.starts_with("daemon indisponible sur "), "{error}");
+        assert_eq!(
+            error.lines().count(),
+            1,
+            "une seule cause, pas un tableau vide : {error}"
+        );
+    }
+
+    #[test]
+    fn doctor_refuses_a_legacy_status_without_capacity() {
+        let error = format_doctor_report(&status(None), unlimited())
+            .expect_err("Capacity absente")
+            .to_string();
+        assert!(error.contains("ne publie pas Capacity"), "{error}");
+    }
+
+    #[test]
+    fn doctor_only_claims_os_enforcement_when_it_covers_reservable_capacity() {
+        let reply = status(Some(Capacity {
+            measured: 8 * 1_073_741_824,
+            reservable: 3 * 1_073_741_824,
+            enforced: 3 * 1_073_741_824,
+        }));
+        let report = format_doctor_report(&reply, unlimited()).unwrap();
+        assert!(
+            report.contains("Conclusion : contraint par l'OS"),
+            "{report}"
+        );
+    }
+
+    /// La preuve CLI.1 : le chiffre affiché est celui du fichier cgroup, relu
+    /// dans le même test — pas une valeur recopiée depuis la configuration.
+    #[test]
+    fn doctor_prints_the_cgroup_limit_it_read() {
+        let reply = status(Some(Capacity {
+            measured: 8 * GIO,
+            reservable: 3 * GIO,
+            enforced: 0,
+        }));
+        let memory_file = "4294967296\n";
+        let cpu_file = "200000 100000\n";
+        let isolation = measure_from("0::/user.slice/session-1.scope\n", |path| {
+            if path.ends_with("memory.max") {
+                Ok(memory_file.to_string())
+            } else {
+                Ok(cpu_file.to_string())
+            }
+        })
+        .expect("cgroup lisible");
+
+        let expected_gio = memory_file.trim().parse::<u64>().unwrap() as f64 / GIO as f64;
+        let report = format_doctor_report(&reply, Ok(isolation)).unwrap();
+        assert!(
+            report.contains(&format!("MemoryMax : {expected_gio:.2} Gio")),
+            "{report}"
+        );
+        assert!(
+            report.contains("CPUQuota  : 200.00 % (2.00 cœur(s))"),
+            "{report}"
+        );
+        assert!(report.contains("scope Polygone : non"), "{report}");
+    }
+
+    #[test]
+    fn doctor_says_unlimited_instead_of_zero_when_the_kernel_says_max() {
+        let reply = status(Some(Capacity {
+            measured: 8 * GIO,
+            reservable: 3 * GIO,
+            enforced: 0,
+        }));
+        let isolation = measure_from("0::/user.slice/session-1.scope\n", |path| {
+            if path.ends_with("memory.max") {
+                Ok("max\n".to_string())
+            } else {
+                Ok("max 100000\n".to_string())
+            }
+        })
+        .unwrap();
+        let report = format_doctor_report(&reply, Ok(isolation)).unwrap();
+        assert!(report.contains("MemoryMax : illimitée"), "{report}");
+        assert!(report.contains("CPUQuota  : illimitée"), "{report}");
+        assert!(!report.contains("MemoryMax : 0.00 Gio"), "{report}");
+    }
+
+    #[test]
+    fn doctor_reports_a_failed_measurement_instead_of_inventing_a_limit() {
+        let reply = status(Some(Capacity {
+            measured: 8 * GIO,
+            reservable: 3 * GIO,
+            enforced: 0,
+        }));
+        let report = format_doctor_report(
+            &reply,
+            Err("lecture de /sys/fs/cgroup/x/memory.max impossible".into()),
+        )
+        .unwrap();
+        assert!(report.contains("Non mesurée : lecture de"), "{report}");
+        assert!(!report.contains("MemoryMax :"), "{report}");
     }
 }
 
@@ -473,9 +742,14 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Le service de blocs n'a pas besoin de créer une identité cryptographique.
+    // Le service de blocs et le diagnostic n'ont pas besoin de créer une identité.
     if let Some(Commands::Node { action }) = args.command.as_ref() {
         return run_node(action.clone()).await;
+    }
+    if matches!(args.command.as_ref(), Some(Commands::Doctor)) {
+        let report = doctor_report(&socket::socket_path())?;
+        print!("{report}");
+        return Ok(());
     }
 
     // First run: materialise the local identity (keys + pseudo).
@@ -851,6 +1125,9 @@ async fn main() -> Result<()> {
             }
         },
         Some(Commands::Node { .. }) => {
+            unreachable!("handled before identity load")
+        }
+        Some(Commands::Doctor) => {
             unreachable!("handled before identity load")
         }
         Some(Commands::Duress { .. }) => {

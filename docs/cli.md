@@ -85,6 +85,42 @@ Reconstruit (≥ 4/7) et déchiffre le format filaire (fichier ou stdin).
 - `--annoncer` : annonce aussi le nœud + relay sur le LAN (mesh).
 - `--compute` : agit en nœud fantôme RES — accorde les requêtes.
 
+### `polygone doctor`
+
+Le diagnostic honnête : ce que la machine **mesure**, ce qu'elle peut
+**réserver**, ce que l'OS **applique** — et rien d'autre.
+
+```
+⬡ Polygone doctor
+  Daemon : joignable · palier balanced · séquence 42
+
+  Capacité RAM
+    Mesurée   : 15.50 Gio
+    Réservable: 7.75 Gio
+    Contrainte: 0.00 Gio
+
+  Isolation OS (ce processus)
+    Cgroup    : /user.slice/user-1000.slice/session-2.scope (scope Polygone : non)
+    MemoryMax : illimitée (memory.max = max)
+    CPUQuota  : illimitée (cpu.max = max)
+
+  Conclusion : licence à respecter — aucune limite OS confirmée
+```
+
+- **Contrainte** vient du ledger du daemon. `0` veut dire « engagement
+  logiciel », pas « quota appliqué » : le daemon ne pose qu'une priorité
+  `nice` et le publie tel quel. Une `Capacity` absente ou incohérente fait
+  échouer la commande plutôt que d'afficher des zéros rassurants.
+- **Isolation OS** est lue dans `/proc/self/cgroup`, puis `memory.max` et
+  `cpu.max` du processus qui lance `doctor` — pas une promesse sur le daemon.
+  Un fichier illisible donne « Non mesurée », jamais une valeur inventée ;
+  `max` donne « illimitée », jamais `0.00 Gio`.
+- Pour qu'un nœud soit réellement plafonné : `polygone node servir --isoler`
+  (scope `systemd --user`, cgroup v2), ci-dessous.
+
+Codes de sortie : `0` rapport produit ; `1` daemon indisponible, `Capacity`
+absente/incohérente.
+
 ### `polygone node servir [--ecoute <addr>] [--ram-gb <Gio>] [--coeurs <n>] [--isoler]`
 Démarre le service de blocs pair-à-pair **après** obtention d'un bail auprès
 du daemon local `polygoned`. Valeurs par défaut : `0.0.0.0:7643`, `0.25` Gio,

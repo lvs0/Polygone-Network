@@ -54,6 +54,10 @@
 | `cargo test --workspace -j 2` après DOC.2 | **372 tests, 0 échec** (exit 0) | 2026-11-04 |
 | `node scripts/check-docs.mjs --tests 372` | **documents cohérents avec le code**, exit 0 | 2026-11-04 |
 | Validation DOC.2 | `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `node scripts/check-atlas.mjs`, tests agent **6/6**, `git diff --check` : tous verts | 2026-11-04 |
+| CLI.1 : `polygone doctor` lit l'isolation OS au lieu de la déclarer | **fait** — section « Isolation OS (ce processus) » alimentée par `/proc/self/cgroup`, `memory.max` et `cpu.max` : `max` → « illimitée », fichier illisible → « Non mesurée », jamais un `0.00 Gio` inventé. Sortie réelle contre le daemon du projet : `Cgroup : /user.slice/user-1000.slice/session-42.scope (scope Polygone : non)`, `MemoryMax : illimitée`, exit 0. 7 tests `doctor`, 7 tests `node_isolation` | 2026-11-04 |
+| `cargo test --workspace -j 2` après CLI.1 | **384 tests, 0 échec** (exit 0) | 2026-11-04 |
+| `cargo clippy --workspace --all-targets -- -D warnings` après CLI.1 | **exit 0** | 2026-11-04 |
+| `node scripts/check-docs.mjs --tests 384` | **documents cohérents**, exit 0 | 2026-11-04 |
 
 ## Décisions tranchées
 
@@ -86,11 +90,11 @@
 
 **Priorité du backlog : `BLOCKS.9`** — prouver un transfert de blocs entre deux machines physiques. Cette preuve ne peut pas être simulée par deux processus locaux ; elle nécessite un second hôte réel.
 
-**Prochaine tâche réalisable sur ce poste : `CLI.1` — ajouter `polygone doctor`.** La commande doit répondre aux trois questions réelles : ce que la machine **mesure**, ce qu'elle peut **réserver**, ce qu'elle **subit** (politique, isolation OS, bail du daemon) — et dire « non vérifié » plutôt que d'inventer un chiffre quand la mesure échoue.
+**`CLI.1` fermé le 2026-11-04.** `polygone doctor` répond aux trois questions réelles et dit « non mesurée » plutôt que d'inventer : capacité du ledger, isolation OS lue dans le cgroup, une seule cause d'échec quand le daemon manque.
 
-Ensuite : `MSG.6`, `CLI.2`, `CLI.5`, `DOC.3` (bandeauter les documents historiques faux), `CI.1` (matrice Windows honnête), `SEC.8` (secrets), `OPS.2` (compteurs de refus) — puis `BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui **exige deux machines physiques** : non réalisable ici, scripts à préparer.
+**Prochaine tâche réalisable sur ce poste : `CLI.2` — `polygone pause` et `reprendre`** avec une durée réelle (10 min à 4 h), un bail effectivement rendu et une reprise automatique. Ensuite : `CLI.5` (désinstallation énumérée), `MSG.6`, `DOC.3` (bandeauter les documents historiques faux), `CI.1` (matrice Windows honnête), `SEC.8` (secrets), `OPS.2` (compteurs de refus) — puis `BLOCKS.9`, la preuve la plus ancienne qui manque au projet et qui **exige deux machines physiques** : non réalisable ici, scripts à préparer.
 
-**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 17 tâches restantes (14 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 21 tâches fermées avec leur preuve dans `completed`. DOC.2 est fermé depuis le 4 novembre 2026. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
+**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 16 tâches restantes (13 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 22 tâches fermées avec leur preuve dans `completed`. DOC.2 et CLI.1 sont fermés depuis le 4 novembre 2026. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
 
 > **Correction du 2026-11-03** : la note précédente demandait de committer les
 > 65 fichiers non suivis du dépôt canonique. **C'était inutile.** Vérifié par

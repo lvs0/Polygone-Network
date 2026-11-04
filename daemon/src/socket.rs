@@ -273,6 +273,13 @@ pub enum Reply {
         gpu_free_vram_mb: u32,
         shrinking: bool,
         uptime_secs: u64,
+        /// Capacité RAM calculée par le ledger au moment de cette réponse.
+        /// Optionnelle pour accepter les réponses des daemons v1 antérieurs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ram_capacity: Option<Box<Capacity>>,
+        /// Capacité de stockage annoncée par le daemon ; absente si non mesurée.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        storage_capacity: Option<Box<Capacity>>,
     },
     /// Allocation accordée — une **licence, pas une contrainte**.
     ///
@@ -944,6 +951,8 @@ pub fn dispatch(request: Request, state: &DaemonState, ledger: &mut Ledger) -> R
             gpu_free_vram_mb: state.gpu_free_vram_mb,
             shrinking: state.shrinking,
             uptime_secs: state.uptime_secs,
+            ram_capacity: Some(Box::new(ledger.ram_capacity(state))),
+            storage_capacity: Some(Box::new(ledger.storage_capacity(state))),
         },
         Request::Ping { id } => Reply::Pong { id },
         Request::Release { id, allocation_id } => {
@@ -1966,8 +1975,55 @@ mod tests {
             line.contains("\"type\":\"status_response\""),
             "type présent : {line}"
         );
+        assert!(
+            line.contains("\"ram_capacity\""),
+            "capacité RAM publiée : {line}"
+        );
+        assert!(
+            line.contains("\"storage_capacity\""),
+            "capacité stockage publiée : {line}"
+        );
         // Le champ `id` absent ne doit pas apparaître (skip_serializing_if).
         assert!(!line.contains("\"id\""), "id omis quand absent : {line}");
+    }
+
+    #[test]
+    fn test_dispatch_status_reports_ledger_capacity() {
+        let state = state();
+        let reply = dispatch(Request::Status { id: None }, &state, &mut Ledger::default());
+        match reply {
+            Reply::Status {
+                ram_capacity: Some(capacity),
+                storage_capacity: Some(storage),
+                ..
+            } => {
+                assert_eq!(capacity.measured, 16 * 1024 * 1024 * 1024);
+                assert_eq!(capacity.reservable, 7 * 1024 * 1024 * 1024);
+                assert_eq!(capacity.enforced, 0);
+                assert_eq!(
+                    storage.measured, 0,
+                    "le daemon n'annonce pas encore de stockage"
+                );
+                assert_eq!(storage.reservable, 0);
+            }
+            other => panic!("capacités attendues dans Status, reçu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_decode_legacy_status_without_capacity() {
+        let line = r#"{"v":1,"type":"status_response","tier":"balanced","seq":1,"max_cpu_percent":50,"max_ram_percent":50,"max_bandwidth_percent":60,"max_gpu_percent":40,"ram_bytes":1024,"ram_mb":0,"bandwidth_mbps":10,"cpu_cores":2,"gpu_free_vram_mb":0,"shrinking":false,"uptime_secs":1}"#;
+        match decode_reply(line).expect("ancienne réponse v1 toujours décodable") {
+            Reply::Status {
+                ram_capacity,
+                storage_capacity,
+                ..
+            } => {
+                assert!(ram_capacity.is_none());
+                assert!(storage_capacity.is_none());
+            }
+            other => panic!("Status attendu, reçu {other:?}"),
+        }
     }
 
     #[test]
@@ -2538,6 +2594,16 @@ mod tests {
                 gpu_free_vram_mb: 0,
                 shrinking: false,
                 uptime_secs: 1,
+                ram_capacity: Some(Box::new(Capacity {
+                    measured: 16 * 1024 * 1024 * 1024,
+                    reservable: 7 * 1024 * 1024 * 1024,
+                    enforced: 0,
+                })),
+                storage_capacity: Some(Box::new(Capacity {
+                    measured: 0,
+                    reservable: 0,
+                    enforced: 0,
+                })),
             },
             Reply::AllocGranted {
                 id: None,
