@@ -30,18 +30,6 @@
       ]
     },
     {
-      "id": "CLI.2",
-      "phase": "P3",
-      "priority": 2,
-      "title": "polygone pause et reprendre avec une durée réelle",
-      "detail": "La pause doit avoir un effet observable sur le bail et les services, avec une durée (10 min à 4 h) et une reprise automatique.",
-      "proof": "session : pause 10 min, vérifier que le bail est libéré et que les services sont arrêtés ; reprise, vérifier qu'un nouveau bail est obtenu.",
-      "ref": "docs/atlas/plan/epiques/04-interfaces.md#CLI.2",
-      "files": [
-        "crates/client/src/main.rs"
-      ]
-    },
-    {
       "id": "CLI.5",
       "phase": "P3",
       "priority": 3,
@@ -354,6 +342,12 @@
       "date": "2026-11-04",
       "proof": "polygone doctor lit /proc/self/cgroup, memory.max et cpu.max : sortie réelle contre le daemon du projet (Cgroup session-42, MemoryMax illimitée, exit 0) ; max → « illimitée », fichier illisible → « Non mesurée » ; 7 tests doctor + 7 node_isolation ; 384 tests workspace, clippy 0, check-docs 384",
       "commit": "7201739"
+    },
+    {
+      "id": "CLI.2",
+      "date": "2026-11-04",
+      "proof": "session réelle : pause --duree 10m exit 0 et pause.json (resumes_at = paused_at + 600) ; reprendre exit 0, bail 0.25 Gio/1 cœur obtenu puis rendu, intention consommée ; refus nommés : aucune pause (1), 9m hors bornes (1), intention antidatée → pause expirée, aucun bail demandé (1) ; 7 tests pause ; 391 tests workspace, clippy 0, check-docs 391",
+      "commit": "b486713"
     }
   ]
 }
