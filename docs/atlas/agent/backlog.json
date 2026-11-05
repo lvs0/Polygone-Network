@@ -148,7 +148,7 @@
       "id": "SEC.1",
       "date": "2026-11-05",
       "proof": "docs/THREAT-MODEL-SERVICES.md : modèle par service (client, relais, gateway, daemon, serverless, petals), actifs, adversaires, entrées, frontières, attaques avec tests cités, risques résiduels et non-protections ; FV-SEC-08 passe à 5, audit externe explicitement absent ; INDEX 65 fichiers. Écart assumé : un fichier de synthèse au lieu d'un fichier par service",
-      "commit": "à venir"
+      "commit": "d9f782f"
     },
     {
       "id": "MESH.1",
