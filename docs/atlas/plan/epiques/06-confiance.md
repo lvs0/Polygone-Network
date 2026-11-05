@@ -33,12 +33,12 @@
 - **Preuve** : `cargo test -p polygone-relay --test spoofing` — rejet explicite, zéro fragment livré.
 - **Refus** : ne couvre pas l'usurpation au niveau du transport chiffré (déjà tenue par ML-DSA-65, testée en unitaire).
 
-### SEC.5 — Rendre les permissions de fichiers fail-closed
+### SEC.5 — Rendre les permissions de fichiers fail-closed — LIVRÉ 2026-11-05
 - **Phase** : P1 · **Dépend de** : aucune
-- **Constat** : le socket impose `0600` et le vérifie (`daemon/src/socket.rs:1051`, test `:2738`). Mais l'identité et la socket réseau ignorent l'échec : `let _ = std::fs::set_permissions(...)` (`crates/client/src/identity.rs:80-81`, `crates/client/src/net/mod.rs:59-60`). `reputation.rs:127` fait l'inverse et propage l'erreur ; `:262-263` teste déjà `mode & 0o777 == 0o600`.
-- **Travail** : propager l'erreur ; si le fichier contient une clé privée, refuser de continuer.
-- **Preuve** : test qui force un `chmod` impossible (répertoire en lecture seule) et attend une erreur, pas un silence.
-- **Refus** : durcissement local, pas une garantie globale — un `umask` permissif ailleurs reste possible.
+- **Constat corrigé** : identité et ancre de confiance ne masquent plus les erreurs de permissions.
+- **Travail livré** : helper commun d'écriture atomique avec fichier temporaire `create_new` créé en `0600`, répertoire `.polygone` vérifié en `0700`, chmod propagé et vérifié, `sync_all` puis `rename`. Lecture : fichier régulier seulement, liens symboliques refusés, permissions resserrées avant lecture. `peers.json` corrompu ou illisible produit une erreur, jamais un magasin TOFU vide. Les erreurs de chargement/sauvegarde remontent jusqu'à CLI, TUI, Hide et transport réseau.
+- **Preuve** : `private_write_is_atomic_and_uses_restrictive_modes`, `private_write_refuses_to_change_permissions_of_an_unrelated_directory`, `chmod_failure_aborts_private_write_and_removes_temporary_file` (échec `PermissionDenied` injecté, aucun fichier final ni temporaire), `existing_private_file_is_restricted_before_reading`, et cinq tests du magasin de pairs (absent, corrompu, atomique/0600, lien final, parent symlink). `cargo test --workspace -j 2` : 431 tests, 0 échec ; Clippy `-D warnings` et rustfmt verts ; smoke Hide réel vert.
+- **Refus** : durcissement local Unix (répertoire 0700, fichiers 0600), pas une garantie globale ; pas de chiffrement au repos. Les ACL non-Unix restent à implémenter avant une promesse Windows.
 
 ### SEC.6 — Trancher la politique de logs du relais
 - **Phase** : P2 · **Dépend de** : aucune

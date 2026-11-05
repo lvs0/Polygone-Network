@@ -529,7 +529,7 @@ pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
     let writer = Arc::new(Mutex::new(writer));
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
-    let mut known_peers = net::load_peers();
+    let mut known_peers = net::load_peers()?;
     // Active tunnels: session → (session key, real-connection write half).
     let mut tunnels: HashMap<String, (symmetric::SessionKey, OwnedWriteHalf)> = HashMap::new();
 
@@ -591,7 +591,7 @@ pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
                 println!("  ✖ hide : requête non authentifiée de {}", env.from);
                 continue;
             }
-            net::save_peers(&known_peers);
+            net::save_peers(&known_peers)?;
 
             // Decapsulate: first CT_SIZE bytes are the ML-KEM ciphertext,
             // the rest is the AES-GCM-encrypted destination.

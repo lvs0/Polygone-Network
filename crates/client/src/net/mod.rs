@@ -39,28 +39,59 @@ pub fn peers_path() -> std::path::PathBuf {
 }
 
 /// Load the trust anchor (empty map = first contact, TOFU).
-pub fn load_peers() -> HashMap<String, String> {
-    std::fs::read_to_string(peers_path())
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
-}
-
-/// Persist the trust anchor (best-effort, chmod 600).
-pub fn save_peers(peers: &HashMap<String, String>) {
-    if let Ok(raw) = serde_json::to_string_pretty(peers) {
-        let path = peers_path();
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if std::fs::write(&path, raw).is_ok() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+/// A present but unreadable, malformed, or unsafe file is an error — never an
+/// empty trust store that silently re-enables TOFU.
+fn load_peers_from_path(path: &std::path::Path) -> Result<HashMap<String, String>> {
+    if let Some(parent) = path.parent() {
+        match std::fs::symlink_metadata(parent) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(HashMap::new());
             }
+            Err(error) => return Err(error.into()),
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                anyhow::bail!(
+                    "répertoire de l'ancre de confiance non sûr : {}",
+                    parent.display()
+                );
+            }
+            Ok(_) => crate::identity::ensure_private_directory(parent)?,
         }
     }
+    match std::fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(HashMap::new());
+        }
+        Err(error) => return Err(error.into()),
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            anyhow::bail!(
+                "ancre de confiance non régulière ou lien symbolique refusé : {}",
+                path.display()
+            );
+        }
+        Ok(_) => {}
+    }
+    crate::identity::ensure_private_file(path)?;
+    let raw = std::fs::read_to_string(path)?;
+    serde_json::from_str(&raw).map_err(|error| {
+        anyhow::anyhow!("ancre de confiance invalide ({}): {error}", path.display())
+    })
+}
+
+/// Load the trust anchor (empty map = first contact, TOFU).
+/// A present but unreadable, malformed, or unsafe file is an error — never an
+/// empty trust store that silently re-enables TOFU.
+pub fn load_peers() -> Result<HashMap<String, String>> {
+    load_peers_from_path(&peers_path())
+}
+
+fn save_peers_to_path(path: &std::path::Path, peers: &HashMap<String, String>) -> Result<()> {
+    let raw = serde_json::to_vec_pretty(peers)?;
+    crate::identity::write_private_atomic(path, &raw)
+}
+
+/// Persist the trust anchor atomically with enforced 0600 permissions.
+pub fn save_peers(peers: &HashMap<String, String>) -> Result<()> {
+    save_peers_to_path(&peers_path(), peers)
 }
 
 /// Maximum accepted relay frame. The relay enforces the same cap; the client
@@ -1149,7 +1180,7 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
     let mut seen_compute_requests: HashSet<(String, String)> = HashSet::new();
     let mut compute_request_order: VecDeque<(String, String, u64)> = VecDeque::new();
     // The trust anchor, loaded ONCE (persisted, learned, enforced).
-    let mut known_peers = load_peers();
+    let mut known_peers = load_peers()?;
 
     println!(
         "⬡ en écoute via relay {} — node {}",
@@ -1206,7 +1237,7 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
                 let req_ok = verify_req(&env, &mut known_peers, now_secs);
                 if req_ok && !was_known {
                     announce_new_peer(&known_peers, &env.from);
-                    save_peers(&known_peers);
+                    save_peers(&known_peers)?;
                 }
                 if !req_ok {
                     crate::reputation::ReputationTable::load().record(&env.from, false);
@@ -1308,7 +1339,7 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
                         announce_new_peer(&known_peers, sender);
                     }
                 }
-                save_peers(&known_peers);
+                save_peers(&known_peers)?;
                 println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 println!("⬡ message reçu (session {session} · 4/7 fragments)");
                 println!();
@@ -1323,7 +1354,7 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
                         announce_new_peer(&known_peers, sender);
                     }
                 }
-                save_peers(&known_peers);
+                save_peers(&known_peers)?;
                 let dir = received_dir()?;
                 let path = dir.join(sanitize_name(&name));
                 std::fs::write(&path, &bytes)?;

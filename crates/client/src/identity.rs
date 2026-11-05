@@ -48,6 +48,142 @@ pub fn rotation_message(new_pk_hex: &str, rotated_at_unix: u64) -> String {
     format!("polygone-key-rotation-v1\n{new_pk_hex}\n{rotated_at_unix}")
 }
 
+fn verify_mode(path: &std::path::Path, expected: u32) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::symlink_metadata(path)?;
+        let actual = metadata.permissions().mode() & 0o777;
+        if actual != expected {
+            anyhow::bail!(
+                "permissions insuffisantes pour {} : {:03o}, attendu {:03o}",
+                path.display(),
+                actual,
+                expected
+            );
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, expected);
+        anyhow::bail!("vérification des permissions privées non implémentée sur cet OS");
+    }
+    #[cfg(unix)]
+    Ok(())
+}
+
+fn set_private_permissions(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "permissions privées non implémentées sur cet OS",
+        ))
+    }
+}
+
+pub(crate) fn ensure_private_file(path: &std::path::Path) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        ensure_private_directory(parent)?;
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        anyhow::bail!(
+            "fichier privé non régulier ou lien symbolique refusé : {}",
+            path.display()
+        );
+    }
+    set_private_permissions(path)?;
+    verify_mode(path, 0o600)
+}
+
+pub(crate) fn ensure_private_directory(path: &std::path::Path) -> anyhow::Result<()> {
+    if path.file_name() != Some(std::ffi::OsStr::new(".polygone")) {
+        anyhow::bail!(
+            "refus de durcir un répertoire autre que .polygone : {}",
+            path.display()
+        );
+    }
+    std::fs::create_dir_all(path)?;
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        anyhow::bail!("répertoire privé non sûr : {}", path.display());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+        let mode = std::fs::symlink_metadata(path)?.permissions().mode() & 0o777;
+        if mode != 0o700 {
+            anyhow::bail!(
+                "permissions insuffisantes pour le répertoire privé {} : {:03o}",
+                path.display(),
+                mode
+            );
+        }
+    }
+    Ok(())
+}
+
+fn write_private_atomic_with<F>(
+    path: &std::path::Path,
+    contents: &[u8],
+    set_permissions: F,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(&std::path::Path) -> std::io::Result<()>,
+{
+    use std::io::Write;
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("chemin privé sans répertoire parent"))?;
+    ensure_private_directory(parent)?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("chemin privé sans nom de fichier"))?
+        .to_string_lossy();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let tmp = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), nonce));
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&tmp)?;
+    let result = (|| -> anyhow::Result<()> {
+        file.write_all(contents)?;
+        file.sync_all()?;
+        set_permissions(&tmp)?;
+        verify_mode(&tmp, 0o600)?;
+        drop(file);
+        std::fs::rename(&tmp, path)?;
+        verify_mode(path, 0o600)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+pub(crate) fn write_private_atomic(path: &std::path::Path, contents: &[u8]) -> anyhow::Result<()> {
+    write_private_atomic_with(path, contents, set_private_permissions)
+}
+
 impl LocalIdentity {
     /// Where the identity is persisted.
     pub fn path() -> PathBuf {
@@ -70,9 +206,12 @@ impl LocalIdentity {
     /// Load the identity if it exists.
     pub fn load() -> anyhow::Result<Option<Self>> {
         let path = Self::path();
-        if !path.exists() {
-            return Ok(None);
+        match std::fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+            Ok(_) => {}
         }
+        ensure_private_file(&path)?;
         let raw = std::fs::read_to_string(&path)?;
         let id: LocalIdentity = serde_json::from_str(&raw)?;
         Ok(Some(id))
@@ -134,24 +273,11 @@ impl LocalIdentity {
                 .any(|revoked| revoked == sign_pk_hex)
     }
 
-    /// Persist to `~/.polygone/identity.json` with best-effort chmod 600.
+    /// Persist atomically; never continue if private permissions cannot be enforced.
     pub fn save(&self) -> anyhow::Result<()> {
         let path = Self::path();
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let raw = serde_json::to_string_pretty(self)?;
-        // Écriture atomique : une coupure ne laisse jamais une identité
-        // partielle (clé neuve sans preuve de rotation).
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, raw)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
-        }
-        std::fs::rename(&tmp, &path)?;
-        Ok(())
+        let raw = serde_json::to_vec_pretty(self)?;
+        write_private_atomic(&path, &raw)
     }
 
     /// Short display id — first 8 hex chars of the KEM public key.
@@ -285,6 +411,137 @@ mod tests {
             reloaded.last_rotation_proof_hex.as_deref(),
             Some(outcome.proof_hex.as_str())
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_write_is_atomic_and_uses_restrictive_modes() {
+        let root = std::env::temp_dir().join(format!(
+            "polygone-private-write-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = root.join(".polygone").join("identity.json");
+        write_private_atomic(&path, b"private test material").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"private test material");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                std::fs::metadata(path.parent().unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        }
+        ensure_private_file(&path).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn identity_symlink_is_refused_without_changing_its_target() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!(
+            "polygone-identity-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir = root.join(".polygone");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = root.join("outside.json");
+        std::fs::write(&target, b"private target").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let link = dir.join("identity.json");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(ensure_private_file(&link).is_err());
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"private target");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn private_write_refuses_to_change_permissions_of_an_unrelated_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "polygone-private-scope-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = root.join("unrelated").join("identity.json");
+        assert!(write_private_atomic(&path, b"secret").is_err());
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn chmod_failure_aborts_private_write_and_removes_temporary_file() {
+        let root = std::env::temp_dir().join(format!(
+            "polygone-private-fail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = root.join(".polygone").join("identity.json");
+        let result = write_private_atomic_with(&path, b"secret", |_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "forced chmod failure",
+            ))
+        });
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("forced chmod failure"), "{error}");
+        assert!(!path.exists(), "aucun fichier privé ne doit être publié");
+        let entries: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert!(
+            entries.is_empty(),
+            "fichier temporaire laissé : {entries:?}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_private_file_is_restricted_before_reading() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!(
+            "polygone-private-load-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = root.join(".polygone").join("identity.json");
+        write_private_atomic(&path, b"secret").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        ensure_private_file(&path).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

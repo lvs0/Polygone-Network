@@ -1120,7 +1120,7 @@ async fn main() -> Result<()> {
                     "  module : {path} ({} octets, wasmi sandbox)",
                     wasm_bytes.len()
                 );
-                let mut peers = net::load_peers();
+                let mut peers = net::load_peers()?;
                 let success = match net::borrow_wasm(
                     &via,
                     &ghost,
@@ -1138,7 +1138,7 @@ async fn main() -> Result<()> {
                     }
                 };
                 reputation::ReputationTable::load().record(&ghost, success);
-                net::save_peers(&peers);
+                net::save_peers(&peers)?;
                 if !success {
                     anyhow::bail!(
                         "l'exécution WASM distante a échoué ou n'a pas fourni de grant vérifiable"
@@ -1154,7 +1154,7 @@ async fn main() -> Result<()> {
                 })?;
                 println!("⬡ RES — exécution sandboxée → {ghost} (via {via})");
                 println!("  tâche : {command}");
-                let mut peers = net::load_peers();
+                let mut peers = net::load_peers()?;
                 let success = match net::borrow_compute(
                     &via,
                     &ghost,
@@ -1172,7 +1172,7 @@ async fn main() -> Result<()> {
                     }
                 };
                 reputation::ReputationTable::load().record(&ghost, success);
-                net::save_peers(&peers);
+                net::save_peers(&peers)?;
                 if !success {
                     anyhow::bail!("l'exécution compute distante a échoué ou n'a pas fourni de grant vérifiable");
                 }
@@ -1183,7 +1183,7 @@ async fn main() -> Result<()> {
             if let Some(ghost) = emprunter {
                 println!("⬡ RES — demande de compute → {ghost} (via {via})");
                 let task = "bench calcul Polygone (réservé au RES)".to_string();
-                let mut peers = net::load_peers();
+                let mut peers = net::load_peers()?;
                 let success = match net::borrow_compute(
                     &via,
                     &ghost,
@@ -1203,7 +1203,7 @@ async fn main() -> Result<()> {
                     }
                 };
                 reputation::ReputationTable::load().record(&ghost, success);
-                net::save_peers(&peers);
+                net::save_peers(&peers)?;
                 if !success {
                     anyhow::bail!(
                         "le prêt compute a été refusé ou n'a pas fourni de grant vérifiable"

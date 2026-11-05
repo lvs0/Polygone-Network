@@ -144,7 +144,7 @@ pub fn verite() -> Result<()> {
                 println!("  · {name}  {DIM}(mes clés — à moi, jamais partagées){RESET}");
                 kept_own += 1;
             } else if name == "peers.json" {
-                let peers = crate::net::load_peers();
+                let peers = crate::net::load_peers()?;
                 println!(
                     "  · {name}  {DIM}({}{} empreinte(s) de clé publique){RESET}",
                     peers.len(),

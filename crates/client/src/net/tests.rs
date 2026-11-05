@@ -1,6 +1,90 @@
 use super::*;
 use crate::identity::LocalIdentity;
 
+fn private_test_path(label: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "polygone-{label}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ))
+}
+
+#[test]
+fn missing_peer_store_means_first_contact_only_when_file_is_absent() {
+    let root = private_test_path("peers-absent");
+    let path = root.join(".polygone").join("peers.json");
+    assert!(load_peers_from_path(&path).unwrap().is_empty());
+    assert!(!path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn malformed_peer_store_is_an_error_not_an_empty_tofu_store() {
+    let root = private_test_path("peers-malformed");
+    let path = root.join(".polygone").join("peers.json");
+    crate::identity::write_private_atomic(&path, b"{not-json").unwrap();
+    let error = load_peers_from_path(&path).unwrap_err();
+    assert!(error.to_string().contains("ancre de confiance invalide"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn peer_store_is_atomic_private_and_restricted_before_reading() {
+    let root = private_test_path("peers-private");
+    let path = root.join(".polygone").join("peers.json");
+    let peers = HashMap::from([("alice".to_string(), "public-key-hex".to_string())]);
+    save_peers_to_path(&path, &peers).unwrap();
+    assert_eq!(load_peers_from_path(&path).unwrap(), peers);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(load_peers_from_path(&path).unwrap(), peers);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn peer_store_symlink_is_refused() {
+    let root = private_test_path("peers-symlink");
+    std::fs::create_dir_all(&root).unwrap();
+    let target = root.join("outside.json");
+    std::fs::write(&target, b"{}").unwrap();
+    let link = root.join("peers.json");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    assert!(load_peers_from_path(&link).is_err());
+    assert_eq!(std::fs::read(&target).unwrap(), b"{}");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn peer_store_symlink_parent_is_refused_even_when_store_is_missing() {
+    let root = private_test_path("peers-parent-symlink");
+    std::fs::create_dir_all(&root).unwrap();
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    let private_dir = root.join(".polygone");
+    std::os::unix::fs::symlink(&outside, &private_dir).unwrap();
+    let path = private_dir.join("peers.json");
+    assert!(load_peers_from_path(&path).is_err());
+    assert!(!outside.join("peers.json").exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[tokio::test]
 async fn oversized_file_is_rejected_before_opening_a_relay_connection() {
     let sender = LocalIdentity::generate();
