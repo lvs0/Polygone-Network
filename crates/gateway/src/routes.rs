@@ -3,7 +3,7 @@
 //! Rien ici n'ouvre de socket, ce qui permet de tester chaque route en
 //! mémoire. La couche réseau de `lib.rs` ne fait que lire puis écrire.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::http::{HttpRequest, HttpResponse};
@@ -59,6 +59,25 @@ pub const SERVICES: &[ServiceStatus] = &[
     },
 ];
 
+/// Fenêtre anti-rejeu d'un heartbeat : ±5 minutes, comme les sessions.
+pub const HEARTBEAT_WINDOW_SECS: u64 = 300;
+
+/// Message canonique signé par le nœud. On signe ce triplet, pas le JSON :
+/// une resérialisation différente ne change pas la signature.
+pub fn heartbeat_message(node_id: &str, timestamp: u64) -> String {
+    format!("polygone-heartbeat-v1\n{node_id}\n{timestamp}")
+}
+
+/// Heartbeat poussé par le nœud. La clé publique n'est **pas** dans le corps :
+/// elle est celle épinglée à l'appairage, donc un heartbeat ne peut pas
+/// substituer une autre identité.
+#[derive(Debug, Deserialize)]
+pub struct HeartbeatRequest {
+    pub node_id: String,
+    pub timestamp: u64,
+    pub signature_hex: String,
+}
+
 fn valid_pair_token(token: &str) -> bool {
     let Some(secret) = token.strip_prefix("poly_") else {
         return false;
@@ -93,6 +112,7 @@ impl Gateway {
             }
             ("POST", "/api/v1/pair/request") => self.pair_request(&request.body).await,
             ("POST", "/api/v1/pair/accept") => self.pair_accept(&request.body).await,
+            ("POST", "/api/v1/nodes/heartbeat") => self.heartbeat(&request.body).await,
             ("GET", path) if path.starts_with("/api/v1/pair/qr/") => {
                 let token = path.trim_start_matches("/api/v1/pair/qr/");
                 self.pair_qr(token).await
@@ -203,6 +223,76 @@ impl Gateway {
         HttpResponse::json(200, &json!({ "ok": true }))
     }
 
+    /// Met à jour `last_seen` d'un nœud **appairé**, après vérification de sa
+    /// signature ML-DSA-65 avec la clé épinglée. Un heartbeat inconnu ou mal
+    /// signé ne touche ni la table ni le fichier.
+    async fn heartbeat(&self, body: &[u8]) -> HttpResponse {
+        let request: HeartbeatRequest = match serde_json::from_slice(body) {
+            Ok(value) => value,
+            Err(_) => return HttpResponse::text(400, "corps JSON invalide"),
+        };
+        let now = now_secs();
+        if now.abs_diff(request.timestamp) > HEARTBEAT_WINDOW_SECS {
+            return HttpResponse::text(400, "horodatage hors fenêtre (±300 s)");
+        }
+
+        let signing_key_hex = {
+            let nodes = self.nodes.read().await;
+            match nodes.get(&request.node_id) {
+                Some(node) => match node.signing_key_hex.clone() {
+                    Some(key) => key,
+                    None => {
+                        return HttpResponse::text(403, "nœud sans clé de signature épinglée");
+                    }
+                },
+                None => {
+                    return HttpResponse::json(
+                        404,
+                        &json!({ "error": "nœud inconnu — appairage requis" }),
+                    );
+                }
+            }
+        };
+
+        let signature_bytes = match hex::decode(request.signature_hex.trim()) {
+            Ok(bytes) => bytes,
+            Err(_) => return HttpResponse::text(400, "signature_hex invalide"),
+        };
+        if signature_bytes.len() != polygone_core::sign::SIGNATURE_SIZE {
+            return HttpResponse::text(403, "signature ML-DSA-65 invalide");
+        }
+        let public_key = match polygone_core::sign::PublicKey::from_hex(&signing_key_hex) {
+            Ok(key) => key,
+            Err(_) => return HttpResponse::text(403, "clé de signature épinglée illisible"),
+        };
+        let verifier = polygone_core::sign::Verifier::from_public(public_key);
+        let signature = polygone_core::sign::Signature::from_bytes(&signature_bytes);
+        if !verifier.verify(
+            heartbeat_message(&request.node_id, request.timestamp).as_bytes(),
+            &signature,
+        ) {
+            return HttpResponse::text(403, "signature ML-DSA-65 invalide");
+        }
+
+        let snapshot = {
+            let mut nodes = self.nodes.write().await;
+            let Some(node) = nodes.get_mut(&request.node_id) else {
+                return HttpResponse::json(
+                    404,
+                    &json!({ "error": "nœud inconnu — appairage requis" }),
+                );
+            };
+            node.last_seen = now;
+            nodes.clone()
+        };
+        self.persist_nodes(&snapshot).await;
+
+        HttpResponse::json(
+            200,
+            &json!({ "ok": true, "node_id": request.node_id, "last_seen": now }),
+        )
+    }
+
     async fn pair_qr(&self, token: &str) -> HttpResponse {
         if !valid_pair_token(token) {
             return HttpResponse::json(404, &json!({ "error": "token inconnu" }));
@@ -285,6 +375,131 @@ mod tests {
                 .iter()
                 .any(|(name, value)| name == "Access-Control-Allow-Origin" && value == "*")
         );
+    }
+
+    fn temp_nodes_path(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "polygone-gateway-heartbeat-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("nodes.json");
+        (dir, path)
+    }
+
+    async fn seed_node(gateway: &Gateway, id: &str, signing_key_hex: &str) {
+        gateway.nodes.write().await.insert(
+            id.to_string(),
+            NodeInfo {
+                id: id.to_string(),
+                services: vec![],
+                device_name: Some("heartbeat-test".into()),
+                signing_key_hex: Some(signing_key_hex.to_string()),
+                last_seen: 1,
+                latency_ms: None,
+            },
+        );
+    }
+
+    fn heartbeat_body(keys: &polygone_core::sign::KeyPair, id: &str, timestamp: u64) -> String {
+        let signature = keys
+            .signer
+            .sign(heartbeat_message(id, timestamp).as_bytes());
+        json!({
+            "node_id": id,
+            "timestamp": timestamp,
+            "signature_hex": hex::encode(signature.as_bytes()),
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn heartbeat_survives_process_restart() {
+        let (dir, path) = temp_nodes_path("restart");
+        let keys = polygone_core::sign::generate_keypair().unwrap();
+        let node_id = "0123456789abcdef";
+        let sign_public = keys.verifier.public_key().to_hex();
+
+        let first = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        seed_node(&first, node_id, &sign_public).await;
+        let stamp = now_secs();
+        let response = first
+            .route(post(
+                "/api/v1/nodes/heartbeat",
+                &heartbeat_body(&keys, node_id, stamp),
+            ))
+            .await;
+        assert_eq!(response.status, 200, "heartbeat valide accepté");
+        assert!(path.is_file(), "le heartbeat doit être écrit sur disque");
+        drop(first);
+
+        // Nouveau process : le nœud est rechargé depuis le fichier, pas d'une
+        // table mémoire qui aurait disparu.
+        let second = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        let nodes = second.nodes.read().await;
+        let node = nodes.get(node_id).expect("nœud rechargé au démarrage");
+        assert_eq!(node.last_seen, stamp);
+        assert_eq!(node.signing_key_hex.as_deref(), Some(sign_public.as_str()));
+        drop(nodes);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn heartbeat_requires_valid_signature() {
+        let (dir, path) = temp_nodes_path("signature");
+        let keys = polygone_core::sign::generate_keypair().unwrap();
+        let attacker = polygone_core::sign::generate_keypair().unwrap();
+        let node_id = "fedcba9876543210";
+
+        let gateway = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        seed_node(&gateway, node_id, &keys.verifier.public_key().to_hex()).await;
+
+        let response = gateway
+            .route(post(
+                "/api/v1/nodes/heartbeat",
+                &heartbeat_body(&attacker, node_id, now_secs()),
+            ))
+            .await;
+        assert_eq!(response.status, 403);
+        let nodes = gateway.nodes.read().await;
+        assert_eq!(nodes[node_id].last_seen, 1, "last_seen ne doit pas bouger");
+        drop(nodes);
+        assert!(!path.exists(), "un refus ne doit rien persister");
+
+        // Un heartbeat d'un nœud jamais appairé est inconnu, pas « accepté ».
+        let response = gateway
+            .route(post(
+                "/api/v1/nodes/heartbeat",
+                &heartbeat_body(&attacker, "0000000000000000", now_secs()),
+            ))
+            .await;
+        assert_eq!(response.status, 404);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn heartbeat_outside_replay_window_is_refused() {
+        let (dir, path) = temp_nodes_path("replay");
+        let keys = polygone_core::sign::generate_keypair().unwrap();
+        let node_id = "0011223344556677";
+        let gateway = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        seed_node(&gateway, node_id, &keys.verifier.public_key().to_hex()).await;
+
+        let stale = now_secs().saturating_sub(HEARTBEAT_WINDOW_SECS + 1);
+        let response = gateway
+            .route(post(
+                "/api/v1/nodes/heartbeat",
+                &heartbeat_body(&keys, node_id, stale),
+            ))
+            .await;
+        assert_eq!(response.status, 400);
+        assert_eq!(gateway.nodes.read().await[node_id].last_seen, 1);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]

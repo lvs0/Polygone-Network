@@ -179,6 +179,110 @@ async fn gateway_answers_real_http_requests_and_rejects_path_traversal() {
     stop_gateway(server, &site_dir);
 }
 
+/// GW.1 par le vrai socket : appairage HTTP, heartbeat signé, `last_seen`
+/// visible dans `/status`, fichier `nodes.json` écrit, puis rechargé par une
+/// nouvelle instance du gateway (le redémarrage du process, ici, c'est la
+/// reconstruction complète de l'état depuis le disque).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn heartbeat_round_trip_over_real_http_is_persisted() {
+    use polygone_gateway::routes::heartbeat_message;
+
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind éphémère");
+    let address = listener.local_addr().expect("port lié");
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("horloge")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "polygone-gateway-heartbeat-http-{}-{unique}",
+        std::process::id()
+    ));
+    let site_dir = root.join("site");
+    std::fs::create_dir_all(&site_dir).expect("site de test");
+    std::fs::write(site_dir.join("index.html"), b"gateway test").expect("index");
+    let nodes_file = root.join("nodes.json");
+
+    let server_site = site_dir.clone();
+    let server_nodes = nodes_file.clone();
+    let server = tokio::spawn(async move {
+        Gateway::serve_with_nodes(listener, server_site, Some(server_nodes)).await
+    });
+
+    let (kem_public, _) = polygone_core::crypto::kem::generate_keypair().unwrap();
+    let keys = polygone_core::sign::generate_keypair().unwrap();
+    let kem_hex = kem_public.to_hex();
+    let node_id: String = kem_hex.chars().take(16).collect();
+    let request = serde_json::json!({
+        "device_name": "heartbeat-http",
+        "kem_public_key_hex": kem_hex,
+        "sign_public_key_hex": keys.verifier.public_key().to_hex(),
+    });
+    let pair = send_raw_http(
+        address,
+        "POST",
+        "/api/v1/pair/request",
+        request.to_string().as_bytes(),
+    );
+    assert_eq!(status_code(&pair), 200, "{pair}");
+    let token = serde_json::from_str::<serde_json::Value>(response_body(&pair))
+        .expect("JSON appairage")["token"]
+        .as_str()
+        .expect("jeton")
+        .to_string();
+    let accept = send_raw_http(
+        address,
+        "POST",
+        "/api/v1/pair/accept",
+        serde_json::json!({ "token": token }).to_string().as_bytes(),
+    );
+    assert_eq!(status_code(&accept), 200, "{accept}");
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let signature = keys
+        .signer
+        .sign(heartbeat_message(&node_id, stamp).as_bytes());
+    let heartbeat = serde_json::json!({
+        "node_id": node_id,
+        "timestamp": stamp,
+        "signature_hex": hex::encode(signature.as_bytes()),
+    });
+    let response = send_raw_http(
+        address,
+        "POST",
+        "/api/v1/nodes/heartbeat",
+        heartbeat.to_string().as_bytes(),
+    );
+    assert_eq!(status_code(&response), 200, "{response}");
+
+    let network = send_raw_http(address, "GET", "/api/v1/network/status", &[]);
+    let status: serde_json::Value =
+        serde_json::from_str(response_body(&network)).expect("statut JSON");
+    assert_eq!(status["nodes"], 1);
+    assert_eq!(
+        status["active"], 1,
+        "le heartbeat doit rendre le nœud actif"
+    );
+
+    server.abort();
+    let _ = server.await;
+
+    assert!(
+        nodes_file.is_file(),
+        "nodes.json doit exister après heartbeat"
+    );
+    let reloaded = Gateway::with_nodes_file(site_dir.clone(), Some(nodes_file.clone()));
+    let nodes = reloaded.nodes.read().await;
+    let node = nodes.get(&node_id).expect("nœud rechargé depuis le disque");
+    assert_eq!(node.last_seen, stamp);
+    drop(nodes);
+    std::fs::remove_dir_all(root).ok();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ambiguous_http_framing_is_rejected_before_routing() {
     let (address, server, site_dir) = start_gateway().await;

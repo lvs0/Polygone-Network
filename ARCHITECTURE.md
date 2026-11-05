@@ -14,7 +14,7 @@
 > cette date. `gateway`, `petals` et `serverless` ont été intégrés le
 > 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
 > **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
-> `cargo test --workspace -j 2` (**408 tests, 0 échec**) pour les tests.
+> `cargo test --workspace -j 2` (**412 tests, 0 échec**) pour les tests.
 
 ---
 
@@ -109,15 +109,15 @@ polygone/
 | `core`       | 11       | 1 373      | — (lib)              | 29    |
 | `client`     | 29       | 13 830     | `polygone`           | 168   |
 | `relay`      | 3        | 1 016      | `polygone-relay`     | 17    |
-| `gateway`    | 7        | 1 796      | `polygone-gateway`   | 36    |
+| `gateway`    | 7        | 2 221      | `polygone-gateway`   | 40    |
 | `petals`     | 13       | 3 241      | — (lib)              | 18    |
 | `serverless` | 3        | 776        | — (lib)              | 21    |
 | `daemon`     | 17       | 10 237     | `polygoned`          | 119   |
 | doc-tests    | —        | —          | —                    | comptés dans leur crate |
-| **Total**    | **83**   | **32 269** | **4 binaires**       | **408** |
+| **Total**    | **83**   | **32 694** | **4 binaires**       | **412** |
 
 > Re-mesuré le **2026-11-04** après le contrôle exhaustif de l'index documentaire (DOC.2) :
-> 83 fichiers Rust, 32 269 lignes et 408 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> 83 fichiers Rust, 32 694 lignes et 412 tests, dont le contrôle de couverture de `docs/INDEX.md`.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
@@ -127,12 +127,14 @@ polygone/
 > et `doctor`, avec « non mesurés » plutôt que zéro quand le daemon est absent ;
 > `SEC.8` un test qui refuse un secret suivi par git, avec sa preuve négative ;
 > `CLI.3` trois profils d'usage (`sobre|equilibre|genereux`) qui écrivent une
-> config réellement relue par `polygoned`, sans jamais annoncer de limite OS.
+> config réellement relue par `polygoned`, sans jamais annoncer de limite OS ;
+> `GW.1` un heartbeat ML-DSA-65 vérifié contre la clé épinglée à l'appairage,
+> avec `last_seen` écrit atomiquement et rechargé au démarrage.
 > Le contrôleur `scripts/check-docs.mjs` recalcule ces valeurs et échoue si elles
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **408 tests, 0 échec**.
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **412 tests, 0 échec**.
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is

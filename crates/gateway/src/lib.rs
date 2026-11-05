@@ -18,6 +18,7 @@
 //!   POST /api/v1/pair/request    → demande d'appairage
 //!   GET  /api/v1/pair/qr/:token  → deep link d'appairage
 //!   POST /api/v1/pair/accept     → acceptation côté client
+//!   POST /api/v1/nodes/heartbeat → heartbeat signé, `last_seen` persisté
 //!   GET  /api/v1/node/:id        → info d'un nœud
 
 pub mod http;
@@ -86,39 +87,135 @@ pub struct Gateway {
     pub site_dir: PathBuf,
     pub pairs: Arc<RwLock<HashMap<String, PairToken>>>,
     pub nodes: Arc<RwLock<HashMap<String, NodeInfo>>>,
+    /// Fichier où les nœuds survivent au redémarrage. `None` = mémoire seule
+    /// (tests et usage jetable), jamais une persistance implicite ailleurs.
+    pub nodes_file: Option<PathBuf>,
+    /// Sérialise les écritures du fichier : deux heartbeats concurrents ne
+    /// doivent pas produire un fichier entrelacé.
+    persist_lock: Arc<tokio::sync::Mutex<()>>,
     /// Instant de démarrage, en secondes Unix : sert à un uptime mesuré.
     pub started_at: u64,
 }
 
 impl Gateway {
     pub fn new(site_dir: PathBuf) -> Self {
+        Self::with_nodes_file(site_dir, None)
+    }
+
+    /// Construit un gateway qui recharge `nodes_file` au démarrage et
+    /// l'écrit après chaque heartbeat. Un fichier illisible ne fait pas
+    /// tomber la gateway : il repart d'une table vide et le dit dans le log.
+    pub fn with_nodes_file(site_dir: PathBuf, nodes_file: Option<PathBuf>) -> Self {
+        let nodes = nodes_file
+            .as_deref()
+            .and_then(|path| match std::fs::read(path) {
+                Ok(bytes) => match serde_json::from_slice::<HashMap<String, NodeInfo>>(&bytes) {
+                    Ok(nodes) => Some(nodes),
+                    Err(error) => {
+                        log::warn!(
+                            "gateway : {} illisible ({error}) — table de nœuds vide",
+                            path.display()
+                        );
+                        None
+                    }
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    log::warn!(
+                        "gateway : lecture de {} impossible ({error}) — table vide",
+                        path.display()
+                    );
+                    None
+                }
+            })
+            .unwrap_or_default();
+
         Self {
             site_dir,
             pairs: Arc::new(RwLock::new(HashMap::new())),
-            nodes: Arc::new(RwLock::new(HashMap::new())),
+            nodes: Arc::new(RwLock::new(nodes)),
+            nodes_file,
+            persist_lock: Arc::new(tokio::sync::Mutex::new(())),
             started_at: now_secs(),
+        }
+    }
+
+    /// Écrit la table des nœuds de façon atomique (temporaire puis `rename`).
+    /// Sans fichier configuré, ne fait rien : la mémoire est l'état.
+    pub async fn persist_nodes(&self, nodes: &HashMap<String, NodeInfo>) {
+        let Some(path) = self.nodes_file.as_deref() else {
+            return;
+        };
+        let _guard = self.persist_lock.lock().await;
+        let body = match serde_json::to_vec_pretty(nodes) {
+            Ok(body) => body,
+            Err(error) => {
+                log::error!("gateway : sérialisation des nœuds impossible : {error}");
+                return;
+            }
+        };
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            && let Err(error) = std::fs::create_dir_all(parent)
+        {
+            log::error!(
+                "gateway : création de {} impossible : {error}",
+                parent.display()
+            );
+            return;
+        }
+        let temporary = path.with_extension("json.tmp");
+        if let Err(error) = std::fs::write(&temporary, body) {
+            log::error!(
+                "gateway : écriture de {} impossible : {error}",
+                temporary.display()
+            );
+            return;
+        }
+        if let Err(error) = std::fs::rename(&temporary, path) {
+            log::error!(
+                "gateway : remplacement de {} impossible : {error}",
+                path.display()
+            );
         }
     }
 
     /// Lie `addr` puis sert jusqu'à la fin du process.
     pub async fn run(addr: &str, site_dir: PathBuf) -> Result<()> {
         let address = validate_loopback_addr(addr)?;
+        let nodes_file = default_nodes_path();
+        match &nodes_file {
+            Some(path) => info!("⬡ gateway : heartbeat persisté dans {}", path.display()),
+            None => log::warn!("⬡ gateway : aucun HOME — heartbeat en mémoire seulement"),
+        }
         let listener = TcpListener::bind(address).await?;
         info!("⬡ gateway : HTTP local sur {address}");
-        Self::serve(listener, site_dir).await
+        Self::serve_with_nodes(listener, site_dir, nodes_file).await
     }
 
     /// Sert sur une socket déjà liée. Séparer le bind du service évite les
     /// fenêtres de course lors des tests et permet à l'installateur de réserver
     /// le port avant de démarrer les tâches asynchrones.
     pub async fn serve(listener: TcpListener, site_dir: PathBuf) -> Result<()> {
+        Self::serve_with_nodes(listener, site_dir, None).await
+    }
+
+    /// Sert avec persistance explicite des nœuds. Séparé de [`Gateway::serve`]
+    /// pour que les tests restent hermétiques : aucun fichier `$HOME` écrit
+    /// par accident depuis une suite de tests.
+    pub async fn serve_with_nodes(
+        listener: TcpListener,
+        site_dir: PathBuf,
+        nodes_file: Option<PathBuf>,
+    ) -> Result<()> {
         let address = listener.local_addr()?;
         if !address.ip().is_loopback() {
             bail!(
                 "Gateway HTTP sans TLS/authentification mutuelle : écoute publique refusée ({address}); utilisez une adresse loopback"
             );
         }
-        let gateway = Self::new(site_dir);
+        let gateway = Self::with_nodes_file(site_dir, nodes_file);
         let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
         loop {
             let (stream, peer) = match listener.accept().await {
@@ -326,6 +423,15 @@ async fn read_request(
 /// Position du `\r\n\r\n` qui termine les en-têtes.
 fn find_head_end(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+/// Chemin par défaut du fichier de nœuds : `$POLYGONE_GATEWAY_NODES` puis
+/// `$HOME/.polygone/nodes.json`. Sans HOME, aucune persistance implicite.
+pub fn default_nodes_path() -> Option<PathBuf> {
+    if let Some(explicit) = std::env::var_os("POLYGONE_GATEWAY_NODES") {
+        return Some(PathBuf::from(explicit));
+    }
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".polygone").join("nodes.json"))
 }
 
 /// Secondes Unix courantes.

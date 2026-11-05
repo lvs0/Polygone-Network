@@ -13,10 +13,17 @@
 | Branche | `realign/v2` — locale, non poussée |
 | HEAD | voir `git log -1 --format='%h %s'` |
 | Arbre | propre après le lot (vérifié par `git status --short`) |
-| Registre | **67 exigences**, **23 validées**, **9 bloquées** → avancement réel **23/58 = 39,7 %** (calculé, pas estimé) |
+| Registre | **67 exigences**, **24 validées**, **9 bloquées** → avancement réel **24/58 = 41,4 %** (calculé, pas estimé) |
 
 ## Dernier travail effectué
 
+0. **`GW.1` — heartbeat signé persisté** (fermé) : `POST /api/v1/nodes/heartbeat`
+   vérifie ML-DSA-65 sur `polygone-heartbeat-v1\n{node_id}\n{timestamp}` avec la
+   clé épinglée à l'appairage ; fenêtre anti-rejeu ±300 s ; écriture atomique
+   de `nodes.json` ; rechargement au démarrage. Preuves :
+   `heartbeat_requires_valid_signature` (403, état et disque inchangés),
+   `heartbeat_survives_process_restart`, `heartbeat_outside_replay_window_is_refused`,
+   `heartbeat_round_trip_over_real_http_is_persisted` (vrai socket TCP).
 1. **`CLI.3` — profils d'usage** (fermé, commit `7a49150`) :
    `polygone profil <sobre|equilibre|genereux>` écrit `tier = "Custom"` + quatre
    seuils dans `~/.config/polygone/daemon.toml`, écriture atomique,
@@ -49,13 +56,13 @@
 
 | Commande | Résultat |
 |---|---|
-| `cargo test --workspace -j 2` | **408 tests, 0 échec** |
+| `cargo test --workspace -j 2` | **412 tests, 0 échec** |
 | `cargo clippy --workspace --all-targets -- -D warnings` | **exit 0** |
 | `cargo fmt --all -- --check` | **exit 0** |
-| `node scripts/check-docs.mjs --tests 408` | **documents cohérents**, exit 0 |
+| `node scripts/check-docs.mjs --tests 412` | **documents cohérents**, exit 0 |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **6/6** |
 | `node scripts/check-atlas.mjs` | **PASS** — 11 ouvertes, 29 terminées |
-| `node scripts/vision-status.mjs` | **67 exigences, 23 validées, 9 bloquées** (39,7 % des réalisables) |
+| `node scripts/vision-status.mjs` | **67 exigences, 24 validées, 9 bloquées** (41,4 % des réalisables) |
 
 ## Problèmes rencontrés
 
@@ -98,7 +105,7 @@ git status --short
 node scripts/vision-status.mjs
 cargo test --workspace -j 2
 cargo clippy --workspace --all-targets -- -D warnings
-node scripts/check-docs.mjs --tests 408
+node scripts/check-docs.mjs --tests 412
 node --test docs/atlas/agent/tests/backlog.test.mjs
 node scripts/check-atlas.mjs
 ```

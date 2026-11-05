@@ -110,7 +110,7 @@
 | FV-OPS-02 | Compteurs de refus observables | 6 | OPS.2 : 8 motifs sur vrai serveur, `status`/`doctor`, « non mesurés » sans daemon | — | Chaque refus est compté une fois et lisible | P1 |
 | FV-OPS-03 | CI honnête, multi-OS | 5 | CI.1 : Windows hors job bloquant, canary non bloquant ; run distant non exécuté | Lancer la CI réelle (push non autorisé) | Matrice verte sur runners, sans job décoratif | P2 |
 | FV-OPS-04 | Releases vérifiables (SBOM, empreintes) | 3 | Aucune release signée ni SBOM | Concevoir la chaîne de release | `sha256sum -c` + SBOM reproductibles | P3 |
-| FV-OPS-05 | Observabilité du réseau (heartbeat, latence) | 3 | Gateway : table mémoire, pas de heartbeat (GW.1) ; `latency_ms` jamais rempli | GW.1 puis GW.2 | `last_seen` persiste après redémarrage ; latence mesurée ou `None` | P1 |
+| FV-OPS-05 | Observabilité du réseau (heartbeat, latence) | 6 | GW.1 : heartbeat ML-DSA-65, clé épinglée, `last_seen` atomique dans `nodes.json`, rechargé au démarrage, vrai socket TCP couvert. `latency_ms` reste `None` tant que GW.2 ne mesure pas | GW.2 (latence mesurée) | `last_seen` persiste après redémarrage ; latence mesurée ou `None`, jamais `0` | P1 |
 | FV-OPS-06 | Documentation qui ne ment pas | 6 | `check-docs` (chiffres, bandeaux, preuves), tests négatifs | Maintenir à chaque lot | Un chiffre faux fait échouer la commande | P0 |
 | FV-OPS-07 | Sauvegarde restaurable avant opération risquée | 6 | P0.1 archive + `cmp` ; Git propre exigé par STATE | Automatiser la vérification | Restauration testée, hash comparé | P0 |
 | FV-OPS-08 | SDK et intégrations externes | 3 | API locale non gelée, aucun client externe | Geler l'API, écrire un client d'exemple | Un programme externe envoie/reçoit sans lire le code interne | P3 |
