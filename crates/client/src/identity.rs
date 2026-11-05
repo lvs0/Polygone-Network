@@ -22,6 +22,30 @@ pub struct LocalIdentity {
     pub sign_pk_hex: String,
     /// ML-DSA-65 secret key (hex) — never leaves this machine.
     pub sign_sk_hex: String,
+    /// Clés de signature révoquées par une rotation (FV-SEC-05).
+    #[serde(default)]
+    pub revoked_sign_pk_hex: Vec<String>,
+    /// Preuve de la dernière rotation : nouvelle clé signée par l'ancienne.
+    #[serde(default)]
+    pub last_rotation_proof_hex: Option<String>,
+    /// Horodatage de la dernière rotation.
+    #[serde(default)]
+    pub rotated_at_unix: Option<u64>,
+}
+
+/// Résultat d'une rotation de clé de signature.
+#[derive(Debug, Clone)]
+pub struct RotationOutcome {
+    pub revoked_pk_hex: String,
+    pub new_pk_hex: String,
+    pub rotated_at_unix: u64,
+    pub proof_hex: String,
+}
+
+/// Message canonique signé lors d'une rotation : la nouvelle clé est liée à
+/// l'ancienne, sans réutiliser l'identité KEM (qui reste stable).
+pub fn rotation_message(new_pk_hex: &str, rotated_at_unix: u64) -> String {
+    format!("polygone-key-rotation-v1\n{new_pk_hex}\n{rotated_at_unix}")
 }
 
 impl LocalIdentity {
@@ -64,7 +88,50 @@ impl LocalIdentity {
             kem_sk_hex: kem_sk.to_hex(),
             sign_pk_hex: kp.verifier.public_key().to_hex(),
             sign_sk_hex: kp.signer.secret_key().to_hex(),
+            revoked_sign_pk_hex: Vec::new(),
+            last_rotation_proof_hex: None,
+            rotated_at_unix: None,
         }
+    }
+
+    /// FV-SEC-05 — remplace la clé de signature par une neuve, signe la
+    /// nouvelle clé avec l'ancienne, puis révoque l'ancienne. L'identité KEM
+    /// (donc le `node_id`) ne change pas : les pairs n'ont pas à réapprendre
+    /// l'adresse.
+    pub fn rotate_sign_key(&mut self) -> anyhow::Result<RotationOutcome> {
+        let old_pk_hex = self.sign_pk_hex.clone();
+        let old_signer = self.sign_signer()?;
+        let fresh = sign::generate_keypair()?;
+        let new_pk_hex = fresh.verifier.public_key().to_hex();
+        let rotated_at_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let signature = old_signer.sign(rotation_message(&new_pk_hex, rotated_at_unix).as_bytes());
+        let proof_hex = hex::encode(signature.as_bytes());
+
+        self.revoked_sign_pk_hex.push(old_pk_hex.clone());
+        self.sign_pk_hex = new_pk_hex.clone();
+        self.sign_sk_hex = fresh.signer.secret_key().to_hex();
+        self.last_rotation_proof_hex = Some(proof_hex.clone());
+        self.rotated_at_unix = Some(rotated_at_unix);
+
+        Ok(RotationOutcome {
+            revoked_pk_hex: old_pk_hex,
+            new_pk_hex,
+            rotated_at_unix,
+            proof_hex,
+        })
+    }
+
+    /// Une clé révoquée ne doit plus être acceptée, même si sa signature est
+    /// mathématiquement valide : la révocation est une décision locale.
+    pub fn accepts_signature_from(&self, sign_pk_hex: &str) -> bool {
+        self.sign_pk_hex == sign_pk_hex
+            && !self
+                .revoked_sign_pk_hex
+                .iter()
+                .any(|revoked| revoked == sign_pk_hex)
     }
 
     /// Persist to `~/.polygone/identity.json` with best-effort chmod 600.
@@ -74,12 +141,16 @@ impl LocalIdentity {
             std::fs::create_dir_all(dir)?;
         }
         let raw = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, raw)?;
+        // Écriture atomique : une coupure ne laisse jamais une identité
+        // partielle (clé neuve sans preuve de rotation).
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, raw)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
         }
+        std::fs::rename(&tmp, &path)?;
         Ok(())
     }
 
@@ -156,6 +227,64 @@ mod tests {
         let (ct, ss1) = kem::encapsulate(&pk).unwrap();
         let ss2 = kem::decapsulate(&sk, &ct).unwrap();
         assert_eq!(ss1, ss2);
+    }
+
+    #[test]
+    fn rotation_keeps_identity_and_signs_the_new_key() {
+        let mut id = LocalIdentity::generate();
+        let kem_before = id.kem_pk_hex.clone();
+        let old_pk = id.sign_pk_hex.clone();
+
+        let outcome = id.rotate_sign_key().unwrap();
+        assert_eq!(id.kem_pk_hex, kem_before, "le node_id KEM reste stable");
+        assert_eq!(outcome.revoked_pk_hex, old_pk);
+        assert_ne!(outcome.new_pk_hex, old_pk);
+
+        // La preuve est vérifiable avec l'ancienne clé publique : la nouvelle
+        // clé est bien liée à l'ancienne, pas injectée par un tiers.
+        let old_verifier = sign::Verifier::from_public(sign::PublicKey::from_hex(&old_pk).unwrap());
+        let signature = sign::Signature::from_bytes(&hex::decode(&outcome.proof_hex).unwrap());
+        assert!(old_verifier.verify(
+            rotation_message(&outcome.new_pk_hex, outcome.rotated_at_unix).as_bytes(),
+            &signature
+        ));
+    }
+
+    #[test]
+    fn revoked_key_cannot_sign_anymore() {
+        let mut id = LocalIdentity::generate();
+        let old_pk = id.sign_pk_hex.clone();
+        let outcome = id.rotate_sign_key().unwrap();
+
+        assert!(
+            !id.accepts_signature_from(&old_pk),
+            "l'ancienne clé doit être révoquée"
+        );
+        assert!(id.accepts_signature_from(&outcome.new_pk_hex));
+
+        // La nouvelle clé signe réellement et se vérifie avec le verifier courant.
+        let message = b"apres rotation";
+        let signature = id.sign_signer().unwrap().sign(message);
+        assert!(id.sign_verifier().unwrap().verify(message, &signature));
+    }
+
+    #[test]
+    fn rotation_survives_process_restart() {
+        let mut id = LocalIdentity::generate();
+        let outcome = id.rotate_sign_key().unwrap();
+        let serialized = serde_json::to_string(&id).unwrap();
+        let reloaded: LocalIdentity = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(reloaded.sign_pk_hex, outcome.new_pk_hex);
+        assert!(!reloaded.accepts_signature_from(&outcome.revoked_pk_hex));
+        assert_eq!(
+            reloaded.revoked_sign_pk_hex,
+            vec![outcome.revoked_pk_hex.clone()]
+        );
+        assert_eq!(
+            reloaded.last_rotation_proof_hex.as_deref(),
+            Some(outcome.proof_hex.as_str())
+        );
     }
 
     #[test]

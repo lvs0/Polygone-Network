@@ -193,6 +193,9 @@ enum Commands {
     },
     /// Show your ML-KEM-1024 public key (what you share to receive)
     Clef,
+    /// Rotate the ML-DSA signing key; the old key is revoked in the identity file
+    #[command(name = "clef-tourner")]
+    ClefTourner,
     /// Print this node's stable relay identifier (derived from its persistent KEM key)
     Id,
     /// Run the real crypto self-test suite (exit 0 = all green)
@@ -931,7 +934,7 @@ async fn main() -> Result<()> {
     }
 
     // First run: materialise the local identity (keys + pseudo).
-    let identity = identity::LocalIdentity::load_or_create()?;
+    let mut identity = identity::LocalIdentity::load_or_create()?;
 
     match args.command {
         None | Some(Commands::Tui) => tui::run(identity).await?,
@@ -1256,6 +1259,30 @@ async fn main() -> Result<()> {
             println!("{}", identity.kem_pk_hex);
             println!(
                 "# fichier identité : {}",
+                identity::LocalIdentity::path().display()
+            );
+        }
+        Some(Commands::ClefTourner) => {
+            let outcome = identity.rotate_sign_key()?;
+            identity.save()?;
+            let old_accepted = identity.accepts_signature_from(&outcome.revoked_pk_hex);
+            let new_accepted = identity.accepts_signature_from(&outcome.new_pk_hex);
+            println!("✔ nouvelle clef de signature : {}", outcome.new_pk_hex);
+            println!("  ancienne clef révoquée : {}", outcome.revoked_pk_hex);
+            println!(
+                "  révocation effective : {} · nouvelle clef active : {}",
+                !old_accepted, new_accepted
+            );
+            println!(
+                "  rotation enregistrée à {} (unix)",
+                outcome.rotated_at_unix
+            );
+            println!(
+                "  preuve de rotation : {} octets, vérifiable avec l'ancienne clef publique",
+                outcome.proof_hex.len() / 2
+            );
+            println!(
+                "  identité KEM inchangée : {}",
                 identity::LocalIdentity::path().display()
             );
         }
