@@ -139,6 +139,12 @@
   ],
   "completed": [
     {
+      "id": "RATE.1",
+      "date": "2026-11-05",
+      "proof": "IdentityLimiter dans crates/relay/src/relay.rs : 100 enveloppes/s par identité, compteur partagé entre reconnexions, purge des fenêtres inactives ; dépassement journalisé et enveloppe ignorée sans fermer la connexion ni toucher les autres pairs ; per_identity_limit_denies_only_the_abusive_peer, per_identity_limit_resets_after_window ; FV-SEC-10 passe à 6 ; 419 tests, clippy 0",
+      "commit": "4bd1474"
+    },
+    {
       "id": "CLI.6",
       "date": "2026-11-05",
       "proof": "crates/client/src/refusal.rs : KNOWN_REASONS couvre les 8 constantes REASON_* du daemon ; chaque code porte une cause et une action, le code technique reste affiché ; NodeError::Denied utilise describe() ; every_reason_code_has_an_action échoue si la liste diverge ou si cause/action est vide, unknown_denial_keeps_the_technical_code vérifie le repli ; 417 tests workspace, clippy 0, check-docs 417. Non promue dans les tâches opérationnelles : preuve ajoutée directement, comme GW.2",

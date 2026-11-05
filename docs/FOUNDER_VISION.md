@@ -83,7 +83,7 @@
 | FV-SEC-07 | Aucun accès arbitraire aux fichiers des participants | 6 | SEC.8 refuse les secrets suivis ; `identity.json` 600 ; sandbox | Audit des chemins d'écriture restants | Aucun secret dans git, aucune lecture hors périmètre | P0 |
 | FV-SEC-08 | Modèle de menace par service + audit externe | 5 | SEC.1 : `docs/THREAT-MODEL-SERVICES.md` couvre client, relais, gateway, daemon, serverless, petals, avec tests cités et risques résiduels ; aucun audit externe | Audit indépendant | Un tiers peut contredire les promesses avec le document | P1 |
 | FV-SEC-09 | Aucune télémétrie non consentie | 6 | Aucun appel analytics ; `config.md` documente zéro télémétrie | Maintenir dans chaque nouveau service | Aucune requête sortante hors pairs/relais choisis | P0 |
-| FV-SEC-10 | Détection d'abus et rate limiting | 3 | Refus d'allocation comptés (OPS.2) ; pas de limite par pair | Limites par identité et par pair | Un pair abusif est limité, journalisé, sans déni de service global | P2 |
+| FV-SEC-10 | Détection d'abus et rate limiting | 6 | `IdentityLimiter` : 100 env/s par identité partagées entre reconnexions, 200/s par connexion ; refus journalisé, enveloppe ignorée, autres pairs intacts ; `per_identity_limit_denies_only_the_abusive_peer`, `per_identity_limit_resets_after_window` | Réputation globale et quotas persistants entre redémarrages | Un pair abusif est limité, journalisé, sans déni de service global | P2 |
 
 ## F. Expérience utilisateur
 

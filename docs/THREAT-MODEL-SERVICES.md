@@ -83,7 +83,7 @@ jamais recevoir de clé.
 | Attaque | Contrôle | Preuve |
 |---|---|---|
 | Trame géante / saturation mémoire | plafond 64 KiB par trame | tests relais |
-| Déni de service par flood | 200 enveloppes/s par connexion | tests relais |
+| Déni de service par flood | 200 enveloppes/s par connexion **et** 100/s par identité, partagées entre reconnexions | tests relais (`per_identity_limit_*`, `rate_limited_connection_releases_its_node_id_slot`) |
 | Usurpation de `from` | `from` doit égaler le HELLO de la connexion | `SEC.4` |
 | Vol silencieux de slot | HELLO dupliqué refusé, `HELLO_OK`/`HELLO_DENIED` explicites | tests relais |
 | Lecture du payload | aucune clé côté relais, fragments opaques | audit de démo |
@@ -209,7 +209,8 @@ machine.
 
 - **Audit externe indépendant** : non réalisé. `FV-SEC-08` reste à l'état 5.
 - **Rotation/révocation de clés** (`FV-SEC-05`) : absente.
-- **Limites par identité** (`FV-SEC-10`) : compteurs oui, quotas par pair non.
+- **Limites par identité** (`FV-SEC-10`) : fenêtre d'une seconde en mémoire,
+  perdue au redémarrage du relais ; pas de réputation persistante par pair.
 - **Chiffrement au repos** : décision non prise ; documenté comme limite.
 - **TLS sur la gateway** : non implémenté ; le modèle assume un LAN de confiance
   pour la confidentialité, ce qui doit être dit à l'utilisateur.
