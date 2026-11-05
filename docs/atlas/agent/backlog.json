@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-04",
+  "generated_at": "2026-11-05",
   "source": "docs/atlas/plan/PLAN-FINITION.md + docs/atlas/plan/epiques/",
   "rule": "Une tâche n'est 'faite' que si sa preuve a été exécutée et citée. Une tâche bloquée reste bloquée, elle ne se coche pas. La première action de chaque tâche est de reproduire son constat.",
   "note": "Ce backlog contient les tâches débloquées ou déblocables maintenant. Les 132 spécifications complètes vivent dans docs/atlas/plan/epiques/ ; une tâche est promue ici quand sa porte est franchie. completed garde les tâches fermées avec leur preuve. Les tâches non promues ne sont pas déclarées en cours. Les tâches P0.1, P0.2, P0.3 et P1.1 déjà clôturées dans l’état persistant ont été réconciliées dans completed.",
@@ -138,6 +138,30 @@
     }
   ],
   "completed": [
+    {
+      "id": "SEC.5",
+      "date": "2026-11-05",
+      "proof": "crates/client/src/identity.rs : helper write_private_atomic (create_new en 0600, répertoire .polygone 0700, chmod vérifié, sync_all + rename, nettoyage si échec) ; ensure_private_file refuse symlinks/non-fichiers et rétablit 0600 avant lecture. net::load_peers/save_peers propagent les erreurs ; magasin absent = TOFU seulement si absent, fichier corrompu/illisible ou parent symlink = erreur ; tous les appelants CLI/TUI/Hide/réseau propagent. 10 tests : chmod PermissionDenied injecté → erreur, aucun fichier publié/temporaire ; écriture atomique/modes ; répertoire hors .polygone refusé ; fichier existant restreint ; magasin absent/corrompu/atomique/symlink final/symlink parent. cargo test --workspace -j 2 : 432 tests, 0 échec ; cargo clippy --workspace --all-targets -- -D warnings exit 0 ; cargo fmt --all -- --check exit 0 ; hide-smoke réel SOCKS5/grant/aucun clair vert.",
+      "commit": "cb1b5ef"
+    },
+    {
+      "id": "FV-SEC-06",
+      "date": "2026-11-05",
+      "proof": "scripts/identity-cost-audit.py --samples 30 sur target/release/polygone : 30/30 node_id distincts ; génération ML-KEM-1024 + ML-DSA-65 + écriture identity.json ; médiane 2,85 ms, moyenne 2,85 ms, P95 3,07 ms ; 21 641 octets par identité, mode 0600 ; HOME temporaires isolés et supprimés. Rapport reports/identity-cost-audit-2026-11-05.md avec SHA-256 du binaire. SEC.4 prouve séparément le refus d'usurpation de from. Limite explicite : coût local faible, aucune preuve d'identité humaine ni protection Sybil globale ; ne pas revendiquer la résistance Sybil.",
+      "commit": "à venir"
+    },
+    {
+      "id": "DOC.4",
+      "date": "2026-11-05",
+      "proof": "scripts/check-docs.mjs appelle validateDocumentIndex : les 66 Markdown de docs/ doivent chacun avoir une entrée unique, un titre, une date ISO ou « Non indiquée », un statut autorisé (autorité/daté/brouillon/à supprimer), un thème et une justification ; entrées manquantes, doublons et chemins orphelins refusés. node --test scripts/document-index.test.mjs : 6/6 ; portes négatives sur docs/INDEX.md (date vide puis statut inconnu) : check-docs exit 1 avec chemin et cause ; restauration vérifiée par SHA-256 ; check-docs --tests 422 exit 0.",
+      "commit": "à venir"
+    },
+    {
+      "id": "SEC.10",
+      "date": "2026-11-05",
+      "proof": "scripts/relay-metadata-audit.mjs : relais + émetteur + récepteur réels via proxy TCP ; exige >=2 connexions, >=2 HELLO, >=1 fragment ; refuse si marqueur de contenu sur le fil ou dans un journal ; rapport daté reports/relay-metadata-audit-2026-11-05.md (16 fragments, 2 HELLO, 1 session, 21 640–47 566 octets, contenu absent) ; docs/threat-msg.md cite la mesure ; hide-smoke.sh reste vert",
+      "commit": "à venir"
+    },
     {
       "id": "KEY.1",
       "date": "2026-11-05",

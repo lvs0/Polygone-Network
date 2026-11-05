@@ -32,8 +32,9 @@ code identifiable. Une intention sans code est dans « risque résiduel ».
 
 ## 3. Client local — `polygone`
 
-**Actifs.** Clé privée ML-DSA/KEM (`~/.polygone/identity.json`, chmod 600),
-fichiers reçus, ancres `peers.json`, carnet de réputation.
+**Actifs.** Clé privée ML-DSA/KEM (`~/.polygone/identity.json`), fichiers
+reçus, ancres `peers.json`, carnet de réputation. Le répertoire privé est
+`0700` et les fichiers d'identité/ancre sont atomiques et `0600` sous Unix.
 
 **Adversaires.** Malware local, colocataire avec accès au compte, FAI, relais
 curieux, pair malveillant, collecteur « harvest now, decrypt later ».
@@ -43,7 +44,9 @@ reçus du relais, réponses des pairs, fichiers de configuration locaux.
 
 **Frontière de confiance.** Tout ce qui vient du réseau est non fiable jusqu'à
 vérification ML-DSA et déchiffrement ML-KEM/AES-GCM. Le disque local est
-partiellement fiable : l'identité est lisible par le compte utilisateur.
+partiellement fiable : les clés restent en clair au repos, mais leur répertoire
+et leurs fichiers ont des modes vérifiés ; une erreur de chmod, une écriture
+incomplète ou un lien symbolique empêchent le démarrage/la sauvegarde.
 
 **Attaques et contrôles.**
 
@@ -54,12 +57,14 @@ partiellement fiable : l'identité est lisible par le compte utilisateur.
 | Rejouer une session | `ts` signé, fenêtre ±300 s, cache des sessions complétées | `REPLAY.SESSION_ALREADY_COMPLETED`, `REPLAY.STALE_TIMESTAMP` |
 | Voler un nom de fichier | `name_ct` chiffré, hors bande | tests drive |
 | Premier contact substitué (TOFU) | empreinte affichée à l'écoute, clé différente pour un `from` connu = rejet | `ARCHITECTURE.md` §11 |
+| Permissions faibles / écriture interrompue de l'identité ou des ancres | helper atomique, répertoire `0700`, fichiers `0600`, erreur propagée, liens refusés | `SEC.5`, tests `identity` et `net::tests` |
 | Fuite de secrets dans le dépôt | test `no_tracked_secrets` sur `git ls-files` | `SEC.8` |
 | Clé de signature compromise ou à renouveler | rotation signée par l'ancienne clé, ancienne révoquée, identité KEM stable, écriture atomique | `FV-SEC-05`, `rotation_keeps_identity_and_signs_the_new_key` |
 
 **Risques résiduels.** Keylogger ou malware déjà présent avant chiffrement ;
 coercition physique ; métadonnées de timing et de taille ; corrélation du
-`node_id` stable ; `identity.json` en clair au repos (assumé, `duress` efface).
+`node_id` stable ; clés en clair au repos (assumé, `duress` efface). Les modes
+Unix ne sont pas une protection contre un compte utilisateur compromis.
 
 **Ne protège pas.** Un adversaire qui contrôle la machine au moment de l'usage,
 ni la révélation humaine.
@@ -89,10 +94,13 @@ jamais recevoir de clé.
 | Vol silencieux de slot | HELLO dupliqué refusé, `HELLO_OK`/`HELLO_DENIED` explicites | tests relais |
 | Lecture du payload | aucune clé côté relais, fragments opaques | audit de démo |
 | Rejeu | rejet au destinataire, pas au relais (choix assumé) | tests réseau |
+| Fuite de métadonnées non nommée | mesure réelle des champs visibles (source, destination, taille, cadence, session) | `SEC.10`, `docs/threat-msg.md`, `scripts/relay-metadata-audit.mjs` |
 
 **Risques résiduels.** HELLO non authentifié cryptographiquement (l'authenticité
 vit chez le destinataire) ; métadonnées de graphe social ; corrélation
-relais + sortie Hide en mono-saut.
+relais + sortie Hide en mono-saut. La mesure SEC.10 confirme que le relais voit
+source, destination, taille, cadence et session : la confidentialité porte sur
+le contenu, pas sur le graphe (`docs/threat-msg.md`).
 
 **Ne protège pas.** Un opérateur qui conserve les métadonnées, ni un adversaire
 qui observe les deux extrémités du chemin.
@@ -214,6 +222,8 @@ machine.
   pas relu l'identité peut encore accepter l'ancienne clé.
 - **Limites par identité** (`FV-SEC-10`) : fenêtre d'une seconde en mémoire,
   perdue au redémarrage du relais ; pas de réputation persistante par pair.
+- **Métadonnées du relais** (`SEC.10`) : mesurées et documentées, pas
+  supprimées ; le graphe social reste visible d'un opérateur.
 - **Chiffrement au repos** : décision non prise ; documenté comme limite.
 - **TLS sur la gateway** : non implémenté ; le modèle assume un LAN de confiance
   pour la confidentialité, ce qui doit être dit à l'utilisateur.

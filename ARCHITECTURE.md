@@ -107,18 +107,18 @@ polygone/
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
 | `core`       | 11       | 1 373      | — (lib)              | 29    |
-| `client`     | 30       | 14 109     | `polygone`           | 173   |
+| `client`     | 30       | 14 481     | `polygone`           | 183   |
 | `relay`      | 3        | 1 117      | `polygone-relay`     | 19    |
-| `gateway`    | 7        | 2 572      | `polygone-gateway`   | 43    |
-| `petals`     | 13       | 3 241      | — (lib)              | 18    |
-| `serverless` | 3        | 776        | — (lib)              | 21    |
-| `daemon`     | 17       | 10 243     | `polygoned`          | 119   |
+| `gateway`    | 7        | 2 572      | `polygone-gateway`   | 47    |
+| `petals`     | 13       | 3 241      | — (lib)              | 19    |
+| `serverless` | 3        | 776        | — (lib)              | 17    |
+| `daemon`     | 17       | 10 243     | `polygoned`          | 118   |
 | doc-tests    | —        | —          | —                    | comptés dans leur crate |
-| **Total**    | **84**   | **33 431** | **4 binaires**       | **422** |
+| **Total**    | **84**   | **33 803** | **4 binaires**       | **432** |
 
 > Re-mesuré le **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
-> 84 fichiers Rust, 33 431 lignes et 422 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> 84 fichiers Rust, 33 803 lignes et 432 tests, dont le contrôle de couverture de `docs/INDEX.md`.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
@@ -143,7 +143,7 @@ polygone/
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **422 tests, 0 échec**.
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **432 tests, 0 échec**.
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is
@@ -348,7 +348,7 @@ are written by hand.
 ## 9. Testing
 
 `cargo test --workspace` is the source of truth; do not rely on stale hard-coded
-counts. The workspace had **422 passing tests** on 2026-11-05. Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
+counts. The workspace had **431 passing tests** on 2026-11-05. Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
 exact sizes, wrong-key KEM failure, full network pipeline round-trips,
 relay routing/drop/ignore tests.
 
@@ -358,7 +358,7 @@ relay routing/drop/ignore tests.
 
 ```bash
 cargo build --release            # all 4 binaries
-cargo test --workspace           # 422 tests
+cargo test --workspace           # 432 tests
 cargo clippy --all --all-targets -- -D warnings
 ```
 

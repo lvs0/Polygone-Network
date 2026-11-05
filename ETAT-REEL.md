@@ -7,6 +7,10 @@
 
 ## 1. Score
 
+> **Instantané historique du 2026-11-02** : les nombres 11/18/4 ci-dessous
+> sont le score de l'audit de base, pas un recomptage après les lots du 5 novembre.
+> Voir l'addendum courant §8 avant toute réutilisation publique.
+
 | Verdict | Nombre |
 |---|---:|
 | **VRAI** — présent et appelé | 11 |
@@ -48,7 +52,7 @@ déchargé après SIGINT, aucun cgroup résiduel) ; IPC daemon `0600` ; smokes
 | 7 | Téléphone comme nœud | PWA = interface + cache |
 | 8 | Pause batterie / réseau mobile | Aucune API batterie |
 | 9 | Statut Gateway = état réseau | Table en mémoire, aucun heartbeat relay |
-| 10 | Latence mesurée en production | `latency_ms` reste `None` hors tests |
+| 10 | Latence mesurée en production | GW.2 écrit `latency_ms` après ping/pong signé sur socket réel ; preuve loopback, pas encore inter-hôtes |
 | 11 | Comptes / login / multi-appareils | Identité locale seulement |
 | 12 | Appairage par jeton porteur | MVP : 256 bits, TTL 5 min, usage unique — mais pas d'authentification mutuelle, HTTP sans TLS |
 | 13 | Dashboard global messages/fichiers | Compte seulement blocs/octets du nœud |
@@ -86,7 +90,7 @@ partagées sur toutes les plateformes. »
 
 | Plateforme | Compilation | Tests | Isolation OS | Statut autorisé |
 |---|---|---|---|---|
-| Linux | oui | 370 | `--isoler` systemd/cgroup v2 | **Supporté** |
+| Linux | oui | 432 | `--isoler` systemd/cgroup v2 | **Supporté** |
 | macOS | oui | partiels | aucune | **Expérimental** |
 | Windows | portage | non testé runner | aucune | **Non supporté** |
 
@@ -94,9 +98,11 @@ partagées sur toutes les plateformes. »
 
 - **Prouvé :** deux processus locaux, loopback, relay TCP, mesh LAN local,
   transfert de fichier comparé octet à octet, compute sandboxé.
+- **Prouvé depuis le 2026-11-04/05 :** anti-rejeu et refus de l'usurpation
+  `from` à travers le vrai relais sur loopback ; Hide SOCKS5 mono-saut avec
+  grant réel et contrôle du contenu observé par le relais.
 - **Non prouvé :** deux hôtes physiques sur LAN réel, deux réseaux distincts,
-  NAT, perte de paquets, reconnexion, pair malveillant, replay, analyse de
-  trafic, multi-hop Hide.
+  NAT, perte de paquets, reconnexion inter-hôtes, analyse de trafic, multi-hop Hide.
 - **Conséquence :** le mot « réseau décentralisé » est autorisé en architecture,
   pas en démonstration publique.
 
@@ -126,3 +132,21 @@ bash scripts/forensic-drive.sh
 
 Les résultats doivent être cités avec leur date et la machine. Un test vert
 d'hier ne prouve rien sur le code d'aujourd'hui.
+
+
+## 8. Addendum de vérification — 2026-11-05
+
+- Workspace Linux : `cargo test --workspace -j 2` **432 tests, 0 échec** ;
+  `cargo fmt --all -- --check` et Clippy `-D warnings` réussis.
+- Identité locale : `~/.polygone` est vérifié en `0700`, les fichiers
+  identité/ancre en `0600`, écritures atomiques ; chmod et erreurs de lecture
+  propagés, symlinks refusés. Un magasin de pairs corrompu ne réactive pas TOFU.
+- Relais : SEC.10 mesure les métadonnées visibles (source, destination,
+  fragments, tailles, cadence et horodatages) ; le contenu du marqueur n'est
+  pas observé en clair. Cela ne cache pas les métadonnées ni l'adresse IP.
+- Hide : smoke local SOCKS5/grant validé ; il s'agit d'un **mono-saut**, pas
+  d'une garantie d'anonymat ou d'une preuve multi-hop.
+- Identités : 30 créations mesurées (médiane 2,85 ms, P95 3,07 ms,
+  21 641 octets). Ce coût faible ne constitue pas une résistance Sybil.
+- Réseau : toujours aucune preuve entre deux machines physiques ; les tests
+  loopback ne ferment pas BLOCKS.9, MSG.6 ou FV-INF-04.

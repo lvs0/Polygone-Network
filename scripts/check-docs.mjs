@@ -24,6 +24,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateDocumentIndex } from "./document-index.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const failures = [];
@@ -405,7 +406,22 @@ function checkSnapshots() {
   notes.push(`documents datés : ${dated} vérifiés, tous bandeautés`);
 }
 
-/* ─────────────────────────── 7. Nombre de tests ─────────────────────────── */
+/* ───────────────────────── 7. Index documentaire ───────────────────────── */
+
+function checkDocumentIndex() {
+  const markdownPaths = walk(join(ROOT, "docs"))
+    .filter((path) => path.endsWith(".md"))
+    .map((path) => path.slice(ROOT.length + 1).replaceAll("\\", "/"));
+  const errors = validateDocumentIndex({
+    indexText: read("docs/INDEX.md"),
+    markdownPaths,
+    exists: (rel) => existsSync(join(ROOT, rel)),
+  });
+  for (const error of errors) fail("docs.index", error);
+  if (!errors.length) notes.push(`index documentaire : ${markdownPaths.length} Markdown couverts, dates et statuts valides`);
+}
+
+/* ─────────────────────────── 8. Nombre de tests ─────────────────────────── */
 
 function checkTestCount() {
   const flagIndex = process.argv.indexOf("--tests");
@@ -436,6 +452,7 @@ checkProofs(etat);
 checkClaims(["README.md", "ARCHITECTURE.md", "web/index.html", "web/landing.html"]);
 checkStateBranch();
 checkSnapshots();
+checkDocumentIndex();
 checkTestCount();
 
 console.log(`membres : ${facts.members} (${facts.memberNames.join(", ")})`);

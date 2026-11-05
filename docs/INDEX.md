@@ -4,8 +4,8 @@
 > `.md` sous `docs/`, y compris cet index et les documents Atlas importés.
 > Le périmètre trouvé avant création était de 61 fichiers ; cet index inclus,
 > puis les documents de pilotage ajoutés depuis (`FOUNDER_VISION.md`,
-> `EXECUTION_STATUS.md`, `THREAT-MODEL-SERVICES.md`), le total attendu est
-> **65 fichiers Markdown**.
+> `EXECUTION_STATUS.md`, `THREAT-MODEL-SERVICES.md`, `threat-msg.md`), le total
+> attendu est **66 fichiers Markdown**.
 >
 > **Règle de date :** une date de contenu ou de nom de fichier est indiquée
 > lorsqu'elle est explicite. Pour les documents Atlas sans date de rédaction
@@ -92,6 +92,7 @@
 | `docs/letters/EFF.md` | Lettre à l'EFF | 2026-09-02 | brouillon | Correspondance externe / confidentialité | Lettre datée ; le dépôt ne contient pas de preuve d'envoi ou de réponse, donc elle n'est pas classée comme communication envoyée. |
 | `docs/observation-premier-soir.md` | Carnet d'observation Premier Soir | 2026-09-02 (date renseignée dans le carnet) | brouillon | Validation utilisateur | Le texte conserve un modèle « à remplir au premier soir réel » ; aucune preuve ne confirme que l'observation a été réalisée par un utilisateur indépendant. |
 | `docs/THREAT-MODEL-SERVICES.md` | Modèle de menace par service | 2026-11-05 | brouillon | Sécurité / modèle de menace | Auto-évaluation SEC.1 : chaque contrôle cite un test ou un chemin de code ; aucun audit externe, les risques résiduels sont listés et `FV-SEC-08` reste à l'état 5. |
+| `docs/threat-msg.md` | Métadonnées visibles par le relais | 2026-11-05 | daté | Sécurité / métadonnées réseau | Mesure SEC.10 sur un flux réel : source, destination, taille, cadence, session visibles ; contenu et nom de fichier absents ; limites loopback explicites. |
 | `docs/threat-commodity.md` | Modèle de menace utilisateur quotidien | Non indiquée | brouillon | Modèle de menace courant | Document à réconcilier avec les limites mesurées de `ETAT-REEL.md` ; les modèles par service de SEC.1 sont désormais dans `THREAT-MODEL-SERVICES.md`. |
 | `docs/threat-high-value.md` | Modèle de menace utilisateur haute-valeur | Non indiquée | brouillon | Modèle de menace haute-valeur | Document à réconcilier avec les limites mesurées de `ETAT-REEL.md` ; les modèles par service de SEC.1 sont désormais dans `THREAT-MODEL-SERVICES.md`. |
 

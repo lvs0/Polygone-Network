@@ -10,7 +10,7 @@
 | Date | 2026-11-05 |
 | Branche | `realign/v2` — locale, non poussée ; `realign/v1` est la branche publiée |
 | HEAD | voir `git log -1 --format='%h %s'` (jamais recopié à la main) |
-| Arbre | propre |
+| Arbre | modifié : lots SEC.10, DOC.4, FV-SEC-06 et SEC.5 ; diff-check propre, non poussé |
 | Origine | `lvs0/Polygone-Network` ; `origin/realign/v1` existe, `origin/realign/v2` non |
 
 ## Vérifications exécutées
@@ -48,6 +48,11 @@
 | `cargo test --workspace -j 2` après GW.2 | **415 tests, 0 échec** (22 suites) | 2026-11-05 |
 | CLI.6 : chaque refus → cause + action | **fait** — `KNOWN_REASONS` = 8 constantes du daemon, `NodeError::Denied` affiche code + cause + action ; `every_reason_code_has_an_action`, `unknown_denial_keeps_the_technical_code` ; 417 tests | 2026-11-05 |
 | FV-SEC-10 : limite par identité | **fait** — `IdentityLimiter` 100 env/s partagées entre reconnexions, purge à 60 s d'inactivité, refus journalisé sans fermer la connexion ; `per_identity_limit_denies_only_the_abusive_peer`, `per_identity_limit_resets_after_window` ; 419 tests | 2026-11-05 |
+| SEC.10 : métadonnées du relais mesurées | **fait** — `relay-metadata-audit.mjs` : relais + émetteur + récepteur réels, proxy TCP, refus sans 2 connexions/2 HELLO/1 fragment, échec si contenu en clair ; 16 fragments, 2 HELLO, 1 session, 21 640–47 566 octets, marqueur absent ; rapport daté + `docs/threat-msg.md` ; `hide-smoke.sh` vert | 2026-11-05 |
+| DOC.4 : index documentaire fail-closed | **fait** — `check-docs.mjs` contrôle les 66 Markdown, date ISO ou « Non indiquée », statut autorisé, unicité et couverture ; `node --test scripts/document-index.test.mjs` **6/6** ; date vide et statut invalide → exit 1 nommé ; index restauré, SHA-256 identique | 2026-11-05 |
+| FV-SEC-06 : coût de création d'identités mesuré | **fait, portée limitée** — 30/30 identités distinctes ; ML-KEM-1024 + ML-DSA-65 + écriture : médiane/moyenne 2,85 ms, P95 3,07 ms, 21 641 octets, mode 0600 ; HOME temporaires supprimés ; rapport avec SHA-256 binaire. Cela ne fournit aucune résistance Sybil globale. | 2026-11-05 |
+| SEC.5 : permissions de fichiers fail-closed | **fait** — helper atomique, `.polygone` 0700, fichiers 0600, chmod propagé/vérifié, symlinks et chemins non sûrs refusés ; magasin de pairs corrompu ne réactive jamais TOFU ; 10 tests ciblés, dont PermissionDenied injecté et nettoyage du temporaire ; smoke Hide réel vert ; workspace 432/432 + Clippy + fmt | 2026-11-05 |
+| Vérification workspace après SEC.5 | `cargo fmt --all -- --check`, `cargo test --workspace -j 2` **432/432**, `cargo clippy --workspace --all-targets -- -D warnings` exit 0 ; backlog agent 6/6 ; Atlas PASS | 2026-11-05 |
 | FV-SEC-05 : rotation et révocation de clé | **fait** — `polygone clef-tourner` signe la nouvelle ML-DSA-65 avec l'ancienne (`polygone-key-rotation-v1`), révoque l'ancienne, garde le node_id KEM, écrit `identity.json` atomiquement ; 3 tests de rotation/révocation/relecture ; 422 tests | 2026-11-05 |
 | `scripts/check-docs.mjs` : somme des LOC du tableau vérifiée comme celle des tests | **ajouté** — c'est ce contrôle qui manquait quand `client` affichait 11 365 pour 11 677 mesurées | 2026-11-04 |
 | `node scripts/check-docs.mjs --tests 370` | **documents cohérents**, exit 0 ; deux négatifs vérifiés : branche forcée à `realign/v1` → exit 1 (`[state.branche]`), LOC volontairement faussées → exit 1 (`[architecture.somme.LOC]`) | 2026-11-04 |
@@ -130,9 +135,9 @@
 
 **`CLI.1`, `CLI.2` et `CLI.5` fermés le 2026-11-04.** `doctor` lit l'isolation OS au lieu de la déclarer ; `pause --duree` rend le bail et écrit une intention bornée, `reprendre` la consomme et redemande un bail ; `desinstaller` énumère, exige `--confirmer`, ne touche que ses racines et ne laisse aucun reste.
 
-**Prochaine tâche réalisable sur ce poste : `GW.2`** — mesurer la latence réellement (ping/pong signé) et ne remplir `latency_ms` qu'après une mesure, jamais `0` par défaut. Ensuite : `SEC.1` (modèle de menace par service), `DOC.4` (refuser un document sans date ni statut), `INST.2` (désinstallation complète) — puis `CI.3` (audit de dépendances, dépend de la licence) et `BLOCKS.9`/`MSG.6`, qui **exigent deux machines physiques** : non réalisables ici, scripts à préparer. **Limite SEC.8** : `gitleaks` n'est pas installé sur ce poste ; l'audit d'historique annoncé par la spec n'a pas été exécuté, seul le refus des chemins suivis est prouvé.
+**Prochaine tâche : G0 — réconcilier les 132 identifiants des six épiques avec les preuves et le backlog opérationnel.** `check-atlas` indique encore 96 tâches non promues ; chacune doit être comparée au code avant d'être classée. `BLOCKS.9`, `MSG.6` et `FV-INF-04` restent dépendants de deux machines physiques ; aucune preuve loopback ne les clôt. **Limite SEC.8** : `gitleaks` n'est pas installé ; l'audit d'historique n'a pas été exécuté.
 
-**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 10 tâches restantes (7 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 30 tâches fermées avec leur preuve dans `completed`. DOC.2, DOC.3, CLI.1, CLI.2, CLI.3, CLI.5, CI.1, OPS.2, SEC.8 et GW.1 sont fermés depuis le 4 novembre 2026. `DOC.3` et `CLI.3` n'étaient pas promues dans les tâches opérationnelles : leurs preuves sont ajoutées directement à `completed`, sans toucher au compte des ouvertes. `DOC.3` n'était pas promue dans les tâches opérationnelles : sa preuve est ajoutée directement à `completed`. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
+**L'autorité d'ordre est `docs/atlas/agent/backlog.json`** : 9 tâches opérationnelles non closes (6 ouvertes et 3 bloquées : DAEMON.10 par D2, DRIVE.1 par D3, RECIP.1 par BLOCKS.9 et D8) ; 39 tâches fermées avec leur preuve dans `completed`. DOC.2, DOC.3, CLI.1, CLI.2, CLI.3, CLI.5, CI.1, OPS.2, SEC.8 et GW.1 sont fermés depuis le 4 novembre 2026. `DOC.3` et `CLI.3` n'étaient pas promues dans les tâches opérationnelles : leurs preuves sont ajoutées directement à `completed`, sans toucher au compte des ouvertes. `DOC.3` n'était pas promue dans les tâches opérationnelles : sa preuve est ajoutée directement à `completed`. Les vagues W0…W5 de `docs/atlas/plan/PLAN-ECOSYSTEME.md` §8 placent le gateway, l'agent et le corpus sur le même calendrier.
 
 > **Correction du 2026-11-03** : la note précédente demandait de committer les
 > 65 fichiers non suivis du dépôt canonique. **C'était inutile.** Vérifié par

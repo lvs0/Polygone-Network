@@ -79,7 +79,7 @@
 | FV-SEC-03 | Anti-rejeu des messages | 6 | SEC.3 : rejeu refusé par le vrai relais (`REPLAY.SESSION_ALREADY_COMPLETED`, `STALE_TIMESTAMP`) | — | Rejeu immédiat et tardif refusés avec code explicite | P1 |
 | FV-SEC-04 | Isolation des tâches et permissions minimales | 5 | systemd-run + wasmi ; isolation OS seulement avec `--isoler` | Défaut sûr (D2), vérification des accès fichiers | Tâche sandboxée ne peut pas lire `$HOME` | P0 |
 | FV-SEC-05 | Gestion sécurisée des identités (rotation, révocation) | 6 | `polygone clef-tourner` : nouvelle ML-DSA-65 signée par l'ancienne (`polygone-key-rotation-v1`), ancienne révoquée, KEM/node_id stable, écriture atomique de l'identité ; `rotation_keeps_identity_and_signs_the_new_key`, `revoked_key_cannot_sign_anymore`, `rotation_survives_process_restart` | Propagation de la révocation aux pairs distants | Ancienne clé révoquée ne signe plus, nouvelle acceptée | P2 |
-| FV-SEC-06 | Résistance Sybil / usurpation | 5 | SEC.4 : `from` forgé refusé ; preuve de clé au handshake (D2 bench) | Coût Sybil mesuré, quotas par identité | Un pair ne peut pas usurper `from` ; coût d'identités documenté | P1 |
+| FV-SEC-06 | Résistance Sybil / usurpation | 6 | SEC.4 : `from` forgé refusé ; audit 30 identités : médiane 2,85 ms, P95 3,07 ms, 21 641 octets, mode 0600 ; rapport daté | Protection Sybil globale absente ; mesure locale seulement | Un pair ne peut pas usurper `from` ; coût d'identités documenté | P1 |
 | FV-SEC-07 | Aucun accès arbitraire aux fichiers des participants | 6 | SEC.8 refuse les secrets suivis ; `identity.json` 600 ; sandbox | Audit des chemins d'écriture restants | Aucun secret dans git, aucune lecture hors périmètre | P0 |
 | FV-SEC-08 | Modèle de menace par service + audit externe | 5 | SEC.1 : `docs/THREAT-MODEL-SERVICES.md` couvre client, relais, gateway, daemon, serverless, petals, avec tests cités et risques résiduels ; aucun audit externe | Audit indépendant | Un tiers peut contredire les promesses avec le document | P1 |
 | FV-SEC-09 | Aucune télémétrie non consentie | 6 | Aucun appel analytics ; `config.md` documente zéro télémétrie | Maintenir dans chaque nouveau service | Aucune requête sortante hors pairs/relais choisis | P0 |
@@ -89,7 +89,7 @@
 
 | ID | Exigence | État | Preuve / réalité vérifiée | Travail restant | Critère d'acceptation | Priorité |
 |---|---|---|---|---|---|---|
-| FV-UX-01 | Un seul binaire `polygone`, commandes cohérentes | 6 | `crates/client`, CLI complète, 408 tests | — | Les parcours documentés s'exécutent avec ce binaire | P0 |
+| FV-UX-01 | Un seul binaire `polygone`, commandes cohérentes | 6 | `crates/client`, CLI complète, 432 tests | — | Les parcours documentés s'exécutent avec ce binaire | P0 |
 | FV-UX-02 | Tableau de bord 4 onglets (Accueil, Favoris, Services, Paramètres) | 3 | Maquette historique ; TUI 2 commandes ; UI.4 non livré | Concevoir puis câbler sur l'état réel | Navigation aux flèches, aucun chiffre inventé | P2 |
 | FV-UX-03 | Solde et consommation visibles | 7 | Bloqué par FV-ECO-01 ; aucun solde réel | Après crédits réels | Solde = somme de reçus vérifiés, consommation mesurée | P2 |
 | FV-UX-04 | Pause bornée 10 min → 4 h | 6 | CLI.2 : intention horodatée, bail rendu, reprise refusée si expirée, 7 tests | — | `pause`/`reprendre` observés sur le vrai daemon | P1 |
