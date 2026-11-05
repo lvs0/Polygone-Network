@@ -92,19 +92,6 @@
       ]
     },
     {
-      "id": "GW.1",
-      "phase": "P4",
-      "priority": 2,
-      "title": "Recevoir un heartbeat de nœud et le persister",
-      "detail": "nodes.insert n'existe que dans pair_accept : le statut Gateway ne reflète pas le réseau. Ajouter un heartbeat et une persistance bornée.",
-      "proof": "test : un nœud cesse d'émettre, le statut passe à 'inactif' après la fenêtre, sans redémarrage.",
-      "ref": "docs/atlas/plan/epiques/04-interfaces.md#GW.1",
-      "files": [
-        "crates/gateway/src/routes.rs",
-        "crates/gateway/src/status.rs"
-      ]
-    },
-    {
       "id": "DAEMON.10",
       "phase": "P1",
       "priority": 10,
@@ -335,6 +322,12 @@
       "date": "2026-11-04",
       "proof": "polygone profil sobre|equilibre|genereux écrit tier Custom + 4 seuils (atomique, behavior/safety intacts) ; sans argument affiche le courant ; polygoned status relit 25/30/40 puis 75/70/80 dans un HOME réel ; turbo → exit 1 nommant les choix ; chaque rendu dit qu'aucune limite OS n'existe sans isolation ; 4 tests dont les deux preuves nommées ; 408 tests, clippy 0, check-docs 408. Non promue dans les tâches opérationnelles : preuve ajoutée directement, comme DOC.3",
       "commit": "7a49150"
+    },
+    {
+      "id": "GW.1",
+      "date": "2026-11-04",
+      "proof": "POST /api/v1/nodes/heartbeat vérifie ML-DSA-65 sur polygone-heartbeat-v1\\n{node_id}\\n{timestamp} avec la clé épinglée à l'appairage ; ±300 s ; écriture atomique de nodes.json sérialisée ; rechargement au démarrage ; refus 403 sans toucher état ni fichier ; 4 tests dont un round-trip sur vrai socket TCP ; 412 tests workspace, clippy 0, check-docs 412",
+      "commit": "6a84c9b"
     }
   ]
 }
