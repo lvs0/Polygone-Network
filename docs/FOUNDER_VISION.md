@@ -81,7 +81,7 @@
 | FV-SEC-05 | Gestion sécurisée des identités (rotation, révocation) | 3 | Identité locale chmod 600 ; pas de rotation | Concevoir rotation et révocation | Ancienne clé révoquée ne signe plus, nouvelle acceptée | P2 |
 | FV-SEC-06 | Résistance Sybil / usurpation | 5 | SEC.4 : `from` forgé refusé ; preuve de clé au handshake (D2 bench) | Coût Sybil mesuré, quotas par identité | Un pair ne peut pas usurper `from` ; coût d'identités documenté | P1 |
 | FV-SEC-07 | Aucun accès arbitraire aux fichiers des participants | 6 | SEC.8 refuse les secrets suivis ; `identity.json` 600 ; sandbox | Audit des chemins d'écriture restants | Aucun secret dans git, aucune lecture hors périmètre | P0 |
-| FV-SEC-08 | Modèle de menace par service + audit externe | 4 | Docs threat commodity/high-value ; SEC.1 à écrire ; aucun audit externe | Écrire SEC.1 puis audit indépendant | Un tiers peut contredire les promesses avec le document | P1 |
+| FV-SEC-08 | Modèle de menace par service + audit externe | 5 | SEC.1 : `docs/THREAT-MODEL-SERVICES.md` couvre client, relais, gateway, daemon, serverless, petals, avec tests cités et risques résiduels ; aucun audit externe | Audit indépendant | Un tiers peut contredire les promesses avec le document | P1 |
 | FV-SEC-09 | Aucune télémétrie non consentie | 6 | Aucun appel analytics ; `config.md` documente zéro télémétrie | Maintenir dans chaque nouveau service | Aucune requête sortante hors pairs/relais choisis | P0 |
 | FV-SEC-10 | Détection d'abus et rate limiting | 3 | Refus d'allocation comptés (OPS.2) ; pas de limite par pair | Limites par identité et par pair | Un pair abusif est limité, journalisé, sans déni de service global | P2 |
 
@@ -106,11 +106,11 @@
 
 | ID | Exigence | État | Preuve / réalité vérifiée | Travail restant | Critère d'acceptation | Priorité |
 |---|---|---|---|---|---|---|
-| FV-OPS-01 | Diagnostics actionnables | 5 | `polygoned doctor` + refus comptés par motif (OPS.2), session réelle | Traduire chaque code de refus en action (CLI.6) | Un refus affiche cause + action, code technique conservé | P1 |
+| FV-OPS-01 | Diagnostics actionnables | 6 | CLI.6 : `KNOWN_REASONS` couvre les 8 constantes du daemon ; chaque code → cause + action, code technique conservé ; `every_reason_code_has_an_action` échoue si un motif manque, `unknown_denial_keeps_the_technical_code` | — | Un refus affiche cause + action, code technique conservé | P1 |
 | FV-OPS-02 | Compteurs de refus observables | 6 | OPS.2 : 8 motifs sur vrai serveur, `status`/`doctor`, « non mesurés » sans daemon | — | Chaque refus est compté une fois et lisible | P1 |
 | FV-OPS-03 | CI honnête, multi-OS | 5 | CI.1 : Windows hors job bloquant, canary non bloquant ; run distant non exécuté | Lancer la CI réelle (push non autorisé) | Matrice verte sur runners, sans job décoratif | P2 |
 | FV-OPS-04 | Releases vérifiables (SBOM, empreintes) | 3 | Aucune release signée ni SBOM | Concevoir la chaîne de release | `sha256sum -c` + SBOM reproductibles | P3 |
-| FV-OPS-05 | Observabilité du réseau (heartbeat, latence) | 6 | GW.1 : heartbeat ML-DSA-65, clé épinglée, `last_seen` atomique dans `nodes.json`, rechargé au démarrage, vrai socket TCP couvert. `latency_ms` reste `None` tant que GW.2 ne mesure pas | GW.2 (latence mesurée) | `last_seen` persiste après redémarrage ; latence mesurée ou `None`, jamais `0` | P1 |
+| FV-OPS-05 | Observabilité du réseau (heartbeat, latence) | 6 | GW.1 : heartbeat ML-DSA-65, clé épinglée, `last_seen` atomique dans `nodes.json`, rechargé au démarrage. GW.2 : ping/pong signé, challenge à usage unique (30 s), `latency_ms` écrit seulement après pong, médiane des seuls nœuds mesurés, vrai socket TCP et `/api/v1/network/status` = 42 | — | `last_seen` persiste après redémarrage ; latence mesurée ou `None`, jamais `0` | P1 |
 | FV-OPS-06 | Documentation qui ne ment pas | 6 | `check-docs` (chiffres, bandeaux, preuves), tests négatifs | Maintenir à chaque lot | Un chiffre faux fait échouer la commande | P0 |
 | FV-OPS-07 | Sauvegarde restaurable avant opération risquée | 6 | P0.1 archive + `cmp` ; Git propre exigé par STATE | Automatiser la vérification | Restauration testée, hash comparé | P0 |
 | FV-OPS-08 | SDK et intégrations externes | 3 | API locale non gelée, aucun client externe | Geler l'API, écrire un client d'exemple | Un programme externe envoie/reçoit sans lire le code interne | P3 |

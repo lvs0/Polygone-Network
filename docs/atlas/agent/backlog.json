@@ -80,18 +80,6 @@
       ]
     },
     {
-      "id": "SEC.1",
-      "phase": "P4",
-      "priority": 1,
-      "title": "Écrire le modèle de menace de chaque service",
-      "detail": "msg, drive, hide, daemon, serverless, petals : un modèle par service, avec ce qui est protégé et ce qui ne l'est pas. Condition d'entrée de la porte G4.",
-      "proof": "un fichier par service, chacun citant au moins une limite réelle du code (fichier:ligne).",
-      "ref": "docs/atlas/plan/epiques/06-confiance.md#SEC.1",
-      "files": [
-        "docs/"
-      ]
-    },
-    {
       "id": "DAEMON.10",
       "phase": "P1",
       "priority": 10,
@@ -150,6 +138,18 @@
     }
   ],
   "completed": [
+    {
+      "id": "CLI.6",
+      "date": "2026-11-05",
+      "proof": "crates/client/src/refusal.rs : KNOWN_REASONS couvre les 8 constantes REASON_* du daemon ; chaque code porte une cause et une action, le code technique reste affiché ; NodeError::Denied utilise describe() ; every_reason_code_has_an_action échoue si la liste diverge ou si cause/action est vide, unknown_denial_keeps_the_technical_code vérifie le repli ; 417 tests workspace, clippy 0, check-docs 417. Non promue dans les tâches opérationnelles : preuve ajoutée directement, comme GW.2",
+      "commit": "ddbbbc4"
+    },
+    {
+      "id": "SEC.1",
+      "date": "2026-11-05",
+      "proof": "docs/THREAT-MODEL-SERVICES.md : modèle par service (client, relais, gateway, daemon, serverless, petals), actifs, adversaires, entrées, frontières, attaques avec tests cités, risques résiduels et non-protections ; FV-SEC-08 passe à 5, audit externe explicitement absent ; INDEX 65 fichiers. Écart assumé : un fichier de synthèse au lieu d'un fichier par service",
+      "commit": "à venir"
+    },
     {
       "id": "MESH.1",
       "date": "2026-11-04",
@@ -322,6 +322,12 @@
       "date": "2026-11-04",
       "proof": "polygone profil sobre|equilibre|genereux écrit tier Custom + 4 seuils (atomique, behavior/safety intacts) ; sans argument affiche le courant ; polygoned status relit 25/30/40 puis 75/70/80 dans un HOME réel ; turbo → exit 1 nommant les choix ; chaque rendu dit qu'aucune limite OS n'existe sans isolation ; 4 tests dont les deux preuves nommées ; 408 tests, clippy 0, check-docs 408. Non promue dans les tâches opérationnelles : preuve ajoutée directement, comme DOC.3",
       "commit": "7a49150"
+    },
+    {
+      "id": "GW.2",
+      "date": "2026-11-05",
+      "proof": "POST /api/v1/nodes/ping délivre un challenge signé (clé épinglée, ±300 s), usage unique, TTL 30 s ; POST /api/v1/nodes/pong n'écrit latency_ms qu'après vérification du challenge et de la signature, RTT ≤ 60 s ; pong sans ping et rejeu refusés 409 ; médiane = seuls nœuds mesurés ; mesure persistée et visible dans /api/v1/network/status (42) sur vrai socket TCP ; 3 tests + assertion d'intégration ; 415 tests workspace, clippy 0",
+      "commit": "e98bcb1"
     },
     {
       "id": "GW.1",

@@ -8,23 +8,43 @@
 
 | Champ | Valeur |
 |---|---|
-| Date | 2026-11-04 |
+| Date | 2026-11-05 |
 | Dépôt | `~/Polygone-Atlas/03-REALIGNED` |
 | Branche | `realign/v2` — locale, non poussée |
 | HEAD | voir `git log -1 --format='%h %s'` |
 | Arbre | propre après le lot (vérifié par `git status --short`) |
-| Registre | **67 exigences**, **24 validées**, **9 bloquées** → avancement réel **24/58 = 41,4 %** (calculé, pas estimé) |
+| Registre | **67 exigences**, **25 validées**, **9 bloquées** → avancement réel **25/58 = 43,1 %** (calculé, pas estimé) |
 
 ## Dernier travail effectué
 
-0. **`GW.1` — heartbeat signé persisté** (fermé) : `POST /api/v1/nodes/heartbeat`
+0. **`CLI.6` — chaque refus traduit en action** (fermé) : `crates/client/src/refusal.rs`
+   associe les 8 constantes `REASON_*` du daemon à une cause et une action ;
+   `NodeError::Denied` affiche le code technique **et** l'action. Un motif
+   inconnu reste visible avec la mention « rapport de bug ». Preuves :
+   `every_reason_code_has_an_action` (compare la liste aux constantes du
+   daemon, exige cause + action non vides), `unknown_denial_keeps_the_technical_code`.
+1. **`SEC.1` — modèle de menace par service** (fermé) :
+   `docs/THREAT-MODEL-SERVICES.md` couvre client, relais, gateway, daemon,
+   serverless et petals ; chaque contrôle renvoie à un test existant, chaque
+   service liste ses risques résiduels et ce qu'il ne protège pas. Limite
+   assumée : un fichier de synthèse au lieu d'un fichier par service ;
+   `FV-SEC-08` reste à l'état 5 faute d'audit externe.
+2. **`GW.2` — latence réellement mesurée** (fermé, commit `e98bcb1`) :
+   `POST /api/v1/nodes/ping` délivre un challenge signé, à usage unique et
+   valable 30 s ; `POST /api/v1/nodes/pong` n'écrit `latency_ms` qu'après
+   vérification du challenge et de la signature, avec RTT ≤ 60 s. Un pong sans
+   ping ou rejoué est refusé 409 ; un nœud silencieux garde `None`. Preuves :
+   `latency_populated_after_pong`, `pong_without_ping_is_refused`,
+   `pong_replay_is_refused`, et la mesure `42` lue dans
+   `/api/v1/network/status` sur un vrai socket TCP.
+3. **`GW.1` — heartbeat signé persisté** (fermé, commit `6a84c9b`) : `POST /api/v1/nodes/heartbeat`
    vérifie ML-DSA-65 sur `polygone-heartbeat-v1\n{node_id}\n{timestamp}` avec la
    clé épinglée à l'appairage ; fenêtre anti-rejeu ±300 s ; écriture atomique
    de `nodes.json` ; rechargement au démarrage. Preuves :
    `heartbeat_requires_valid_signature` (403, état et disque inchangés),
    `heartbeat_survives_process_restart`, `heartbeat_outside_replay_window_is_refused`,
    `heartbeat_round_trip_over_real_http_is_persisted` (vrai socket TCP).
-1. **`CLI.3` — profils d'usage** (fermé, commit `7a49150`) :
+4. **`CLI.3` — profils d'usage** (fermé, commit `7a49150`) :
    `polygone profil <sobre|equilibre|genereux>` écrit `tier = "Custom"` + quatre
    seuils dans `~/.config/polygone/daemon.toml`, écriture atomique,
    `BehaviorConfig`/`SafetyMargins` conservés. Sans argument : profil courant,
@@ -33,18 +53,21 @@
    `profil_without_arg_prints_current`, session réelle où `polygoned status`
    relit `CPU 25% | RAM 30% | BW 40%` puis `CPU 75% | RAM 70% | BW 80%`,
    `profil turbo` → exit 1.
-2. **Régression de latence corrigée** : OPS.2 cumulait deux sondes d'1 s
+5. **Régression de latence corrigée** : OPS.2 cumulait deux sondes d'1 s
    (`refusals` puis `status`) ; `test_status_probe_does_not_hang_on_silent_daemon`
    a réellement échoué à 2,29 s. Budget partagé (`STATUS_PROBE_TIMEOUT / 2`),
    test repassé en 0,60 s.
-3. **Registre de la vision** : `docs/FOUNDER_VISION.md`, construit depuis
+6. **Registre de la vision** : `docs/FOUNDER_VISION.md`, construit depuis
    `_work/vision-long.md`, `00-SOURCES/VISION-EXTRAITE.md`, `VISION.md`,
    `ECOSYSTEM.md`, `PLAN-MAITRE.md`, `PLAN-FINITION.md` et `DECISION-POLY.md`.
-4. **Outil d'avancement** : `scripts/vision-status.mjs` (compte les états 1–7,
+7. **Outil d'avancement** : `scripts/vision-status.mjs` (compte les états 1–7,
    refuse une ligne mal formée, calcule validées / réalisables).
 
 ## Fichiers modifiés par ce lot
 
+- `crates/client/src/refusal.rs` (nouveau, 2 tests), `src/lib.rs`, `src/node.rs` (CLI.6)
+- `crates/gateway/src/lib.rs`, `src/routes.rs`, `tests/serve.rs` (GW.2)
+- `docs/THREAT-MODEL-SERVICES.md` (nouveau, SEC.1)
 - `crates/client/src/profile.rs` (nouveau, 4 tests)
 - `crates/client/src/lib.rs`, `crates/client/src/main.rs`, `crates/client/Cargo.toml`
 - `daemon/src/cli.rs` (budget de sonde partagé)
@@ -56,13 +79,13 @@
 
 | Commande | Résultat |
 |---|---|
-| `cargo test --workspace -j 2` | **412 tests, 0 échec** |
+| `cargo test --workspace -j 2` | **417 tests, 0 échec** |
 | `cargo clippy --workspace --all-targets -- -D warnings` | **exit 0** |
 | `cargo fmt --all -- --check` | **exit 0** |
-| `node scripts/check-docs.mjs --tests 412` | **documents cohérents**, exit 0 |
+| `node scripts/check-docs.mjs --tests 417` | **documents cohérents**, exit 0 |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **6/6** |
-| `node scripts/check-atlas.mjs` | **PASS** — 10 ouvertes, 30 terminées |
-| `node scripts/vision-status.mjs` | **67 exigences, 24 validées, 9 bloquées** (41,4 % des réalisables) |
+| `node scripts/check-atlas.mjs` | **PASS** — 9 ouvertes, 33 terminées |
+| `node scripts/vision-status.mjs` | **67 exigences, 25 validées, 9 bloquées** (43,1 % des réalisables) |
 
 ## Problèmes rencontrés
 
@@ -76,23 +99,27 @@
    l'audit d'historique.
 4. **CI distante non exécutée** : aucun push autorisé ; CI.1 est vérifiée
    structurellement, pas sur runner.
+5. **Audit de sécurité externe absent** : `FV-SEC-08` reste à 5 malgré SEC.1 ;
+   le modèle par service est une auto-évaluation, pas une certification.
+6. **Gateway sans TLS** : l'intégrité est signée, la confidentialité vis-à-vis du
+   LAN n'est pas assurée ; c'est écrit dans le modèle de menace.
 
 ## Prochaine tâche exacte
 
-**`GW.2` — mesurer réellement la latence** (priorité P1, `FV-OPS-05`).
-Dépendance : GW.1 (fait, commit `6a84c9b`).
+**`SEC.10` — inventorier ce que le relais voit réellement** (priorité P2,
+backlog Atlas ; soutient `FV-SEC-02`). Dépendance : SEC.6 (fait).
 
 Étapes :
 
-1. Ping/pong signé périodique vers chaque pair appairé ; `last_seen` et
-   `latency_ms` écrits **au retour seulement**.
-2. Un pair silencieux garde `None` : jamais `0`, jamais une médiane inventée.
-3. Preuves nommées : `latency_populated_after_pong`, `median_uses_measured_nodes_only`.
-4. Vérifier que `/api/v1/network/status` ne compte que des mesures réelles et
-   que le snapshot reste lisible par `web/dashboard.js`.
+1. Écrire `scripts/relay-metadata-audit.mjs` : lancer un relais local et un
+   envoi réel, capturer les trames, produire le tableau de ce qui est lisible
+   (source, destination, taille, cadence, horodatage) et de ce qui ne l'est pas.
+2. Refuser de conclure si le flux de test n'a pas traversé un vrai socket.
+3. Preuve : le rapport nomme les champs observés et le test de contrôle
+   `hide-smoke.sh` reste vert.
 
-Après `GW.2` : `SEC.1` (modèle de menace par service), `CLI.6` (chaque code de
-refus → action), `DOC.4` (document sans date ni statut refusé).
+Après `SEC.10` : `FV-SEC-10` (limite par identité et par pair), puis `SEC.5`
+(rotation/révocation de clé).
 
 ## Commandes de reprise
 
@@ -103,7 +130,7 @@ git status --short
 node scripts/vision-status.mjs
 cargo test --workspace -j 2
 cargo clippy --workspace --all-targets -- -D warnings
-node scripts/check-docs.mjs --tests 412
+node scripts/check-docs.mjs --tests 417
 node --test docs/atlas/agent/tests/backlog.test.mjs
 node scripts/check-atlas.mjs
 ```

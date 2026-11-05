@@ -7,7 +7,7 @@
 
 | Champ | Valeur |
 |---|---|
-| Date | 2026-11-04 |
+| Date | 2026-11-05 |
 | Branche | `realign/v2` — locale, non poussée ; `realign/v1` est la branche publiée |
 | HEAD | voir `git log -1 --format='%h %s'` (jamais recopié à la main) |
 | Arbre | propre |
@@ -43,6 +43,9 @@
 | `cargo test --workspace -j 2` après ce lot | **370 tests, 0 échec** (exit 0) | 2026-11-04 |
 | `cargo fmt --all -- --check` | **OK** (exit 0) | 2026-11-04 |
 | `scripts/check-docs.mjs` : branche de `STATE.md` comparée au checkout | **ajouté** — `git rev-parse --abbrev-ref HEAD` contre la ligne `| Branche |` ; une divergence nomme les deux branches et sort en 1 | 2026-11-04 |
+| GW.2 : latence mesurée par ping/pong signé | **fait** — challenge à usage unique (TTL 30 s), `latency_ms` écrit seulement après pong, RTT ≤ 60 s, pong sans ping et rejeu refusés 409, médiane sur nœuds mesurés uniquement ; `latency_populated_after_pong`, `pong_without_ping_is_refused`, `pong_replay_is_refused` + assertion socket réel `/api/v1/network/status` = 42 | 2026-11-05 |
+| SEC.1 : modèle de menace par service | **fait** — `docs/THREAT-MODEL-SERVICES.md`, six services, tests cités, risques résiduels ; `FV-SEC-08` 4 → 5, audit externe absent ; écart assumé : un fichier de synthèse, pas un par service | 2026-11-05 |
+| `cargo test --workspace -j 2` après GW.2 | **415 tests, 0 échec** (22 suites) | 2026-11-05 |
 | `scripts/check-docs.mjs` : somme des LOC du tableau vérifiée comme celle des tests | **ajouté** — c'est ce contrôle qui manquait quand `client` affichait 11 365 pour 11 677 mesurées | 2026-11-04 |
 | `node scripts/check-docs.mjs --tests 370` | **documents cohérents**, exit 0 ; deux négatifs vérifiés : branche forcée à `realign/v1` → exit 1 (`[state.branche]`), LOC volontairement faussées → exit 1 (`[architecture.somme.LOC]`) | 2026-11-04 |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **5/5**, exit 0 — 19 tâches ouvertes, 15 fermées, JSON valide | 2026-11-04 |

@@ -102,22 +102,23 @@ polygone/
 └── .github/workflows/            ci.yml · release.yml
 ```
 
-**Reality check — measured 2026-11-04 :**
+**Reality check — measured 2026-11-05 :**
 
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
 | `core`       | 11       | 1 373      | — (lib)              | 29    |
-| `client`     | 29       | 13 830     | `polygone`           | 168   |
+| `client`     | 30       | 13 953     | `polygone`           | 170   |
 | `relay`      | 3        | 1 016      | `polygone-relay`     | 17    |
-| `gateway`    | 7        | 2 221      | `polygone-gateway`   | 40    |
+| `gateway`    | 7        | 2 572      | `polygone-gateway`   | 43    |
 | `petals`     | 13       | 3 241      | — (lib)              | 18    |
 | `serverless` | 3        | 776        | — (lib)              | 21    |
-| `daemon`     | 17       | 10 237     | `polygoned`          | 119   |
+| `daemon`     | 17       | 10 243     | `polygoned`          | 119   |
 | doc-tests    | —        | —          | —                    | comptés dans leur crate |
-| **Total**    | **83**   | **32 694** | **4 binaires**       | **412** |
+| **Total**    | **84**   | **33 174** | **4 binaires**       | **417** |
 
-> Re-mesuré le **2026-11-04** après le contrôle exhaustif de l'index documentaire (DOC.2) :
-> 83 fichiers Rust, 32 694 lignes et 412 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> Re-mesuré le **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
+> (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
+> 84 fichiers Rust, 33 174 lignes et 417 tests, dont le contrôle de couverture de `docs/INDEX.md`.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
@@ -129,12 +130,17 @@ polygone/
 > `CLI.3` trois profils d'usage (`sobre|equilibre|genereux`) qui écrivent une
 > config réellement relue par `polygoned`, sans jamais annoncer de limite OS ;
 > `GW.1` un heartbeat ML-DSA-65 vérifié contre la clé épinglée à l'appairage,
-> avec `last_seen` écrit atomiquement et rechargé au démarrage.
+> avec `last_seen` écrit atomiquement et rechargé au démarrage ; `GW.2` une
+> latence mesurée par ping/pong signé, challenge à usage unique et médiane qui
+> n'utilise que des nœuds réellement mesurés ; `SEC.1` un modèle de menace par
+> service (`docs/THREAT-MODEL-SERVICES.md`) qui cite les tests existants ;
+> `CLI.6` une table exhaustive des motifs de refus avec cause et action,
+> le code technique toujours affiché.
 > Le contrôleur `scripts/check-docs.mjs` recalcule ces valeurs et échoue si elles
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **412 tests, 0 échec**.
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **417 tests, 0 échec**.
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is
@@ -339,7 +345,7 @@ are written by hand.
 ## 9. Testing
 
 `cargo test --workspace` is the source of truth; do not rely on stale hard-coded
-counts. The daemon package had **83 passing tests** on 2026-11-02. Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
+counts. The workspace had **417 passing tests** on 2026-11-05. Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
 exact sizes, wrong-key KEM failure, full network pipeline round-trips,
 relay routing/drop/ignore tests.
 
@@ -349,7 +355,7 @@ relay routing/drop/ignore tests.
 
 ```bash
 cargo build --release            # all 4 binaries
-cargo test --workspace           # 109 tests
+cargo test --workspace           # 417 tests
 cargo clippy --all --all-targets -- -D warnings
 ```
 
