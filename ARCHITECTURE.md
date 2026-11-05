@@ -107,17 +107,17 @@ polygone/
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
 | `core`       | 11       | 1 373      | — (lib)              | 29    |
-| `client`     | 29       | 13 824     | `polygone`           | 168   |
+| `client`     | 29       | 13 830     | `polygone`           | 168   |
 | `relay`      | 3        | 1 016      | `polygone-relay`     | 17    |
 | `gateway`    | 7        | 1 796      | `polygone-gateway`   | 36    |
 | `petals`     | 13       | 3 241      | — (lib)              | 18    |
 | `serverless` | 3        | 776        | — (lib)              | 21    |
 | `daemon`     | 17       | 10 237     | `polygoned`          | 119   |
 | doc-tests    | —        | —          | —                    | comptés dans leur crate |
-| **Total**    | **83**   | **32 263** | **4 binaires**       | **408** |
+| **Total**    | **83**   | **32 269** | **4 binaires**       | **408** |
 
 > Re-mesuré le **2026-11-04** après le contrôle exhaustif de l'index documentaire (DOC.2) :
-> 83 fichiers Rust, 32 263 lignes et 408 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> 83 fichiers Rust, 32 269 lignes et 408 tests, dont le contrôle de couverture de `docs/INDEX.md`.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
