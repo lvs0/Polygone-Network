@@ -3,7 +3,8 @@
 > Inventaire vérifiable au **2026-11-04**. Il couvre récursivement chaque fichier
 > `.md` sous `docs/`, y compris cet index et les documents Atlas importés.
 > Le périmètre trouvé avant création était de 61 fichiers ; cet index inclus,
-> le total attendu est **62 fichiers Markdown**.
+> puis les documents de pilotage ajoutés depuis (`FOUNDER_VISION.md`,
+> `EXECUTION_STATUS.md`), le total attendu est **64 fichiers Markdown**.
 >
 > **Règle de date :** une date de contenu ou de nom de fichier est indiquée
 > lorsqu'elle est explicite. Pour les documents Atlas sans date de rédaction
@@ -32,6 +33,8 @@
 | `docs/BUDGET.md` | Budget et soutenabilité du relay | Non indiquée | brouillon | Financement / coûts | Le texte présente des estimations pour un premier relay public, pas une facture ni des coûts mesurés ; aucun état de dépenses n'est joint. |
 | `docs/CORE-COMPLETE.md` | Rapport de complétude du core | 2026-08-31 | daté | Historique des tests et du workspace | Le bandeau du fichier le déclare instantané historique (4 crates / 109 tests) ; `ARCHITECTURE.md` racine porte les mesures récentes. |
 | `docs/DAEMON_STATE.md` | État du daemon | 2026-11-02 (mise à jour d'un rapport du 29-09) | daté | Daemon / ressources | L'en-tête distingue explicitement l'état courant vérifié du 2 novembre des sections historiques ; `STATE.md` racine est plus récent. |
+| `docs/EXECUTION_STATUS.md` | État de reprise et prochaine tâche | 2026-11-04 | autorité | Pilotage des sessions | Fait foi pour « où en est la session et que faire ensuite » ; les exigences restent dans `FOUNDER_VISION.md`, les preuves dans `STATE.md`. |
+| `docs/FOUNDER_VISION.md` | Registre exhaustif des exigences du fondateur | 2026-11-04 | autorité | Vision et exigences | Fait foi pour la liste des exigences et leur état 1–7 ; dérivé du corpus et des documents de vision, sans remplacer `VISION.md` pour le périmètre. |
 | `docs/HERMES-FICHE-REPRISE-2026-08-12.md` | Fiche de reprise Hermes | 2026-08-12 | brouillon | Reprise / feuille de route | L'en-tête dit « Draft de travail » et précise que la fiche n'engage pas le projet sans confirmation ; `VISION.md` racine prime. |
 | `docs/HIDE-SPEC.md` | Spécification Hide | 2026-08-09 | brouillon | Proxy Hide / SOCKS5 | Spécification de réintroduction ; le périmètre livré doit être confronté à `ETAT-REEL.md` et au code avant toute promesse produit. |
 | `docs/P0-RAPPORT.md` | Rapport de preuves P0 | 2026-11-03 | daté | Archive / inventaire historique | Copie d'un rapport d'exécution daté ; il précise lui-même ce que l'archive prouve et ce qu'elle ne prouve pas. |
