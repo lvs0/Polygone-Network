@@ -31,6 +31,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpListener, TcpStream};
@@ -40,6 +41,13 @@ use tokio::sync::{Mutex, RwLock};
 const MAX_LINE: usize = 64 * 1024;
 /// Max envelopes forwarded per second per connection.
 const RATE_LIMIT_PER_SEC: usize = 200;
+/// Max envelopes forwarded per second **per identity**, across reconnects.
+/// Lower than the connection limit so one peer cannot consume a relay alone.
+const IDENTITY_RATE_PER_SEC: usize = 100;
+/// Identity windows idle this long are forgotten, bounding memory.
+const IDENTITY_WINDOW_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
+/// Hard cap on tracked identities before a prune is attempted.
+const MAX_IDENTITY_WINDOWS: usize = 1024;
 /// Max simultaneous connections (anti-DoS): each holds a routing entry.
 const MAX_CONNECTIONS: usize = 1024;
 /// A TCP client must complete HELLO promptly or release its connection slot.
@@ -58,6 +66,50 @@ const SHARDS: usize = 16;
 type PeerWriter = Arc<Mutex<OwnedWriteHalf>>;
 type Shard = RwLock<HashMap<String, PeerWriter>>;
 type Peers = Arc<Vec<Shard>>;
+
+/// Fenêtre d'une identité : nombre d'enveloppes acceptées dans la seconde.
+struct IdentityWindow {
+    started: Instant,
+    count: usize,
+    last_seen: Instant,
+}
+
+/// Limite par identité (FV-SEC-10). Le compteur est partagé entre connexions :
+/// une identité qui se reconnecte ne remet pas son quota à zéro.
+#[derive(Default)]
+struct IdentityLimiter {
+    windows: HashMap<String, IdentityWindow>,
+}
+
+impl IdentityLimiter {
+    /// `true` si l'enveloppe de cette identité peut être traitée. Un refus ne
+    /// ferme pas la connexion et ne touche aucune autre identité : la limite
+    /// est locale au pair abusif, jamais un déni de service global.
+    fn allow(&mut self, id: &str, now: Instant) -> bool {
+        if self.windows.len() >= MAX_IDENTITY_WINDOWS && !self.windows.contains_key(id) {
+            self.windows
+                .retain(|_, window| now.duration_since(window.last_seen) < IDENTITY_WINDOW_IDLE);
+        }
+        let window = self
+            .windows
+            .entry(id.to_string())
+            .or_insert(IdentityWindow {
+                started: now,
+                count: 0,
+                last_seen: now,
+            });
+        if now.duration_since(window.started).as_secs() >= 1 {
+            window.started = now;
+            window.count = 0;
+        }
+        window.last_seen = now;
+        if window.count >= IDENTITY_RATE_PER_SEC {
+            return false;
+        }
+        window.count += 1;
+        true
+    }
+}
 
 /// Remove a route only if it still points to the connection that observed the
 /// failure/disconnect. A stale handler must never erase a replacement peer.
@@ -238,7 +290,12 @@ fn outbound_line(line: &[u8]) -> Vec<u8> {
 }
 
 /// Handle one client connection.
-async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: Peers) -> Result<()> {
+async fn handle_client(
+    stream: TcpStream,
+    peer_addr: SocketAddr,
+    peers: Peers,
+    identities: Arc<Mutex<IdentityLimiter>>,
+) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
 
@@ -327,6 +384,16 @@ async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: Peers) -
                 );
                 continue;
             }
+            // Limite par identité : une enveloppe au-delà du quota est
+            // journalisée et ignorée. La connexion et les autres pairs ne
+            // sont pas affectés — pas de déni de service global.
+            if !identities.lock().await.allow(&hello, Instant::now()) {
+                log::warn!(
+                    "relay: identity '{}' above the per-peer limit — envelope dropped",
+                    hello
+                );
+                continue;
+            }
             let to = value.get("to").and_then(|v| v.as_str()).unwrap_or("");
             if to.is_empty() {
                 continue;
@@ -399,6 +466,7 @@ pub async fn run_listener(listener: TcpListener) -> Result<()> {
         shards.push(RwLock::new(HashMap::new()));
     }
     let peers: Peers = Arc::new(shards);
+    let identities: Arc<Mutex<IdentityLimiter>> = Arc::new(Mutex::new(IdentityLimiter::default()));
     // Global connection cap: an attacker cannot open unbounded connections
     // (each holds a routing entry + buffers). Beyond the cap, connections
     // are accepted and dropped immediately.
@@ -416,10 +484,11 @@ pub async fn run_listener(listener: TcpListener) -> Result<()> {
                     continue;
                 }
                 let peers = peers.clone();
+                let identities = identities.clone();
                 let conns = conns.clone();
                 tokio::spawn(async move {
                     let _guard = ConnGuard(conns);
-                    if let Err(e) = handle_client(stream, peer_addr, peers).await {
+                    if let Err(e) = handle_client(stream, peer_addr, peers, identities).await {
                         log::error!("relay: client error {}: {}", peer_addr, e);
                     }
                 });
@@ -596,6 +665,38 @@ mod tests {
         let result = tokio::time::timeout(Duration::from_millis(200), run(0)).await;
         // Err(TimeoutElapsed) because run() loops forever — that's fine.
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn per_identity_limit_denies_only_the_abusive_peer() {
+        let mut limiter = IdentityLimiter::default();
+        let now = Instant::now();
+        for _ in 0..IDENTITY_RATE_PER_SEC {
+            assert!(limiter.allow("alice", now));
+        }
+        assert!(
+            !limiter.allow("alice", now),
+            "le pair abusif doit être refusé au-delà du quota"
+        );
+        assert!(
+            limiter.allow("bob", now),
+            "la limite d'Alice ne doit jamais toucher Bob"
+        );
+    }
+
+    #[test]
+    fn per_identity_limit_resets_after_window() {
+        let mut limiter = IdentityLimiter::default();
+        let start = Instant::now();
+        for _ in 0..IDENTITY_RATE_PER_SEC {
+            assert!(limiter.allow("alice", start));
+        }
+        assert!(!limiter.allow("alice", start));
+        let later = start + std::time::Duration::from_secs(1);
+        assert!(
+            limiter.allow("alice", later),
+            "une nouvelle fenêtre doit réadmettre le pair"
+        );
     }
 
     #[tokio::test]
