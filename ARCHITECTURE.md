@@ -107,7 +107,7 @@ polygone/
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
 | `core`       | 11       | 1 373      | — (lib)              | 29    |
-| `client`     | 30       | 14 099     | `polygone`           | 173   |
+| `client`     | 30       | 14 109     | `polygone`           | 173   |
 | `relay`      | 3        | 1 117      | `polygone-relay`     | 19    |
 | `gateway`    | 7        | 2 572      | `polygone-gateway`   | 43    |
 | `petals`     | 13       | 3 241      | — (lib)              | 18    |
