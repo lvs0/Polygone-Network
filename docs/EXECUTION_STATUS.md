@@ -61,7 +61,7 @@
 | `cargo fmt --all -- --check` | **exit 0** |
 | `node scripts/check-docs.mjs --tests 412` | **documents cohérents**, exit 0 |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **6/6** |
-| `node scripts/check-atlas.mjs` | **PASS** — 11 ouvertes, 29 terminées |
+| `node scripts/check-atlas.mjs` | **PASS** — 10 ouvertes, 30 terminées |
 | `node scripts/vision-status.mjs` | **67 exigences, 24 validées, 9 bloquées** (41,4 % des réalisables) |
 
 ## Problèmes rencontrés
@@ -79,22 +79,20 @@
 
 ## Prochaine tâche exacte
 
-**`GW.1` — recevoir un heartbeat de nœud et le persister** (priorité P1 du
-registre, `FV-OPS-05`). Dépendance : aucune.
+**`GW.2` — mesurer réellement la latence** (priorité P1, `FV-OPS-05`).
+Dépendance : GW.1 (fait, commit `6a84c9b`).
 
 Étapes :
 
-1. `POST /api/nodes/heartbeat` authentifié ML-DSA-65 (signature du corps par la
-   clé du nœud), mise à jour de `last_seen`.
-2. Écriture atomique de `nodes.json` (fichier temporaire + `rename`), rechargement
-   au démarrage de la gateway.
-3. Refus explicite d'une signature invalide, sans écrire le fichier.
-4. Preuves nommées : `heartbeat_survives_process_restart` et
-   `heartbeat_requires_valid_signature`.
-5. La gateway ne contacte jamais le relais : c'est le nœud qui pousse.
+1. Ping/pong signé périodique vers chaque pair appairé ; `last_seen` et
+   `latency_ms` écrits **au retour seulement**.
+2. Un pair silencieux garde `None` : jamais `0`, jamais une médiane inventée.
+3. Preuves nommées : `latency_populated_after_pong`, `median_uses_measured_nodes_only`.
+4. Vérifier que `/api/v1/network/status` ne compte que des mesures réelles et
+   que le snapshot reste lisible par `web/dashboard.js`.
 
-Après `GW.1` : `GW.2` (latence mesurée, jamais `0`), puis `SEC.1` (modèle de
-menace par service), puis `CLI.6` (chaque code de refus → action).
+Après `GW.2` : `SEC.1` (modèle de menace par service), `CLI.6` (chaque code de
+refus → action), `DOC.4` (document sans date ni statut refusé).
 
 ## Commandes de reprise
 
