@@ -139,6 +139,12 @@
   ],
   "completed": [
     {
+      "id": "KEY.1",
+      "date": "2026-11-05",
+      "proof": "polygone clef-tourner : nouvelle ML-DSA-65 signée par l'ancienne sur polygone-key-rotation-v1, ancienne révoquée, identité KEM/node_id stable, identity.json écrit atomiquement (tmp + rename, 600) ; rotation_keeps_identity_and_signs_the_new_key, revoked_key_cannot_sign_anymore, rotation_survives_process_restart ; FV-SEC-05 passe à 6 ; 422 tests, clippy 0. Limite : révocation locale, non propagée aux pairs",
+      "commit": "07a55f8"
+    },
+    {
       "id": "RATE.1",
       "date": "2026-11-05",
       "proof": "IdentityLimiter dans crates/relay/src/relay.rs : 100 enveloppes/s par identité, compteur partagé entre reconnexions, purge des fenêtres inactives ; dépassement journalisé et enveloppe ignorée sans fermer la connexion ni toucher les autres pairs ; per_identity_limit_denies_only_the_abusive_peer, per_identity_limit_resets_after_window ; FV-SEC-10 passe à 6 ; 419 tests, clippy 0",

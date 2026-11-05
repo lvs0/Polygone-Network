@@ -55,6 +55,7 @@ partiellement fiable : l'identité est lisible par le compte utilisateur.
 | Voler un nom de fichier | `name_ct` chiffré, hors bande | tests drive |
 | Premier contact substitué (TOFU) | empreinte affichée à l'écoute, clé différente pour un `from` connu = rejet | `ARCHITECTURE.md` §11 |
 | Fuite de secrets dans le dépôt | test `no_tracked_secrets` sur `git ls-files` | `SEC.8` |
+| Clé de signature compromise ou à renouveler | rotation signée par l'ancienne clé, ancienne révoquée, identité KEM stable, écriture atomique | `FV-SEC-05`, `rotation_keeps_identity_and_signs_the_new_key` |
 
 **Risques résiduels.** Keylogger ou malware déjà présent avant chiffrement ;
 coercition physique ; métadonnées de timing et de taille ; corrélation du
@@ -208,7 +209,9 @@ machine.
 ## 10. Ce qui manque encore
 
 - **Audit externe indépendant** : non réalisé. `FV-SEC-08` reste à l'état 5.
-- **Rotation/révocation de clés** (`FV-SEC-05`) : absente.
+- **Rotation/révocation de clés** (`FV-SEC-05`) : locale et testée, mais la
+  révocation n'est pas encore propagée aux pairs distants ; un pair qui n'a
+  pas relu l'identité peut encore accepter l'ancienne clé.
 - **Limites par identité** (`FV-SEC-10`) : fenêtre d'une seconde en mémoire,
   perdue au redémarrage du relais ; pas de réputation persistante par pair.
 - **Chiffrement au repos** : décision non prise ; documenté comme limite.

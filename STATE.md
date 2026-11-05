@@ -48,6 +48,7 @@
 | `cargo test --workspace -j 2` après GW.2 | **415 tests, 0 échec** (22 suites) | 2026-11-05 |
 | CLI.6 : chaque refus → cause + action | **fait** — `KNOWN_REASONS` = 8 constantes du daemon, `NodeError::Denied` affiche code + cause + action ; `every_reason_code_has_an_action`, `unknown_denial_keeps_the_technical_code` ; 417 tests | 2026-11-05 |
 | FV-SEC-10 : limite par identité | **fait** — `IdentityLimiter` 100 env/s partagées entre reconnexions, purge à 60 s d'inactivité, refus journalisé sans fermer la connexion ; `per_identity_limit_denies_only_the_abusive_peer`, `per_identity_limit_resets_after_window` ; 419 tests | 2026-11-05 |
+| FV-SEC-05 : rotation et révocation de clé | **fait** — `polygone clef-tourner` signe la nouvelle ML-DSA-65 avec l'ancienne (`polygone-key-rotation-v1`), révoque l'ancienne, garde le node_id KEM, écrit `identity.json` atomiquement ; 3 tests de rotation/révocation/relecture ; 422 tests | 2026-11-05 |
 | `scripts/check-docs.mjs` : somme des LOC du tableau vérifiée comme celle des tests | **ajouté** — c'est ce contrôle qui manquait quand `client` affichait 11 365 pour 11 677 mesurées | 2026-11-04 |
 | `node scripts/check-docs.mjs --tests 370` | **documents cohérents**, exit 0 ; deux négatifs vérifiés : branche forcée à `realign/v1` → exit 1 (`[state.branche]`), LOC volontairement faussées → exit 1 (`[architecture.somme.LOC]`) | 2026-11-04 |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **5/5**, exit 0 — 19 tâches ouvertes, 15 fermées, JSON valide | 2026-11-04 |
