@@ -139,7 +139,8 @@ impl fmt::Display for NodeError {
             ),
             NodeError::Denied { reason } => write!(
                 f,
-                "bail REFUSÉ par le daemon ({reason}) — le nœud n'a rien ouvert"
+                "bail REFUSÉ par le daemon ({}) — le nœud n'a rien ouvert",
+                crate::refusal::describe(reason)
             ),
             NodeError::Unexpected(reply) => {
                 write!(f, "réponse inattendue du daemon : {reply:?}")
