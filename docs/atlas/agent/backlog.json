@@ -329,6 +329,12 @@
       "date": "2026-11-04",
       "proof": "test no_tracked_secrets lit git ls-files (repli parcours) et refuse identity.json, *.key, .env/.env.* hors gabarits ; 2/2 vert ; .env ajouté par git add -f → échec nommant .env, dé-suivi → vert ; hook .githooks/pre-commit (activation documentée) + étape CI ; 404 tests, clippy 0, check-docs 404. Limite : gitleaks absent de ce poste, audit d'historique non exécuté",
       "commit": "b0da5b6"
+    },
+    {
+      "id": "CLI.3",
+      "date": "2026-11-04",
+      "proof": "polygone profil sobre|equilibre|genereux écrit tier Custom + 4 seuils (atomique, behavior/safety intacts) ; sans argument affiche le courant ; polygoned status relit 25/30/40 puis 75/70/80 dans un HOME réel ; turbo → exit 1 nommant les choix ; chaque rendu dit qu'aucune limite OS n'existe sans isolation ; 4 tests dont les deux preuves nommées ; 408 tests, clippy 0, check-docs 408. Non promue dans les tâches opérationnelles : preuve ajoutée directement, comme DOC.3",
+      "commit": "7a49150"
     }
   ]
 }
