@@ -12,7 +12,7 @@
 | Dépôt | `~/Polygone-Atlas/03-REALIGNED` |
 | Branche | `realign/v2` — locale, non poussée |
 | HEAD | voir `git log -1 --format='%h %s'` |
-| Arbre | modifications SEC.10 + DOC.4 + FV-SEC-06 + SEC.5 ; aucun push |
+| Arbre | propre après commits locaux cb1b5ef et 5d04cd6 ; aucun push |
 | Registre | **67 exigences**, **28 validées**, **9 bloquées** → avancement réel **28/58 = 48,3 %** (calculé, pas estimé) |
 
 ## Dernier travail effectué

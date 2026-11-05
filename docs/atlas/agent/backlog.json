@@ -148,19 +148,19 @@
       "id": "FV-SEC-06",
       "date": "2026-11-05",
       "proof": "scripts/identity-cost-audit.py --samples 30 sur target/release/polygone : 30/30 node_id distincts ; génération ML-KEM-1024 + ML-DSA-65 + écriture identity.json ; médiane 2,85 ms, moyenne 2,85 ms, P95 3,07 ms ; 21 641 octets par identité, mode 0600 ; HOME temporaires isolés et supprimés. Rapport reports/identity-cost-audit-2026-11-05.md avec SHA-256 du binaire. SEC.4 prouve séparément le refus d'usurpation de from. Limite explicite : coût local faible, aucune preuve d'identité humaine ni protection Sybil globale ; ne pas revendiquer la résistance Sybil.",
-      "commit": "à venir"
+      "commit": "5d04cd6"
     },
     {
       "id": "DOC.4",
       "date": "2026-11-05",
       "proof": "scripts/check-docs.mjs appelle validateDocumentIndex : les 66 Markdown de docs/ doivent chacun avoir une entrée unique, un titre, une date ISO ou « Non indiquée », un statut autorisé (autorité/daté/brouillon/à supprimer), un thème et une justification ; entrées manquantes, doublons et chemins orphelins refusés. node --test scripts/document-index.test.mjs : 6/6 ; portes négatives sur docs/INDEX.md (date vide puis statut inconnu) : check-docs exit 1 avec chemin et cause ; restauration vérifiée par SHA-256 ; check-docs --tests 422 exit 0.",
-      "commit": "à venir"
+      "commit": "5d04cd6"
     },
     {
       "id": "SEC.10",
       "date": "2026-11-05",
       "proof": "scripts/relay-metadata-audit.mjs : relais + émetteur + récepteur réels via proxy TCP ; exige >=2 connexions, >=2 HELLO, >=1 fragment ; refuse si marqueur de contenu sur le fil ou dans un journal ; rapport daté reports/relay-metadata-audit-2026-11-05.md (16 fragments, 2 HELLO, 1 session, 21 640–47 566 octets, contenu absent) ; docs/threat-msg.md cite la mesure ; hide-smoke.sh reste vert",
-      "commit": "à venir"
+      "commit": "5d04cd6"
     },
     {
       "id": "KEY.1",

@@ -10,7 +10,7 @@
 | Date | 2026-11-05 |
 | Branche | `realign/v2` — locale, non poussée ; `realign/v1` est la branche publiée |
 | HEAD | voir `git log -1 --format='%h %s'` (jamais recopié à la main) |
-| Arbre | modifié : lots SEC.10, DOC.4, FV-SEC-06 et SEC.5 ; diff-check propre, non poussé |
+| Arbre | propre après commits locaux SEC.5 (cb1b5ef) et audits DOC.4/FV-SEC-06/SEC.10 (5d04cd6) ; non poussé |
 | Origine | `lvs0/Polygone-Network` ; `origin/realign/v1` existe, `origin/realign/v2` non |
 
 ## Vérifications exécutées
