@@ -22,4 +22,5 @@ pub mod mesh;
 pub mod node;
 pub mod node_isolation;
 pub mod pause;
+pub mod profile;
 pub mod uninstall;

@@ -331,7 +331,13 @@ fn daemon_summary(socket: &Path) -> String {
         );
     }
 
-    let mut client = match DaemonClient::connect_with_timeout(socket, STATUS_PROBE_TIMEOUT) {
+    // Deux requêtes sur la MÊME connexion, donc le MÊME délai de lecture à
+    // chaque fois. Le budget total doit rester `STATUS_PROBE_TIMEOUT` : on le
+    // partage entre les deux plutôt que de le payer deux fois (un daemon muet
+    // coûtait sinon 2 s à `status`, régression vue par
+    // `test_status_probe_does_not_hang_on_silent_daemon`).
+    let per_request = STATUS_PROBE_TIMEOUT / 2;
+    let mut client = match DaemonClient::connect_with_timeout(socket, per_request) {
         Ok(client) => client,
         Err(e) => return format!("daemon non joignable ({e})"),
     };

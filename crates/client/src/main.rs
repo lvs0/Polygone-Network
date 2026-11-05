@@ -69,6 +69,14 @@ struct Args {
 enum Commands {
     /// Diagnostic des capacités réellement mesurées, réservables et contraintes.
     Doctor,
+    /// Choisir un profil d'usage (sobre|equilibre|genereux) et écrire les seuils.
+    Profil {
+        /// Profil à écrire ; sans argument, affiche le profil courant.
+        nom: Option<String>,
+        /// Chemin de config explicite (défaut : ~/.config/polygone/daemon.toml).
+        #[arg(long)]
+        config: Option<String>,
+    },
     /// Suspendre le service : libérer le bail et écrire une intention bornée.
     Pause {
         /// Durée de la pause, entre 10 min et 4 h (`30m`, `2h`).
@@ -901,6 +909,12 @@ async fn main() -> Result<()> {
         print!("{report}");
         return Ok(());
     }
+    // Un profil écrit une config relue par polygoned : aucune identité, aucun
+    // bail, aucun accès réseau.
+    if let Some(Commands::Profil { nom, config }) = args.command.as_ref() {
+        polygone_client::profile::run(nom.as_deref(), config.as_deref().map(std::path::Path::new))?;
+        return Ok(());
+    }
     // Pause et reprise ne créent pas d'identité : elles parlent au daemon et au
     // fichier d'intention, rien d'autre.
     if let Some(Commands::Pause { duree }) = args.command.as_ref() {
@@ -1292,6 +1306,9 @@ async fn main() -> Result<()> {
             unreachable!("handled before identity load")
         }
         Some(Commands::Doctor) => {
+            unreachable!("handled before identity load")
+        }
+        Some(Commands::Profil { .. }) => {
             unreachable!("handled before identity load")
         }
         Some(Commands::Pause { .. }) | Some(Commands::Reprendre) => {
