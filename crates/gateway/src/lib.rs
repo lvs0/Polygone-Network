@@ -19,6 +19,8 @@
 //!   GET  /api/v1/pair/qr/:token  → deep link d'appairage
 //!   POST /api/v1/pair/accept     → acceptation côté client
 //!   POST /api/v1/nodes/heartbeat → heartbeat signé, `last_seen` persisté
+//!   POST /api/v1/nodes/ping      → challenge de mesure, signé
+//!   POST /api/v1/nodes/pong      → RTT mesuré, challenge à usage unique
 //!   GET  /api/v1/node/:id        → info d'un nœud
 
 pub mod http;
@@ -81,12 +83,21 @@ pub struct PairAcceptRequest {
     pub token: String,
 }
 
+/// Ping émis, en attente de pong. Transitoire : jamais écrit sur disque.
+#[derive(Clone, Debug)]
+pub struct PendingPing {
+    pub challenge: String,
+    pub issued_at: u64,
+}
+
 /// État partagé du gateway : le site à servir et les nœuds/appairages connus.
 #[derive(Clone)]
 pub struct Gateway {
     pub site_dir: PathBuf,
     pub pairs: Arc<RwLock<HashMap<String, PairToken>>>,
     pub nodes: Arc<RwLock<HashMap<String, NodeInfo>>>,
+    /// Challenges de ping en attente : à usage unique, expirés par le handler.
+    pub pings: Arc<RwLock<HashMap<String, PendingPing>>>,
     /// Fichier où les nœuds survivent au redémarrage. `None` = mémoire seule
     /// (tests et usage jetable), jamais une persistance implicite ailleurs.
     pub nodes_file: Option<PathBuf>,
@@ -134,6 +145,7 @@ impl Gateway {
             site_dir,
             pairs: Arc::new(RwLock::new(HashMap::new())),
             nodes: Arc::new(RwLock::new(nodes)),
+            pings: Arc::new(RwLock::new(HashMap::new())),
             nodes_file,
             persist_lock: Arc::new(tokio::sync::Mutex::new(())),
             started_at: now_secs(),

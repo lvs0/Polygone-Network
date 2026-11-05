@@ -10,7 +10,7 @@ use crate::http::{HttpRequest, HttpResponse};
 use crate::static_files;
 use crate::{
     Gateway, MAX_PENDING_PAIRINGS, NodeInfo, PAIR_TOKEN_TTL_SECS, PairAcceptRequest, PairRequest,
-    PairToken, now_secs, uuid_short,
+    PairToken, PendingPing, now_secs, uuid_short,
 };
 
 /// État déclaré d'un service. C'est une affirmation sur le code, pas un
@@ -78,6 +78,31 @@ pub struct HeartbeatRequest {
     pub signature_hex: String,
 }
 
+/// Durée de vie d'un challenge de ping : au-delà, la mesure est périmée.
+pub const PING_TTL_SECS: u64 = 30;
+/// Plafond de RTT accepté : au-delà, la mesure n'est pas crédible pour un pair.
+pub const MAX_RTT_MS: u64 = 60_000;
+
+/// Message signé pour demander un challenge de mesure.
+pub fn ping_message(node_id: &str, timestamp: u64) -> String {
+    format!("polygone-ping-v1\n{node_id}\n{timestamp}")
+}
+
+/// Message signé qui rapporte un RTT mesuré. Le challenge et la valeur sont
+/// dans la signature : un pong ne peut pas être rejoué pour une autre mesure.
+pub fn pong_message(node_id: &str, timestamp: u64, challenge: &str, rtt_ms: u64) -> String {
+    format!("polygone-pong-v1\n{node_id}\n{timestamp}\n{challenge}\n{rtt_ms}")
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PongRequest {
+    pub node_id: String,
+    pub timestamp: u64,
+    pub challenge: String,
+    pub rtt_ms: u64,
+    pub signature_hex: String,
+}
+
 fn valid_pair_token(token: &str) -> bool {
     let Some(secret) = token.strip_prefix("poly_") else {
         return false;
@@ -113,6 +138,8 @@ impl Gateway {
             ("POST", "/api/v1/pair/request") => self.pair_request(&request.body).await,
             ("POST", "/api/v1/pair/accept") => self.pair_accept(&request.body).await,
             ("POST", "/api/v1/nodes/heartbeat") => self.heartbeat(&request.body).await,
+            ("POST", "/api/v1/nodes/ping") => self.ping(&request.body).await,
+            ("POST", "/api/v1/nodes/pong") => self.pong(&request.body).await,
             ("GET", path) if path.starts_with("/api/v1/pair/qr/") => {
                 let token = path.trim_start_matches("/api/v1/pair/qr/");
                 self.pair_qr(token).await
@@ -223,6 +250,59 @@ impl Gateway {
         HttpResponse::json(200, &json!({ "ok": true }))
     }
 
+    /// Vérifie une signature de nœud avec la clé **épinglée à l'appairage**.
+    /// Le corps de la requête ne peut donc jamais choisir sa propre clé.
+    async fn authenticate(
+        &self,
+        node_id: &str,
+        message: &str,
+        signature_hex: &str,
+    ) -> Result<(), HttpResponse> {
+        let signing_key_hex = {
+            let nodes = self.nodes.read().await;
+            match nodes.get(node_id) {
+                Some(node) => match node.signing_key_hex.as_deref() {
+                    Some(key) => key.to_string(),
+                    None => {
+                        return Err(HttpResponse::text(
+                            403,
+                            "nœud sans clé de signature épinglée",
+                        ));
+                    }
+                },
+                None => {
+                    return Err(HttpResponse::json(
+                        404,
+                        &json!({ "error": "nœud inconnu — appairage requis" }),
+                    ));
+                }
+            }
+        };
+
+        let signature_bytes = match hex::decode(signature_hex.trim()) {
+            Ok(bytes) => bytes,
+            Err(_) => return Err(HttpResponse::text(400, "signature_hex invalide")),
+        };
+        if signature_bytes.len() != polygone_core::sign::SIGNATURE_SIZE {
+            return Err(HttpResponse::text(403, "signature ML-DSA-65 invalide"));
+        }
+        let public_key = match polygone_core::sign::PublicKey::from_hex(&signing_key_hex) {
+            Ok(key) => key,
+            Err(_) => {
+                return Err(HttpResponse::text(
+                    403,
+                    "clé de signature épinglée illisible",
+                ));
+            }
+        };
+        let verifier = polygone_core::sign::Verifier::from_public(public_key);
+        let signature = polygone_core::sign::Signature::from_bytes(&signature_bytes);
+        if !verifier.verify(message.as_bytes(), &signature) {
+            return Err(HttpResponse::text(403, "signature ML-DSA-65 invalide"));
+        }
+        Ok(())
+    }
+
     /// Met à jour `last_seen` d'un nœud **appairé**, après vérification de sa
     /// signature ML-DSA-65 avec la clé épinglée. Un heartbeat inconnu ou mal
     /// signé ne touche ni la table ni le fichier.
@@ -235,43 +315,15 @@ impl Gateway {
         if now.abs_diff(request.timestamp) > HEARTBEAT_WINDOW_SECS {
             return HttpResponse::text(400, "horodatage hors fenêtre (±300 s)");
         }
-
-        let signing_key_hex = {
-            let nodes = self.nodes.read().await;
-            match nodes.get(&request.node_id) {
-                Some(node) => match node.signing_key_hex.clone() {
-                    Some(key) => key,
-                    None => {
-                        return HttpResponse::text(403, "nœud sans clé de signature épinglée");
-                    }
-                },
-                None => {
-                    return HttpResponse::json(
-                        404,
-                        &json!({ "error": "nœud inconnu — appairage requis" }),
-                    );
-                }
-            }
-        };
-
-        let signature_bytes = match hex::decode(request.signature_hex.trim()) {
-            Ok(bytes) => bytes,
-            Err(_) => return HttpResponse::text(400, "signature_hex invalide"),
-        };
-        if signature_bytes.len() != polygone_core::sign::SIGNATURE_SIZE {
-            return HttpResponse::text(403, "signature ML-DSA-65 invalide");
-        }
-        let public_key = match polygone_core::sign::PublicKey::from_hex(&signing_key_hex) {
-            Ok(key) => key,
-            Err(_) => return HttpResponse::text(403, "clé de signature épinglée illisible"),
-        };
-        let verifier = polygone_core::sign::Verifier::from_public(public_key);
-        let signature = polygone_core::sign::Signature::from_bytes(&signature_bytes);
-        if !verifier.verify(
-            heartbeat_message(&request.node_id, request.timestamp).as_bytes(),
-            &signature,
-        ) {
-            return HttpResponse::text(403, "signature ML-DSA-65 invalide");
+        if let Err(response) = self
+            .authenticate(
+                &request.node_id,
+                &heartbeat_message(&request.node_id, request.timestamp),
+                &request.signature_hex,
+            )
+            .await
+        {
+            return response;
         }
 
         let snapshot = {
@@ -291,6 +343,122 @@ impl Gateway {
             200,
             &json!({ "ok": true, "node_id": request.node_id, "last_seen": now }),
         )
+    }
+
+    /// Demande un challenge de mesure. Le nœud doit être appairé et signer sa
+    /// demande : un inconnu ne peut pas ouvrir de mesure.
+    async fn ping(&self, body: &[u8]) -> HttpResponse {
+        let request: HeartbeatRequest = match serde_json::from_slice(body) {
+            Ok(value) => value,
+            Err(_) => return HttpResponse::text(400, "corps JSON invalide"),
+        };
+        let now = now_secs();
+        if now.abs_diff(request.timestamp) > HEARTBEAT_WINDOW_SECS {
+            return HttpResponse::text(400, "horodatage hors fenêtre (±300 s)");
+        }
+        if let Err(response) = self
+            .authenticate(
+                &request.node_id,
+                &ping_message(&request.node_id, request.timestamp),
+                &request.signature_hex,
+            )
+            .await
+        {
+            return response;
+        }
+
+        let challenge = uuid_short();
+        self.pings.write().await.insert(
+            request.node_id.clone(),
+            PendingPing {
+                challenge: challenge.clone(),
+                issued_at: now,
+            },
+        );
+
+        // Un ping est une preuve de vie, mais il ne crée aucune mesure.
+        let snapshot = {
+            let mut nodes = self.nodes.write().await;
+            if let Some(node) = nodes.get_mut(&request.node_id) {
+                node.last_seen = now;
+            }
+            nodes.clone()
+        };
+        self.persist_nodes(&snapshot).await;
+
+        HttpResponse::json(
+            200,
+            &json!({ "ok": true, "challenge": challenge, "expires_in_seconds": PING_TTL_SECS }),
+        )
+    }
+
+    /// Accepte un RTT **seulement** après un ping servi, une seule fois, dans
+    /// les 30 s. La valeur est mesurée par le nœud (le seul à voir son chemin
+    /// réseau) ; la gateway garantit qu'elle est fraîche et signée, pas qu'elle
+    /// est honnête — c'est écrit dans `docs/EXECUTION_STATUS.md`.
+    async fn pong(&self, body: &[u8]) -> HttpResponse {
+        let request: PongRequest = match serde_json::from_slice(body) {
+            Ok(value) => value,
+            Err(_) => return HttpResponse::text(400, "corps JSON invalide"),
+        };
+        let now = now_secs();
+        if now.abs_diff(request.timestamp) > HEARTBEAT_WINDOW_SECS {
+            return HttpResponse::text(400, "horodatage hors fenêtre (±300 s)");
+        }
+        if request.rtt_ms > MAX_RTT_MS {
+            return HttpResponse::text(400, "rtt_ms hors bornes");
+        }
+        if let Err(response) = self
+            .authenticate(
+                &request.node_id,
+                &pong_message(
+                    &request.node_id,
+                    request.timestamp,
+                    &request.challenge,
+                    request.rtt_ms,
+                ),
+                &request.signature_hex,
+            )
+            .await
+        {
+            return response;
+        }
+
+        let pending = {
+            let pings = self.pings.read().await;
+            pings
+                .get(&request.node_id)
+                .filter(|pending| pending.challenge == request.challenge)
+                .cloned()
+        };
+        let Some(pending) = pending else {
+            return HttpResponse::json(
+                409,
+                &json!({ "error": "aucun ping en attente pour ce challenge" }),
+            );
+        };
+        if now.saturating_sub(pending.issued_at) > PING_TTL_SECS {
+            self.pings.write().await.remove(&request.node_id);
+            return HttpResponse::json(409, &json!({ "error": "ping expiré" }));
+        }
+        // Usage unique : un pong rejoué ne remplace pas la mesure suivante.
+        self.pings.write().await.remove(&request.node_id);
+
+        let snapshot = {
+            let mut nodes = self.nodes.write().await;
+            let Some(node) = nodes.get_mut(&request.node_id) else {
+                return HttpResponse::json(
+                    404,
+                    &json!({ "error": "nœud inconnu — appairage requis" }),
+                );
+            };
+            node.latency_ms = Some(request.rtt_ms);
+            node.last_seen = now;
+            nodes.clone()
+        };
+        self.persist_nodes(&snapshot).await;
+
+        HttpResponse::json(200, &json!({ "ok": true, "latency_ms": request.rtt_ms }))
     }
 
     async fn pair_qr(&self, token: &str) -> HttpResponse {
@@ -416,6 +584,134 @@ mod tests {
             "signature_hex": hex::encode(signature.as_bytes()),
         })
         .to_string()
+    }
+
+    fn ping_body(keys: &polygone_core::sign::KeyPair, id: &str, timestamp: u64) -> String {
+        let signature = keys.signer.sign(ping_message(id, timestamp).as_bytes());
+        json!({
+            "node_id": id,
+            "timestamp": timestamp,
+            "signature_hex": hex::encode(signature.as_bytes()),
+        })
+        .to_string()
+    }
+
+    fn pong_body(
+        keys: &polygone_core::sign::KeyPair,
+        id: &str,
+        timestamp: u64,
+        challenge: &str,
+        rtt_ms: u64,
+    ) -> String {
+        let signature = keys
+            .signer
+            .sign(pong_message(id, timestamp, challenge, rtt_ms).as_bytes());
+        json!({
+            "node_id": id,
+            "timestamp": timestamp,
+            "challenge": challenge,
+            "rtt_ms": rtt_ms,
+            "signature_hex": hex::encode(signature.as_bytes()),
+        })
+        .to_string()
+    }
+
+    async fn issue_challenge(
+        gateway: &Gateway,
+        keys: &polygone_core::sign::KeyPair,
+        id: &str,
+    ) -> String {
+        let response = gateway
+            .route(post("/api/v1/nodes/ping", &ping_body(keys, id, now_secs())))
+            .await;
+        assert_eq!(response.status, 200, "ping accepté");
+        let body: serde_json::Value = serde_json::from_slice(&response.body).unwrap();
+        body["challenge"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn latency_populated_after_pong() {
+        let (dir, path) = temp_nodes_path("latency");
+        let keys = polygone_core::sign::generate_keypair().unwrap();
+        let silent = polygone_core::sign::generate_keypair().unwrap();
+        let node_id = "aaaabbbbccccdddd";
+
+        let gateway = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        seed_node(&gateway, node_id, &keys.verifier.public_key().to_hex()).await;
+        seed_node(
+            &gateway,
+            "silencieux000000",
+            &silent.verifier.public_key().to_hex(),
+        )
+        .await;
+
+        let stamp = now_secs();
+        let challenge = issue_challenge(&gateway, &keys, node_id).await;
+        let response = gateway
+            .route(post(
+                "/api/v1/nodes/pong",
+                &pong_body(&keys, node_id, stamp, &challenge, 42),
+            ))
+            .await;
+        assert_eq!(response.status, 200, "pong accepté après ping");
+
+        let nodes = gateway.nodes.read().await;
+        assert_eq!(nodes[node_id].latency_ms, Some(42));
+        assert_eq!(nodes[node_id].last_seen, stamp);
+        assert_eq!(nodes["silencieux000000"].latency_ms, None);
+        drop(nodes);
+        assert_eq!(
+            gateway.calculate_latency_median().await,
+            Some(42),
+            "la médiane ne doit utiliser que les nœuds mesurés"
+        );
+        drop(gateway);
+
+        let reloaded = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        assert_eq!(
+            reloaded.nodes.read().await[node_id].latency_ms,
+            Some(42),
+            "la mesure survit au redémarrage"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn pong_without_ping_is_refused() {
+        let (dir, path) = temp_nodes_path("pong-sans-ping");
+        let keys = polygone_core::sign::generate_keypair().unwrap();
+        let node_id = "1111222233334444";
+        let gateway = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        seed_node(&gateway, node_id, &keys.verifier.public_key().to_hex()).await;
+
+        let response = gateway
+            .route(post(
+                "/api/v1/nodes/pong",
+                &pong_body(&keys, node_id, now_secs(), "deadbeef", 5),
+            ))
+            .await;
+        assert_eq!(response.status, 409, "aucun ping n'a été servi");
+        assert_eq!(gateway.nodes.read().await[node_id].latency_ms, None);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn pong_replay_is_refused() {
+        let (dir, path) = temp_nodes_path("pong-replay");
+        let keys = polygone_core::sign::generate_keypair().unwrap();
+        let node_id = "5555666677778888";
+        let gateway = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        seed_node(&gateway, node_id, &keys.verifier.public_key().to_hex()).await;
+
+        let stamp = now_secs();
+        let challenge = issue_challenge(&gateway, &keys, node_id).await;
+        let body = pong_body(&keys, node_id, stamp, &challenge, 17);
+        let first = gateway.route(post("/api/v1/nodes/pong", &body)).await;
+        assert_eq!(first.status, 200);
+        let second = gateway.route(post("/api/v1/nodes/pong", &body)).await;
+        assert_eq!(second.status, 409, "un challenge ne sert qu'une fois");
+        assert_eq!(gateway.nodes.read().await[node_id].latency_ms, Some(17));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]

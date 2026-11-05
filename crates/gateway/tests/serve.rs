@@ -185,7 +185,7 @@ async fn gateway_answers_real_http_requests_and_rejects_path_traversal() {
 /// reconstruction complète de l'état depuis le disque).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn heartbeat_round_trip_over_real_http_is_persisted() {
-    use polygone_gateway::routes::heartbeat_message;
+    use polygone_gateway::routes::{heartbeat_message, ping_message, pong_message};
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
@@ -259,6 +259,45 @@ async fn heartbeat_round_trip_over_real_http_is_persisted() {
     );
     assert_eq!(status_code(&response), 200, "{response}");
 
+    // Mesure réelle : ping signé → challenge, pong signé → RTT enregistré.
+    let ping_signature = keys.signer.sign(ping_message(&node_id, stamp).as_bytes());
+    let ping = send_raw_http(
+        address,
+        "POST",
+        "/api/v1/nodes/ping",
+        serde_json::json!({
+            "node_id": node_id,
+            "timestamp": stamp,
+            "signature_hex": hex::encode(ping_signature.as_bytes()),
+        })
+        .to_string()
+        .as_bytes(),
+    );
+    assert_eq!(status_code(&ping), 200, "{ping}");
+    let challenge = serde_json::from_str::<serde_json::Value>(response_body(&ping))
+        .expect("JSON ping")["challenge"]
+        .as_str()
+        .expect("challenge")
+        .to_string();
+    let pong_signature = keys
+        .signer
+        .sign(pong_message(&node_id, stamp, &challenge, 42).as_bytes());
+    let pong = send_raw_http(
+        address,
+        "POST",
+        "/api/v1/nodes/pong",
+        serde_json::json!({
+            "node_id": node_id,
+            "timestamp": stamp,
+            "challenge": challenge,
+            "rtt_ms": 42,
+            "signature_hex": hex::encode(pong_signature.as_bytes()),
+        })
+        .to_string()
+        .as_bytes(),
+    );
+    assert_eq!(status_code(&pong), 200, "{pong}");
+
     let network = send_raw_http(address, "GET", "/api/v1/network/status", &[]);
     let status: serde_json::Value =
         serde_json::from_str(response_body(&network)).expect("statut JSON");
@@ -266,6 +305,10 @@ async fn heartbeat_round_trip_over_real_http_is_persisted() {
     assert_eq!(
         status["active"], 1,
         "le heartbeat doit rendre le nœud actif"
+    );
+    assert_eq!(
+        status["latency_ms_median"], 42,
+        "la mesure doit apparaître dans le statut réseau"
     );
 
     server.abort();
