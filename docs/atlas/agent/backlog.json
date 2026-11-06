@@ -127,6 +127,12 @@
   ],
   "completed": [
     {
+      "id": "INST.3",
+      "date": "2026-11-06",
+      "proof": "scripts/test-installer.sh : instantané de $HOME (chemins/types et tailles de fichiers) avant réinstallation, puis install_binaries + setup_path + unité user + données, puis main --uninstall --purge ; les deux diff sont vides, y compris .bashrc/.profile préexistants et répertoires vides parents. Le service et les données sont absents, le bloc PATH est retiré. bash scripts/test-installer.sh PASS.",
+      "commit": "ad21c92"
+    },
+    {
       "id": "INST.2",
       "date": "2026-11-06",
       "proof": "install.sh --uninstall [--purge] : arrêt et retrait de ~/.config/systemd/user/polygoned.service, des quatre binaires et de l'alias, de SHARE_DIR/web, de CONFIG_DIR/daemon.toml et du bloc PATH balisé (ancienne ligne incluse) ; DATA_DIR conservé sans --purge et supprimé avec, refus de '/' et de $HOME ; fixture HOME : cinq binaires absents, service/web/config absents, donnée présente sans purge puis absente avec, seconde exécution idempotente ; bash scripts/test-installer.sh PASS.",

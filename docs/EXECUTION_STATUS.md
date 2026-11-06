@@ -17,14 +17,15 @@
 
 ## Dernier travail effectué
 
-- **INST.1 + INST.2 — installation réversible** : `setup_path` teste désormais le
-  contenu du rc et écrit un bloc balisé, donc deux installations ne dupliquent
-  plus la ligne et un rc absent n'est pas créé. `install.sh --uninstall
-  [--purge]` arrête et retire le service utilisateur, les cinq binaires/alias,
-  le web, `daemon.toml` et le bloc PATH (ancienne ligne incluse) ; `$DATA_DIR`
-  est conservé sans `--purge` et supprimé avec, avec refus de `/` et `$HOME`.
-  Preuve : `bash scripts/test-installer.sh` → PASS, fixture complète, seconde
-  désinstallation idempotente. Commit `c69de8a`.
+- **INST.1 + INST.2 + INST.3 — installation réversible et sans résidu** :
+  `setup_path` teste désormais le contenu du rc et écrit un bloc balisé, donc
+  deux installations ne dupliquent plus la ligne et un rc absent n'est pas
+  créé. `install.sh --uninstall [--purge]` arrête et retire le service
+  utilisateur, les cinq binaires/alias, le web, `daemon.toml` et le bloc PATH
+  (ancienne ligne incluse) ; `$DATA_DIR` est conservé sans `--purge` et
+  supprimé avec, avec refus de `/` et `$HOME`. INST.3 compare chemins/types et
+  tailles de `$HOME` avant/après : les deux `diff` sont vides. Preuve :
+  `bash scripts/test-installer.sh` → PASS. Commits `c69de8a`, `ad21c92`.
 - **Frameworks Hide, Petals et Compute vérifiés de bout en bout** (pas seulement
   compilés) : `hide-smoke.sh` avec binaires debug et ports éphémères → contenu
   reçu via SOCKS5, relais sans aucun contenu en clair, grant chiffré, exit 0 ;
@@ -148,7 +149,7 @@
 | `scripts/compute-smoke.sh` | **exit 0** — succès et échec signés, réputation locale et TOFU via relais |
 | `cargo test -p polygone-petals` | **19 tests, 0 échec** (13+5+1) |
 | `cargo test -p polygoned` | **118 tests, 0 échec** (117+1) |
-| `bash scripts/test-installer.sh` | **PASS** — fail-closed SHA256, archive, source, config, alias, PATH idempotent, désinstallation avec/sans `--purge` |
+| `bash scripts/test-installer.sh` | **PASS** — fail-closed SHA256, archive, source, config, alias, PATH idempotent, désinstallation avec/sans `--purge`, `diff` HOME vide |
 | `node --test scripts/document-index.test.mjs` | **6/6**, dont date absente, statut inconnu, ligne incomplète, doublon et document oublié refusés |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **6/6** |
 | `node scripts/check-atlas.mjs` | **PASS** — 9 ouvertes, 39 terminées, 96 non promues |
