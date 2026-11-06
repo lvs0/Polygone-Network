@@ -17,6 +17,16 @@
 
 ## Dernier travail effectué
 
+- **Console PWA + CLI écosystème** (interface produit, hors registre) : la page
+  `node.html` interroge uniquement les routes réelles de la gateway
+  (`/api/v1/network/status`, `/api/v1/services`) ; gateway absente = toutes les
+  mesures à « — », aucun chiffre inventé. La coque du service worker couvre
+  désormais console, Drive, Mesh, `pwa.js` et les feuilles de style (version
+  `polygone-v2`), et le manifeste ouvre `node.html` avec trois raccourcis.
+  Nouvelle commande `polygone ecosysteme [--relais] [--ollama] [--site]
+  [--strict]` : sondes TCP/HTTP/socket réelles pour PWA, Hide, Petals et
+  Compute. Exécution réelle : PWA prête, Petals prêt (4 modèles Ollama), Hide
+  et Compute absents ; `--strict` sort 1. 4 tests `ecosystem`.
 - **SEC.5 — permissions fail-closed** (fermé) : identité et ancre de confiance écrites atomiquement via `create_new`, `0600`, répertoire `.polygone` en `0700`, chmod propagé et vérifié, liens symboliques refusés ; fichier de pairs corrompu/illisible = erreur, jamais TOFU vide. Les erreurs remontent à CLI/TUI/Hide/réseau. 10 tests dédiés, dont `PermissionDenied` injecté et vérification du nettoyage temporaire.
 0. **`FV-SEC-06` — coût des identités mesuré** (fermé, portée limitée) : 30 créations indépendantes via `polygone id`, HOME temporaire neuf à chaque fois ; 30/30 node_id distincts ; médiane/moyenne 2,85 ms, P95 3,07 ms, identity.json 21 641 octets, mode 0600. Rapport `reports/identity-cost-audit-2026-11-05.md`. Cela prouve le coût local, pas une identité humaine ni une résistance Sybil globale.
 1. **`DOC.4` — index documentaire fail-closed** (fermé) : `scripts/check-docs.mjs` appelle `validateDocumentIndex` ; les 66 Markdown de `docs/` doivent être indexés exactement une fois avec titre, date ISO ou « Non indiquée », statut autorisé, thème et justification. Les entrées manquantes, doublons, chemins orphelins, dates vides et statuts inconnus font échouer le contrôle. Tests dédiés : 6/6 ; tests négatifs sur l'index réel : date vide puis statut invalide, exit 1 avec cause ; restauration vérifiée par SHA-256.
@@ -113,10 +123,10 @@
 
 | Commande | Résultat |
 |---|---|
-| `cargo test --workspace -j 2` | **432 tests, 0 échec** |
+| `cargo test --workspace -j 2` | **436 tests, 0 échec** |
 | `cargo clippy --workspace --all-targets -- -D warnings` | **exit 0** |
 | `cargo fmt --all -- --check` | **exit 0** |
-| `node scripts/check-docs.mjs --tests 432` | **documents cohérents**, exit 0 — 66 Markdown, dates/statuts vérifiés |
+| `node scripts/check-docs.mjs --tests 436` | **documents cohérents**, exit 0 — 66 Markdown, dates/statuts vérifiés |
 | `node --test scripts/document-index.test.mjs` | **6/6**, dont date absente, statut inconnu, ligne incomplète, doublon et document oublié refusés |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **6/6** |
 | `node scripts/check-atlas.mjs` | **PASS** — 9 ouvertes, 39 terminées, 96 non promues |
@@ -156,7 +166,7 @@ git status --short
 node scripts/vision-status.mjs
 cargo test --workspace -j 2
 cargo clippy --workspace --all-targets -- -D warnings
-node scripts/check-docs.mjs --tests 432
+node scripts/check-docs.mjs --tests 436
 node --test scripts/document-index.test.mjs
 python3 scripts/identity-cost-audit.py --samples 30
 node --test docs/atlas/agent/tests/backlog.test.mjs

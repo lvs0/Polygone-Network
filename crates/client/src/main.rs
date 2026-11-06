@@ -67,6 +67,21 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// État réel de l'écosystème local : PWA, Hide, Petals, Compute.
+    Ecosysteme {
+        /// Adresse du relais utilisé par Hide.
+        #[arg(long, default_value = "127.0.0.1:7000")]
+        relais: String,
+        /// Adresse d'Ollama utilisée par Petals.
+        #[arg(long, default_value = "127.0.0.1:11434")]
+        ollama: String,
+        /// Répertoire du site PWA (défaut : ./web).
+        #[arg(long)]
+        site: Option<String>,
+        /// Sortie 1 si un service est absent.
+        #[arg(long)]
+        strict: bool,
+    },
     /// Diagnostic des capacités réellement mesurées, réservables et contraintes.
     Doctor,
     /// Choisir un profil d'usage (sobre|equilibre|genereux) et écrire les seuils.
@@ -907,6 +922,25 @@ async fn main() -> Result<()> {
     if let Some(Commands::Node { action }) = args.command.as_ref() {
         return run_node(action.clone()).await;
     }
+    if let Some(Commands::Ecosysteme {
+        relais,
+        ollama,
+        site,
+        strict,
+    }) = args.command.as_ref()
+    {
+        let site_dir = site
+            .as_deref()
+            .map(Path::new)
+            .unwrap_or_else(|| Path::new("web"));
+        let probes =
+            polygone_client::ecosystem::probes(site_dir, relais, ollama, &socket::socket_path());
+        let all_ready = polygone_client::ecosystem::print(&probes);
+        if *strict && !all_ready {
+            anyhow::bail!("écosystème incomplet (--strict)");
+        }
+        return Ok(());
+    }
     if matches!(args.command.as_ref(), Some(Commands::Doctor)) {
         let report = doctor_report(&socket::socket_path())?;
         print!("{report}");
@@ -1333,6 +1367,9 @@ async fn main() -> Result<()> {
             unreachable!("handled before identity load")
         }
         Some(Commands::Doctor) => {
+            unreachable!("handled before identity load")
+        }
+        Some(Commands::Ecosysteme { .. }) => {
             unreachable!("handled before identity load")
         }
         Some(Commands::Profil { .. }) => {

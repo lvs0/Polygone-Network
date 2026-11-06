@@ -18,6 +18,7 @@
 
 pub mod blocks;
 pub mod calc;
+pub mod ecosystem;
 pub mod mesh;
 pub mod node;
 pub mod node_isolation;

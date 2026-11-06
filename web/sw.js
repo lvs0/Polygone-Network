@@ -5,7 +5,7 @@
    Incrémenter VERSION pour publier une nouvelle coque.
    ────────────────────────────────────────────────────────────────── */
 
-const VERSION = "polygone-v1";
+const VERSION = "polygone-v2";
 const CACHE = `polygone-shell-${VERSION}`;
 
 // Coque applicative : les fichiers nécessaires pour afficher l'interface
@@ -13,9 +13,19 @@ const CACHE = `polygone-shell-${VERSION}`;
 const SHELL = [
   "./index.html",
   "./landing.html",
+  "./node.html",
+  "./drive.html",
+  "./mesh.html",
   "./offline.html",
   "./app.js",
+  "./pwa.js",
+  "./dashboard.js",
+  "./drive.js",
+  "./mesh.js",
   "./style.css",
+  "./dashboard.css",
+  "./drive.css",
+  "./mesh.css",
   "./manifest.webmanifest",
   "./icon.svg"
 ];
