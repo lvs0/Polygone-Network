@@ -246,18 +246,28 @@ grep -Fqx 'export PROFILE_KEEP=1' "$HOME/.profile"
 # Idempotent : une seconde désinstallation ne doit pas échouer.
 uninstall_polygone 0 >/dev/null 2>&1
 
+# INST.3 — le cycle complet ne laisse aucun chemin ni fichier dans HOME.
+find "$HOME" -printf '%P\t%y\n' | sort > "$TMP/home-before.paths"
+find "$HOME" -type f -printf '%P\t%s\n' | sort > "$TMP/home-before.sizes"
+
 # --purge retire explicitement les données ; le rc est de nouveau nettoyé.
 mkdir -p "$FIXTURE/reinstall"
 cp "$FIXTURE/bin/"* "$FIXTURE/reinstall/"
 cp -a "$FIXTURE/web" "$FIXTURE/reinstall/web"
 install_binaries "$FIXTURE/reinstall" >/dev/null 2>&1
 SHELL=/bin/bash setup_path >/dev/null 2>&1
-mkdir -p "$POLYGONE_DATA_DIR"
+mkdir -p "$(dirname "$SERVICE_UNIT")" "$POLYGONE_DATA_DIR"
+printf 'unit\n' > "$SERVICE_UNIT"
 printf 'identity\n' > "$POLYGONE_DATA_DIR/identity.json"
-uninstall_polygone 1 >/dev/null 2>&1
+main --uninstall --purge >/dev/null 2>&1
 [[ ! -d "$POLYGONE_DATA_DIR" ]]
 ! grep -Fq "$PATH_BLOCK_BEGIN" "$HOME/.bashrc"
 grep -Fqx 'export KEEP_ME=1' "$HOME/.bashrc"
+
+find "$HOME" -printf '%P\t%y\n' | sort > "$TMP/home-after.paths"
+find "$HOME" -type f -printf '%P\t%s\n' | sort > "$TMP/home-after.sizes"
+diff -u "$TMP/home-before.paths" "$TMP/home-after.paths"
+diff -u "$TMP/home-before.sizes" "$TMP/home-after.sizes"
 
 # Sans --uninstall, une option inconnue échoue sans rien supprimer.
 if (main --option-inconnue) >/dev/null 2>&1; then
@@ -265,4 +275,4 @@ if (main --option-inconnue) >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "installer smoke: SHA256 fail-closed, four binaries + web bundle, archive path/type/duplicate allowlist, source fallback, daemon config, compatibility alias, temp cleanup, idempotent PATH, uninstall with/without --purge: PASS"
+echo "installer smoke: SHA256 fail-closed, four binaries + web bundle, archive path/type/duplicate allowlist, source fallback, daemon config, compatibility alias, temp cleanup, idempotent PATH, uninstall with/without --purge, zero HOME residue: PASS"
