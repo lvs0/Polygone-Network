@@ -32,6 +32,13 @@
   de signature détachée, les quatre destinations et le retrait
   `--uninstall`/`--purge` ; `~/.polygone` reste hors périmètre. Commit `72fc3f8`.
   `FV-UX-08` reste à 3 : ni signature ni rollback ne sont implémentés.
+- **MSG.6 — débit loopback mesuré, tâche non fermée** :
+  `scripts/msg-throughput-audit.py` envoie dix fichiers de 12 Kio via un relais
+  réel, vérifie chaque SHA-256 côté récepteur et publie le rapport daté. Résultat :
+  10/10 identiques, médiane **0,027 Mio/s**, écart-type 0,011 Mio/s, durée
+  médiane 0,4328 s. Le débit inclut le démarrage du processus et le relais
+  plafonne une ligne à 64 Kio. **MSG.6 reste ouverte** : la preuve demandée est
+  inter-hôtes, sur deux machines physiques. Commit `57d8e73`.
 - **Frameworks Hide, Petals et Compute vérifiés de bout en bout** (pas seulement
   compilés) : `hide-smoke.sh` avec binaires debug et ports éphémères → contenu
   reçu via SOCKS5, relais sans aucun contenu en clair, grant chiffré, exit 0 ;
@@ -156,6 +163,7 @@
 | `cargo test -p polygone-petals` | **19 tests, 0 échec** (13+5+1) |
 | `cargo test -p polygoned` | **118 tests, 0 échec** (117+1) |
 | `bash scripts/test-installer.sh` | **PASS** — fail-closed SHA256, archive, source, config, alias, PATH idempotent, désinstallation avec/sans `--purge`, `diff` HOME vide |
+| `python3 scripts/msg-throughput-audit.py --runs 10 --size 12288` | **10/10 SHA-256**, médiane **0,027 Mio/s**, écart-type 0,011 Mio/s (loopback, 12 Kio) |
 | `node --test scripts/document-index.test.mjs` | **6/6**, dont date absente, statut inconnu, ligne incomplète, doublon et document oublié refusés |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **6/6** |
 | `node scripts/check-atlas.mjs` | **PASS** — 9 ouvertes, 39 terminées, 96 non promues |
