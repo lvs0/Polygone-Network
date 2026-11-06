@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-05",
+  "generated_at": "2026-11-06",
   "source": "docs/atlas/plan/PLAN-FINITION.md + docs/atlas/plan/epiques/",
   "rule": "Une tâche n'est 'faite' que si sa preuve a été exécutée et citée. Une tâche bloquée reste bloquée, elle ne se coche pas. La première action de chaque tâche est de reproduire son constat.",
   "note": "Ce backlog contient les tâches débloquées ou déblocables maintenant. Les 132 spécifications complètes vivent dans docs/atlas/plan/epiques/ ; une tâche est promue ici quand sa porte est franchie. completed garde les tâches fermées avec leur preuve. Les tâches non promues ne sont pas déclarées en cours. Les tâches P0.1, P0.2, P0.3 et P1.1 déjà clôturées dans l’état persistant ont été réconciliées dans completed.",
@@ -27,18 +27,6 @@
       "ref": "docs/atlas/plan/epiques/01-transport-confidentialite.md#MSG.6",
       "files": [
         "crates/client/src/net/"
-      ]
-    },
-    {
-      "id": "INST.2",
-      "phase": "P3",
-      "priority": 4,
-      "title": "Ajouter --uninstall qui retire tout",
-      "detail": "install.sh ne sait pas se défaire. Ajouter un mode --uninstall symétrique, y compris le PATH et le service utilisateur.",
-      "proof": "install --uninstall puis diff de l'arborescence : zéro résidu ; et PATH identique à l'état d'origine.",
-      "ref": "docs/atlas/plan/epiques/05-livraison.md#INST.2",
-      "files": [
-        "install.sh"
       ]
     },
     {
@@ -138,6 +126,18 @@
     }
   ],
   "completed": [
+    {
+      "id": "INST.2",
+      "date": "2026-11-06",
+      "proof": "install.sh --uninstall [--purge] : arrêt et retrait de ~/.config/systemd/user/polygoned.service, des quatre binaires et de l'alias, de SHARE_DIR/web, de CONFIG_DIR/daemon.toml et du bloc PATH balisé (ancienne ligne incluse) ; DATA_DIR conservé sans --purge et supprimé avec, refus de '/' et de $HOME ; fixture HOME : cinq binaires absents, service/web/config absents, donnée présente sans purge puis absente avec, seconde exécution idempotente ; bash scripts/test-installer.sh PASS.",
+      "commit": "c69de8a"
+    },
+    {
+      "id": "INST.1",
+      "date": "2026-11-06",
+      "proof": "setup_path teste le contenu du rc avec les marqueurs # >>> polygone network >>> et # <<< polygone network <<< ; deux appels produisent un seul bloc, un rc absent n'est pas créé ; remove_path_entry retire le bloc et l'ancienne ligne non balisée sans toucher aux autres lignes ; fixture .bashrc/.profile ; bash scripts/test-installer.sh PASS.",
+      "commit": "c69de8a"
+    },
     {
       "id": "SEC.5",
       "date": "2026-11-05",

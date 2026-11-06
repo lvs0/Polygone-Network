@@ -12,11 +12,19 @@
 | Dépôt | `~/Polygone-Atlas/03-REALIGNED` |
 | Branche | `realign/v2` — locale, non poussée |
 | HEAD | voir `git log -1 --format='%h %s'` |
-| Arbre | propre après le commit local `aa86aca` ; aucun push |
+| Arbre | propre après le commit local `c69de8a` ; aucun push |
 | Registre | **67 exigences**, **28 validées**, **9 bloquées** → avancement réel **28/58 = 48,3 %** (calculé, pas estimé) |
 
 ## Dernier travail effectué
 
+- **INST.1 + INST.2 — installation réversible** : `setup_path` teste désormais le
+  contenu du rc et écrit un bloc balisé, donc deux installations ne dupliquent
+  plus la ligne et un rc absent n'est pas créé. `install.sh --uninstall
+  [--purge]` arrête et retire le service utilisateur, les cinq binaires/alias,
+  le web, `daemon.toml` et le bloc PATH (ancienne ligne incluse) ; `$DATA_DIR`
+  est conservé sans `--purge` et supprimé avec, avec refus de `/` et `$HOME`.
+  Preuve : `bash scripts/test-installer.sh` → PASS, fixture complète, seconde
+  désinstallation idempotente. Commit `c69de8a`.
 - **Frameworks Hide, Petals et Compute vérifiés de bout en bout** (pas seulement
   compilés) : `hide-smoke.sh` avec binaires debug et ports éphémères → contenu
   reçu via SOCKS5, relais sans aucun contenu en clair, grant chiffré, exit 0 ;
@@ -113,6 +121,7 @@
 - `scripts/identity-cost-audit.py`, `reports/identity-cost-audit-2026-11-05.md` (FV-SEC-06).
 - `scripts/check-docs.mjs`, `scripts/document-index.mjs`, `scripts/document-index.test.mjs` (DOC.4).
 - `scripts/hide-smoke.sh` (ports libres et binaires surchargeables).
+- `install.sh`, `scripts/test-installer.sh` (INST.1/INST.2).
 - `scripts/relay-metadata-audit.mjs` (nouveau, SEC.10), `reports/relay-metadata-audit-2026-11-05.md`
 - `docs/threat-msg.md` (nouveau, SEC.10), `docs/THREAT-MODEL-SERVICES.md`
 - `crates/client/src/identity.rs`, `src/main.rs` (FV-SEC-05, 3 tests)
@@ -139,6 +148,7 @@
 | `scripts/compute-smoke.sh` | **exit 0** — succès et échec signés, réputation locale et TOFU via relais |
 | `cargo test -p polygone-petals` | **19 tests, 0 échec** (13+5+1) |
 | `cargo test -p polygoned` | **118 tests, 0 échec** (117+1) |
+| `bash scripts/test-installer.sh` | **PASS** — fail-closed SHA256, archive, source, config, alias, PATH idempotent, désinstallation avec/sans `--purge` |
 | `node --test scripts/document-index.test.mjs` | **6/6**, dont date absente, statut inconnu, ligne incomplète, doublon et document oublié refusés |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **6/6** |
 | `node scripts/check-atlas.mjs` | **PASS** — 9 ouvertes, 39 terminées, 96 non promues |
