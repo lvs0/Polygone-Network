@@ -23,6 +23,52 @@ cd Polygone-Network
 cargo build --workspace --release
 ```
 
+### Ce que l'installateur vérifie réellement
+
+`install.sh` télécharge l'archive de la plateforme depuis les GitHub Releases
+de `lvs0/Polygone-Network`, avec `SHA256SUMS`. Une archive dont l'empreinte est
+absente, ambiguë, mal formée ou différente est refusée : l'installation ne
+continue pas. Si aucune release n'est disponible, l'installateur installe Rust
+via rustup puis compile le dépôt.
+
+**Portée exacte du SHA256 :** l'empreinte est récupérée sur la **même origine
+HTTPS** que l'archive. Elle détecte une corruption, un téléchargement partiel ou
+une archive substituée sur le trajet, **pas** une release publiée compromise ni
+un compte GitHub compromis. Aucune signature détachée n'est vérifiée et aucun
+fichier n'est déclaré signé par une clé Polygone.
+
+Destinations par défaut :
+
+| Élément | Chemin |
+|---|---|
+| Binaires et alias `polygone-client` | `$HOME/.local/bin` (`POLYGONE_INSTALL_DIR`) |
+| Configuration générée | `$HOME/.config/polygone/daemon.toml` (`POLYGONE_CONFIG_DIR`) |
+| Données de l'installateur | `$HOME/.local/share/polygone` (`POLYGONE_DATA_DIR`) |
+| Site/PWA | `$(dirname "$INSTALL_DIR")/share/polygone/web` (`POLYGONE_SHARE_DIR`) |
+| PATH | bloc balisé dans le rc du shell ; aucun rc absent n'est créé |
+
+### Désinstallation
+
+```bash
+# Même script, mode retrait : binaires, web, config, PATH et service utilisateur
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/lvs0/Polygone-Network/main/install.sh | bash -s -- --uninstall
+
+# Depuis un checkout local
+bash install.sh --uninstall
+```
+
+Le retrait conserve `$HOME/.local/share/polygone` par défaut. Ajouter `--purge`
+le supprime :
+
+```bash
+bash install.sh --uninstall --purge
+```
+
+Les identités Polygone vivent dans `$HOME/.polygone`, **hors** de ces
+destinations ; l'installateur n'y touche pas. Pour les supprimer, utiliser la
+commande produit `polygone desinstaller --confirmer`, qui énumère d'abord les
+chemins concernés.
+
 ## Démarrage rapide
 
 ```bash
