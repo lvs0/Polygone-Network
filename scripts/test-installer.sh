@@ -214,4 +214,55 @@ if find "$TMP/tmp" -mindepth 1 -maxdepth 1 -type d -name 'polygone-release.*' | 
   exit 1
 fi
 
-echo "installer smoke: SHA256 fail-closed, four binaries + web bundle, archive path/type/duplicate allowlist, source fallback, daemon config, compatibility alias and temp cleanup: PASS"
+# INST.1 — PATH idempotent et retrait exact, sans créer un rc absent.
+printf '# user settings\nexport KEEP_ME=1\n' > "$HOME/.bashrc"
+SHELL=/bin/bash setup_path >/dev/null 2>&1
+SHELL=/bin/bash setup_path >/dev/null 2>&1
+[[ "$(grep -Fxc "$PATH_BLOCK_BEGIN" "$HOME/.bashrc")" == 1 ]]
+[[ "$(grep -Fxc "$PATH_BLOCK_END" "$HOME/.bashrc")" == 1 ]]
+[[ "$(grep -Fxc 'export PATH="$PATH:'"$POLYGONE_INSTALL_DIR"'"' "$HOME/.bashrc")" == 1 ]]
+grep -Fqx 'export KEEP_ME=1' "$HOME/.bashrc"
+SHELL=/bin/fish setup_path >/dev/null 2>&1
+[[ ! -e "$HOME/.config/fish/config.fish" ]]
+printf 'export PATH="$PATH:%s"\nexport PROFILE_KEEP=1\n' "$POLYGONE_INSTALL_DIR" > "$HOME/.profile"
+
+# INST.2 — data preserved without --purge, service and PATH removed.
+mkdir -p "$(dirname "$SERVICE_UNIT")" "$POLYGONE_DATA_DIR"
+printf 'unit\n' > "$SERVICE_UNIT"
+printf 'identity\n' > "$POLYGONE_DATA_DIR/identity.json"
+uninstall_polygone 0 >/dev/null 2>&1
+for bin in polygone polygone-client polygone-relay polygoned polygone-gateway; do
+  [[ ! -e "$POLYGONE_INSTALL_DIR/$bin" && ! -L "$POLYGONE_INSTALL_DIR/$bin" ]]
+done
+[[ ! -e "$SERVICE_UNIT" ]]
+[[ ! -d "$POLYGONE_SHARE_DIR" ]]
+[[ ! -d "$POLYGONE_CONFIG_DIR" ]]
+[[ -f "$POLYGONE_DATA_DIR/identity.json" ]]
+! grep -Fq "$PATH_BLOCK_BEGIN" "$HOME/.bashrc"
+! grep -Fq "$POLYGONE_INSTALL_DIR" "$HOME/.bashrc"
+grep -Fqx 'export KEEP_ME=1' "$HOME/.bashrc"
+! grep -Fq "$POLYGONE_INSTALL_DIR" "$HOME/.profile"
+grep -Fqx 'export PROFILE_KEEP=1' "$HOME/.profile"
+# Idempotent : une seconde désinstallation ne doit pas échouer.
+uninstall_polygone 0 >/dev/null 2>&1
+
+# --purge retire explicitement les données ; le rc est de nouveau nettoyé.
+mkdir -p "$FIXTURE/reinstall"
+cp "$FIXTURE/bin/"* "$FIXTURE/reinstall/"
+cp -a "$FIXTURE/web" "$FIXTURE/reinstall/web"
+install_binaries "$FIXTURE/reinstall" >/dev/null 2>&1
+SHELL=/bin/bash setup_path >/dev/null 2>&1
+mkdir -p "$POLYGONE_DATA_DIR"
+printf 'identity\n' > "$POLYGONE_DATA_DIR/identity.json"
+uninstall_polygone 1 >/dev/null 2>&1
+[[ ! -d "$POLYGONE_DATA_DIR" ]]
+! grep -Fq "$PATH_BLOCK_BEGIN" "$HOME/.bashrc"
+grep -Fqx 'export KEEP_ME=1' "$HOME/.bashrc"
+
+# Sans --uninstall, une option inconnue échoue sans rien supprimer.
+if (main --option-inconnue) >/dev/null 2>&1; then
+  echo "FAIL: main accepted an unknown option" >&2
+  exit 1
+fi
+
+echo "installer smoke: SHA256 fail-closed, four binaries + web bundle, archive path/type/duplicate allowlist, source fallback, daemon config, compatibility alias, temp cleanup, idempotent PATH, uninstall with/without --purge: PASS"

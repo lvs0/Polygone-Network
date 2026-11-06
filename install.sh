@@ -22,6 +22,9 @@ readonly RUSTUP_DIR="${RUSTUP_DIR:-$HOME/.rustup}"
 readonly CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
 readonly MIN_RUST_VERSION="1.85.0"
 readonly VERSION_TAG="${POLYGONE_VERSION:-latest}"
+readonly PATH_BLOCK_BEGIN="# >>> polygone network >>>"
+readonly PATH_BLOCK_END="# <<< polygone network <<<"
+readonly SERVICE_UNIT="$HOME/.config/systemd/user/polygoned.service"
 
 # Couleurs
 readonly RED='\033[0;31m'
@@ -394,20 +397,125 @@ setup_path() {
         *)      shell_rc="$HOME/.profile" ;;
     esac
 
-    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-        log "Ajout de $INSTALL_DIR au PATH ($shell_rc)..."
+    # Ne jamais créer un rc absent : l'utilisateur n'a pas de shell à modifier.
+    if [[ ! -f "$shell_rc" ]]; then
+        warn "Fichier de shell absent ($shell_rc) — PATH non modifié."
+        return 0
+    fi
+
+    # Idempotent : on teste le fichier, pas le PATH du processus courant.
+    if grep -Fqx "$PATH_BLOCK_BEGIN" "$shell_rc"; then
+        if grep -Fqx "$PATH_BLOCK_END" "$shell_rc"; then
+            ok "PATH déjà configuré ($shell_rc)"
+            return 0
+        fi
+        die "Bloc PATH incomplet dans $shell_rc — corriger les marqueurs avant de réinstaller."
+    fi
+
+    log "Ajout de $INSTALL_DIR au PATH ($shell_rc)..."
+    {
+        printf '%s\n' "$PATH_BLOCK_BEGIN"
         case "$shell_rc" in
             *fish)
-                echo "set -gx PATH \$PATH $INSTALL_DIR" >> "$shell_rc"
+                printf 'set -gx PATH $PATH %s\n' "$INSTALL_DIR"
                 ;;
             *)
-                echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$shell_rc"
+                printf 'export PATH="$PATH:%s"\n' "$INSTALL_DIR"
                 ;;
         esac
-        ok "PATH mis à jour — relancez votre shell ou: source $shell_rc"
-    else
-        ok "PATH déjà configuré"
+        printf '%s\n' "$PATH_BLOCK_END"
+    } >> "$shell_rc"
+    ok "PATH mis à jour — relancez votre shell ou: source $shell_rc"
+}
+
+# Retire notre bloc PATH et l'ancienne ligne non balisée, sans toucher au reste.
+remove_path_entry() {
+    local shell_rc begins ends tmp
+    local bash_line fish_line
+    bash_line='export PATH="$PATH:'"$INSTALL_DIR"'"'
+    fish_line='set -gx PATH $PATH '"$INSTALL_DIR"
+
+    for shell_rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish" "$HOME/.profile"; do
+        [[ -f "$shell_rc" ]] || continue
+        begins=$(grep -Fxc "$PATH_BLOCK_BEGIN" "$shell_rc" || true)
+        ends=$(grep -Fxc "$PATH_BLOCK_END" "$shell_rc" || true)
+        if [[ "$begins" != "$ends" ]]; then
+            warn "Bloc PATH incomplet dans $shell_rc — fichier laissé intact."
+            continue
+        fi
+        tmp=$(mktemp "${TMPDIR:-/tmp}/polygone-rc.XXXXXX")
+        awk -v begin="$PATH_BLOCK_BEGIN" -v end="$PATH_BLOCK_END" \
+            -v bash_line="$bash_line" -v fish_line="$fish_line" '
+            $0 == begin { skip = 1; next }
+            $0 == end   { skip = 0; next }
+            skip        { next }
+            $0 == bash_line || $0 == fish_line { next }
+            { print }
+        ' "$shell_rc" > "$tmp"
+        if ! cmp -s "$tmp" "$shell_rc"; then
+            cat "$tmp" > "$shell_rc"
+            ok "PATH retiré de $shell_rc"
+        fi
+        rm -f -- "$tmp"
+    done
+}
+
+# ─── Désinstallation ────────────────────────────────────────────────────────
+uninstall_polygone() {
+    local purge="${1:-0}"
+    local removed=0
+    step "Désinstallation de Polygone Network..."
+
+    if [[ -f "$SERVICE_UNIT" ]]; then
+        if [[ "${POLYGONE_INSTALL_TEST:-0}" != "1" ]] && has_cmd systemctl; then
+            systemctl --user disable --now polygoned.service >/dev/null 2>&1 || true
+        fi
+        rm -f -- "$SERVICE_UNIT"
+        rmdir "$(dirname "$SERVICE_UNIT")" 2>/dev/null || true
+        removed=$((removed + 1))
+        ok "Service utilisateur retiré : $SERVICE_UNIT"
     fi
+
+    for bin in "$BINARY_NAME" "$CLIENT_BINARY" "$RELAY_BINARY" "$DAEMON_BINARY" "$GATEWAY_BINARY"; do
+        if [[ -e "$INSTALL_DIR/$bin" || -L "$INSTALL_DIR/$bin" ]]; then
+            rm -f -- "$INSTALL_DIR/$bin"
+            removed=$((removed + 1))
+        fi
+    done
+    rmdir "$INSTALL_DIR" 2>/dev/null || true
+
+    if [[ -d "$SHARE_DIR/web" ]]; then
+        rm -rf -- "$SHARE_DIR/web"
+        removed=$((removed + 1))
+    fi
+    rmdir "$SHARE_DIR" 2>/dev/null || true
+
+    if [[ -f "$CONFIG_DIR/daemon.toml" ]]; then
+        rm -f -- "$CONFIG_DIR/daemon.toml"
+        removed=$((removed + 1))
+    fi
+    rmdir "$CONFIG_DIR" 2>/dev/null || true
+
+    if [[ "$purge" == "1" ]]; then
+        case "$DATA_DIR" in
+            ""|"/"|"$HOME"|"$HOME/") die "Refus de purger un chemin non dédié : '$DATA_DIR'." ;;
+        esac
+        if [[ -d "$DATA_DIR" ]]; then
+            rm -rf -- "$DATA_DIR"
+            removed=$((removed + 1))
+            ok "Données supprimées : $DATA_DIR"
+        fi
+    else
+        warn "Données conservées : $DATA_DIR (relancer avec --purge pour les supprimer)."
+    fi
+
+    remove_path_entry
+
+    if [[ "${POLYGONE_INSTALL_TEST:-0}" != "1" ]] && has_cmd systemctl; then
+        systemctl --user daemon-reload >/dev/null 2>&1 || true
+    fi
+
+    ok "Désinstallation terminée — $removed élément(s) retiré(s)."
 }
 
 # ─── Génération config par défaut ───────────────────────────────────────────
@@ -468,6 +576,24 @@ verify_install() {
 
 # ─── Main ───────────────────────────────────────────────────────────────────
 main() {
+    local purge=0
+    case "${1:-}" in
+        --uninstall|--désinstaller|--desinstaller)
+            shift
+            while (($#)); do
+                case "$1" in
+                    --purge) purge=1 ;;
+                    *) die "Option inconnue pour --uninstall : $1 (attendu : --purge)" ;;
+                esac
+                shift
+            done
+            uninstall_polygone "$purge"
+            return 0
+            ;;
+        "") ;;
+        *) die "Option inconnue : $1 (utiliser --uninstall [--purge])" ;;
+    esac
+
     echo -e "${CYAN}"
     echo "  ⬡  Polygone Network — Installateur universel"
     echo "  ═══════════════════════════════════════════"
