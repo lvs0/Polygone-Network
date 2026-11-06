@@ -26,6 +26,12 @@
   supprimé avec, avec refus de `/` et `$HOME`. INST.3 compare chemins/types et
   tailles de `$HOME` avant/après : les deux `diff` sont vides. Preuve :
   `bash scripts/test-installer.sh` → PASS. Commits `c69de8a`, `ad21c92`.
+- **INST.6 + INST.8 — phrase exacte de l'installateur** : le README déclare
+  l'origine GitHub Releases, l'obligation de `SHA256SUMS`, la portée limitée du
+  SHA256 (même origine HTTPS, ni release ni compte GitHub compromis), l'absence
+  de signature détachée, les quatre destinations et le retrait
+  `--uninstall`/`--purge` ; `~/.polygone` reste hors périmètre. Commit `72fc3f8`.
+  `FV-UX-08` reste à 3 : ni signature ni rollback ne sont implémentés.
 - **Frameworks Hide, Petals et Compute vérifiés de bout en bout** (pas seulement
   compilés) : `hide-smoke.sh` avec binaires debug et ports éphémères → contenu
   reçu via SOCKS5, relais sans aucun contenu en clair, grant chiffré, exit 0 ;

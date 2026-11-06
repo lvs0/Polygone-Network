@@ -127,6 +127,18 @@
   ],
   "completed": [
     {
+      "id": "INST.8",
+      "date": "2026-11-06",
+      "proof": "README.md section « Ce que l'installateur vérifie réellement » : origine GitHub Releases, SHA256SUMS obligatoire et refus si absent/ambigu/mal formé/différent, repli compilation Rust, portée exacte du SHA256 (même origine HTTPS ; ne couvre ni release ni compte GitHub compromis ; aucune signature détachée), tableau des destinations cohérent avec INSTALL_DIR/CONFIG_DIR/DATA_DIR/SHARE_DIR, bloc PATH, procédure --uninstall et --purge, identités ~/.polygone hors périmètre. node scripts/check-docs.mjs --tests 436 : documents cohérents.",
+      "commit": "72fc3f8"
+    },
+    {
+      "id": "INST.6",
+      "date": "2026-11-06",
+      "proof": "Décision prise : phrase honnête plutôt que signature. README.md déclare que l'empreinte vient de la même origine HTTPS, qu'elle ne couvre pas une release ou un compte GitHub compromis, qu'aucune signature détachée n'est vérifiée et qu'aucun fichier n'est déclaré signé par une clé Polygone. Aucun fichier ne revendique une release signée ; FV-UX-08 reste à 3 (signature et rollback non implémentés).",
+      "commit": "72fc3f8"
+    },
+    {
       "id": "INST.3",
       "date": "2026-11-06",
       "proof": "scripts/test-installer.sh : instantané de $HOME (chemins/types et tailles de fichiers) avant réinstallation, puis install_binaries + setup_path + unité user + données, puis main --uninstall --purge ; les deux diff sont vides, y compris .bashrc/.profile préexistants et répertoires vides parents. Le service et les données sont absents, le bloc PATH est retiré. bash scripts/test-installer.sh PASS.",
