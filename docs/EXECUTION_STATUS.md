@@ -12,11 +12,19 @@
 | Dépôt | `~/Polygone-Atlas/03-REALIGNED` |
 | Branche | `realign/v2` — locale, non poussée |
 | HEAD | voir `git log -1 --format='%h %s'` |
-| Arbre | propre après commits locaux cb1b5ef et 5d04cd6 ; aucun push |
+| Arbre | propre après le commit local `aa86aca` ; aucun push |
 | Registre | **67 exigences**, **28 validées**, **9 bloquées** → avancement réel **28/58 = 48,3 %** (calculé, pas estimé) |
 
 ## Dernier travail effectué
 
+- **Frameworks Hide, Petals et Compute vérifiés de bout en bout** (pas seulement
+  compilés) : `hide-smoke.sh` avec binaires debug et ports éphémères → contenu
+  reçu via SOCKS5, relais sans aucun contenu en clair, grant chiffré, exit 0 ;
+  `compute-smoke.sh` → succès signé, échec signé (code 23) refusé, deux
+  registres de réputation, persistance TOFU, via relais réel, exit 0 ;
+  `cargo test -p polygone-petals` 13+5+1 et `cargo test -p polygoned` 117+1,
+  0 échec. Ces preuves couvrent le MVP local, pas le multi-saut Hide ni
+  l'inférence Petals distribuée, qui restent hors périmètre.
 - **Console PWA + CLI écosystème** (interface produit, hors registre) : la page
   `node.html` interroge uniquement les routes réelles de la gateway
   (`/api/v1/network/status`, `/api/v1/services`) ; gateway absente = toutes les
@@ -127,6 +135,10 @@
 | `cargo clippy --workspace --all-targets -- -D warnings` | **exit 0** |
 | `cargo fmt --all -- --check` | **exit 0** |
 | `node scripts/check-docs.mjs --tests 436` | **documents cohérents**, exit 0 — 66 Markdown, dates/statuts vérifiés |
+| `POLYGONE_BIN=target/debug/polygone POLYGONE_RELAY_BIN=target/debug/polygone-relay scripts/hide-smoke.sh` | **exit 0** — tunnel SOCKS5, audit relay sans contenu clair, grant chiffré |
+| `scripts/compute-smoke.sh` | **exit 0** — succès et échec signés, réputation locale et TOFU via relais |
+| `cargo test -p polygone-petals` | **19 tests, 0 échec** (13+5+1) |
+| `cargo test -p polygoned` | **118 tests, 0 échec** (117+1) |
 | `node --test scripts/document-index.test.mjs` | **6/6**, dont date absente, statut inconnu, ligne incomplète, doublon et document oublié refusés |
 | `node --test docs/atlas/agent/tests/backlog.test.mjs` | **6/6** |
 | `node scripts/check-atlas.mjs` | **PASS** — 9 ouvertes, 39 terminées, 96 non promues |
