@@ -211,7 +211,7 @@ enum Commands {
     /// Rotate the ML-DSA signing key; the old key is revoked in the identity file
     #[command(name = "clef-tourner")]
     ClefTourner,
-    /// Print this node's stable relay identifier (derived from its persistent KEM key)
+    /// Print this node's relay identifier (BLAKE3 of its ML-DSA signing key, 128 bits)
     Id,
     /// Run the real crypto self-test suite (exit 0 = all green)
     Test,

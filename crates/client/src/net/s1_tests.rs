@@ -109,6 +109,45 @@ fn frag_json(session: &str, from: &str, to: &str, idx: u8, payload: &[u8]) -> St
     serde_json::to_string(&env).unwrap()
 }
 
+/// P0: a relay that accepts the TCP connection and then says nothing must
+/// fail with an explicit error inside the deadline, instead of suspending the
+/// CLI forever. Before the fix, `TcpStream::connect` succeeded and the first
+/// `read_exact` waited on the relay's silence with no bound.
+#[tokio::test]
+async fn a_silent_relay_fails_the_handshake_within_the_deadline() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    // Accept the socket, then never answer: exactly what a hung relay does.
+    tokio::spawn(async move {
+        let _held = listener.accept().await;
+        std::future::pending::<()>().await;
+    });
+
+    let identity = LocalIdentity::generate();
+    let started = std::time::Instant::now();
+    let error = connect_with_timeout(
+        &addr.to_string(),
+        &identity,
+        std::time::Duration::from_millis(150),
+    )
+    .await
+    .expect_err("un relais muet ne doit jamais produire un flux connecté");
+
+    assert!(
+        error.to_string().contains("muet"),
+        "le message doit dire que le relais est resté muet : {error}"
+    );
+    assert!(
+        error.to_string().contains(&addr.to_string()),
+        "le message doit nommer l'adresse du relais : {error}"
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "le délai n'a pas été respecté : {:?}",
+        started.elapsed()
+    );
+}
+
 #[test]
 fn node_id_is_derived_from_the_signing_key() {
     let identity = LocalIdentity::generate();

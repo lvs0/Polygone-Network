@@ -233,6 +233,48 @@ async fn replaying_auth_resp_on_a_fresh_challenge_is_refused() {
     );
 }
 
+/// P0: after an abrupt disconnect — no goodbye, no protocol message — the relay
+/// must release the routing slot so the same identity can come back, and the
+/// returned slot must be live (a third connection is refused, not granted).
+#[tokio::test]
+async fn an_abruptly_disconnected_peer_can_reconnect_with_the_same_identity() {
+    let addr = spawn_strict_relay().await;
+    let (kem_pk, kem_sk) = kem::generate_keypair().unwrap();
+    let sign_kp = sign::generate_keypair().unwrap();
+
+    let mut first = TcpStream::connect(addr).await.unwrap();
+    let first_id = auth_hello(&mut first, &kem_pk, &kem_sk, &sign_kp).await;
+    drop(first); // abrupt close: the peer never says goodbye
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let mut second = TcpStream::connect(addr).await.unwrap();
+    let second_id = auth_hello(&mut second, &kem_pk, &kem_sk, &sign_kp).await;
+    assert_eq!(
+        second_id, first_id,
+        "l'identité doit être stable d'une connexion à l'autre"
+    );
+
+    // The reconnected slot is live: a third connection with the same keys is
+    // refused. Without this witness, a relay that had simply stopped
+    // registering anyone would pass the reconnection assertion.
+    let mut third = TcpStream::connect(addr).await.unwrap();
+    let (node_id, sign_pk_hex, ct_hex) = start_auth(&mut third, &kem_pk, &sign_kp).await;
+    let response = auth_resp(
+        &node_id,
+        &sign_pk_hex,
+        &kem_pk.to_hex(),
+        &ct_hex,
+        &kem_sk,
+        &sign_kp,
+    );
+    third.write_all(response.as_bytes()).await.unwrap();
+    let ack = read_line(&mut third).await;
+    assert!(
+        ack.starts_with("AUTH_DENIED duplicate"),
+        "la reconnexion a laissé un slot mort ou volable : {ack}"
+    );
+}
+
 #[tokio::test]
 async fn a_second_connection_cannot_steal_a_live_authenticated_slot() {
     let addr = spawn_strict_relay().await;

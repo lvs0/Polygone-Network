@@ -325,7 +325,31 @@ async fn read_handshake_line<R: tokio::io::AsyncRead + Unpin>(
 /// relay knows the node id (derived from that key) and the KEM key belong to
 /// the same live peer. A denied registration never sends a fragment into a
 /// slot it does not own.
+/// Bound the whole relay handshake. A relay that accepts the TCP connection
+/// and then says nothing must fail with an explicit error instead of leaving
+/// the CLI suspended indefinitely (mission P0, Phase 2: errors and deadlines).
+pub const RELAY_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 async fn connect(relay: &str, identity: &LocalIdentity) -> Result<TcpStream> {
+    connect_with_timeout(relay, identity, RELAY_HANDSHAKE_TIMEOUT).await
+}
+
+/// Same as [`connect`], with an explicit deadline (tests use a short one).
+async fn connect_with_timeout(
+    relay: &str,
+    identity: &LocalIdentity,
+    limit: std::time::Duration,
+) -> Result<TcpStream> {
+    match tokio::time::timeout(limit, connect_inner(relay, identity)).await {
+        Ok(result) => result,
+        Err(_) => anyhow::bail!(
+            "relais {relay} muet : aucune réponse au handshake après {} ms — relais arrêté, port filtré ou surchargé",
+            limit.as_millis()
+        ),
+    }
+}
+
+async fn connect_inner(relay: &str, identity: &LocalIdentity) -> Result<TcpStream> {
     let mut stream = TcpStream::connect(relay).await?;
     let id = node_id(identity);
 
