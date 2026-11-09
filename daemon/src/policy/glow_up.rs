@@ -555,6 +555,7 @@ mod tests {
 
     fn test_snapshot(total_ram: u64, available_ram: u64) -> SystemSnapshot {
         SystemSnapshot {
+            storage: Default::default(),
             cpu: crate::CpuSnapshot {
                 usage_percent: 10.0,
                 per_core: vec![10.0; 4],
@@ -727,6 +728,7 @@ mod tests {
     fn test_safety_application() {
         let config = DaemonConfig::default();
         let snap = SystemSnapshot {
+            storage: Default::default(),
             cpu: crate::CpuSnapshot {
                 usage_percent: 90.0,
                 per_core: vec![90.0; 8],

@@ -1,0 +1,38 @@
+# Scan de secrets — gitleaks 8.30.1
+# date: 2026-11-09T15:33:49+01:00
+# HEAD: 9ff9360fed388fd74daf52a80c40e03491ee4933
+
+## 1. historique git (ce qui serait publie)
+[90m3:33PM[0m [32mINF[0m [1mUnknown SCM platform. Use --platform to include links in findings.[0m [36mhost=[0m
+[90m3:33PM[0m [32mINF[0m [1m280 commits scanned.[0m
+[90m3:33PM[0m [32mINF[0m [1mscanned ~10390414 bytes (10.39 MB) in 4.45s[0m
+[90m3:33PM[0m [32mINF[0m [1mno leaks found[0m
+git_exit=0
+
+## 2. arbre de travail, hors target/
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=6MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-02of4llkej0e6/s-ho03jgnno9-0mzh02f-777ej66yplzm38gvaqh7bm444/query-cache.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=5MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-07b97yoobij9c/s-ho03suibzf-1b0jw9e-8m8n6i08a234fwrepafbbqprh/dep-graph.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=9MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-0mkitkqrrt60w/s-ho03q2ecf1-17bpe8z-87b7pax71hjt9u31hyw96a2mq/dep-graph.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=2MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-0mkitkqrrt60w/s-ho03q2ecf1-17bpe8z-87b7pax71hjt9u31hyw96a2mq/query-cache.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=4MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-0qs8ihgpborvl/s-ho03fl28c1-11uazc4-6605x33cxi6erkhdvqqdjcr5i/dep-graph.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=14MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-1bzuyrzckkw8y/s-ho03a9h22i-0hnhwjw-dfwczk5bzu5tdskhx1iqknazo/dep-graph.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=6MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-1bzuyrzckkw8y/s-ho03a9h22i-0hnhwjw-dfwczk5bzu5tdskhx1iqknazo/query-cache.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=17MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-2odya4axnuobk/s-ho03ff0334-0zmaesj-cwkplkdtp2097aif59jeonvbj/dep-graph.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=8MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-2odya4axnuobk/s-ho03ff0334-0zmaesj-cwkplkdtp2097aif59jeonvbj/query-cache.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=2MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-33l8g3v2j8nva/s-ho03q4tgvg-0wgo3ga-1aqqrg7wq4lrcqn2w2f48ceeu/dep-graph.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=8MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-3d7v2f5py7hrw/s-ho03np82hv-05va93i-20z9ruo0s7igip32atwf1g25n/dep-graph.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=2MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-3d7v2f5py7hrw/s-ho03np82hv-05va93i-20z9ruo0s7igip32atwf1g25n/query-cache.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=2MB[0m [36mpath=[0mtarget/debug/incremental/polygoned-3dtf0mqibw3wb/s-ho03qecgo0-1fydrm2-0l7gla9kv0q2w2yrsdsi7yme1/dep-graph.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=6MB[0m [36mpath=[0mtarget/debug/incremental/serve-1vfn5jok8yq95/s-ho03fcsykf-0l3xzri-62bg844nokhzibbw7g6w0jymm/dep-graph.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=2MB[0m [36mpath=[0mtarget/debug/incremental/serve-1vfn5jok8yq95/s-ho03fcsykf-0l3xzri-62bg844nokhzibbw7g6w0jymm/query-cache.bin
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=4MB[0m [36mpath=[0mtarget/debug/libpolygone_client.rlib
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=2MB[0m [36mpath=[0mtarget/debug/libpolygone_gateway.rlib
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=3MB[0m [36mpath=[0mtarget/debug/libpolygone_petals.rlib
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=7MB[0m [36mpath=[0mtarget/debug/libpolygoned.rlib
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=36MB[0m [36mpath=[0mtarget/debug/polygone
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=10MB[0m [36mpath=[0mtarget/debug/polygone-gateway
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=11MB[0m [36mpath=[0mtarget/debug/polygone-relay
+[90m3:34PM[0m [33mWRN[0m [1mskipping file: too large max_size=2MB, size=14MB[0m [36mpath=[0mtarget/debug/polygoned
+[90m3:34PM[0m [32mINF[0m [1mscanned ~247089882 bytes (247.09 MB) in 28.7s[0m
+[90m3:34PM[0m [32mINF[0m [1mno leaks found[0m
+dir_exit=0

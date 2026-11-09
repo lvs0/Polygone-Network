@@ -251,6 +251,7 @@ mod tests {
         let free_bytes = (free_gb * 1_073_741_824.0) as u64;
         let used_bytes = total_bytes.saturating_sub(free_bytes);
         SystemSnapshot {
+            storage: Default::default(),
             cpu: CpuSnapshot {
                 usage_percent: cpu_pct,
                 per_core: vec![],

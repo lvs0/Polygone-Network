@@ -1,0 +1,16 @@
+# Preuve — quatre tests de securite du relais
+# date: 2026-11-09T15:30:57+01:00
+# HEAD: 9ff9360fed388fd74daf52a80c40e03491ee4933
+# branche: reconcile/2026-11
+
+$ cargo test -p polygone-relay --lib a_node_id_not_derived_from_the_signing_key_is_refused
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.06s
+
+$ cargo test -p polygone-relay --lib strict_relay_refuses_legacy_hello
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.05s
+
+$ cargo test -p polygone-relay --lib replaying_auth_resp_on_a_fresh_challenge_is_refused
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.10s
+
+$ cargo test -p polygone-relay --lib a_second_connection_cannot_steal_a_live_authenticated_slot
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.10s

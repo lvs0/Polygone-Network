@@ -73,6 +73,9 @@ pub struct SystemSnapshot {
     /// État de présence de l'utilisateur — trois états, pas un booléen.
     /// `Unknown` (aucune source de vérité) n'est pas `Idle` (personne).
     pub user_active: crate::resources::UserActivity,
+    /// Mesure du stockage du montage hébergeant le répertoire de données.
+    /// Zéro partout = aucune mesure fiable : fail-closed, rien d'allouable.
+    pub storage: crate::resources::StorageInfo,
 }
 
 impl SystemSnapshot {
@@ -97,6 +100,9 @@ impl SystemSnapshot {
         let user_active = platform
             .user_active()
             .unwrap_or(crate::resources::UserActivity::Unknown);
+        // Même règle fail-closed que pour l'activité : une mesure qui échoue
+        // publie zéro (refus de stockage), jamais une valeur inventée.
+        let storage = platform.storage_info().unwrap_or_default();
 
         let primary_iface = bw_info
             .interfaces
@@ -153,6 +159,7 @@ impl SystemSnapshot {
                 .collect(),
             timestamp,
             user_active,
+            storage,
         }
     }
 }
@@ -270,5 +277,26 @@ mod tests {
         assert!(s.total_ram_gb > 0.0);
         assert!(s.free_ram_gb >= 0.0);
         assert!(s.cpu_cores >= 1);
+    }
+
+    #[test]
+    fn capture_includes_real_storage_measurement() {
+        // Plateforme réelle : sur une machine de dev, /proc/mounts et sysinfo
+        // donnent un montage couvrant le répertoire de données — la mesure ne
+        // doit PAS être vide. (Sur une CI exotique, le test se contente de la
+        // cohérence disponible <= total : le fail-closed couvre le reste.)
+        let platform = crate::resources::create_platform();
+        let snap = SystemSnapshot::capture(platform.as_ref());
+
+        assert!(
+            snap.storage.available_bytes <= snap.storage.total_bytes,
+            "le disponible ne peut pas dépasser le total : {:?}",
+            snap.storage
+        );
+        assert!(
+            snap.storage.total_bytes > 0,
+            "aucun montage ne couvre {:?} — la mesure devrait trouver la racine",
+            platform.data_dir()
+        );
     }
 }

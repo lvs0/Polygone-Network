@@ -2,7 +2,7 @@
 
 use crate::resources::{
     BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint, MemoryInfo, NetInterface,
-    Platform, PlatformCaps, ProcessMemory, ServiceConfig, UserActivity,
+    Platform, PlatformCaps, ProcessMemory, ServiceConfig, StorageInfo, UserActivity,
 };
 use libc;
 use std::fs;
@@ -138,6 +138,23 @@ impl Platform for LinuxPlatform {
         }
         info.used_bytes = info.total_bytes.saturating_sub(info.available_bytes);
         Ok(info)
+    }
+
+    // Stockage : l'espace libre du montage qui héberge le répertoire de
+    // données. C'est un plafond mesuré, pas une réservation — voir
+    // `runtime_state` pour la sémantique exacte du champ publié.
+    fn storage_info(&self) -> anyhow::Result<StorageInfo> {
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let mounts = disks
+            .list()
+            .iter()
+            .map(|d| (d.mount_point(), d.total_space(), d.available_space()));
+        let (total, available) = crate::resources::mount_for_path(mounts, &self.data_dir())
+            .ok_or_else(|| anyhow::anyhow!("aucun montage ne couvre {:?}", self.data_dir()))?;
+        Ok(StorageInfo {
+            total_bytes: total,
+            available_bytes: available,
+        })
     }
 
     fn process_memory(&self) -> anyhow::Result<ProcessMemory> {

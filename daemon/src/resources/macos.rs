@@ -2,7 +2,7 @@
 
 use crate::resources::{
     BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint, MemoryInfo, NetInterface,
-    Platform, PlatformCaps, ProcessMemory, ServiceConfig, UserActivity,
+    Platform, PlatformCaps, ProcessMemory, ServiceConfig, StorageInfo, UserActivity,
 };
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::Command;
@@ -109,6 +109,24 @@ impl Platform for MacOSPlatform {
             free_bytes: free_pages * page_size,
             swap_total_bytes: 0,
             swap_free_bytes: 0,
+        })
+    }
+
+    // Stockage : l'espace libre du montage qui héberge le répertoire de
+    // données. Même sémantique que Linux — un plafond mesuré, pas une
+    // réservation. En cas d'échec, `Err` : l'appelant publiera zéro (refus),
+    // jamais une valeur inventée.
+    fn storage_info(&self) -> anyhow::Result<StorageInfo> {
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let mounts = disks
+            .list()
+            .iter()
+            .map(|d| (d.mount_point(), d.total_space(), d.available_space()));
+        let (total, available) = crate::resources::mount_for_path(mounts, &self.data_dir())
+            .ok_or_else(|| anyhow::anyhow!("aucun montage ne couvre {:?}", self.data_dir()))?;
+        Ok(StorageInfo {
+            total_bytes: total,
+            available_bytes: available,
         })
     }
 

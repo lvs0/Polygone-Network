@@ -81,11 +81,13 @@ pub fn runtime_state(
         uptime_secs,
         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
         platform: engine.platform.name().to_string(),
-        // Pour l'instant, aucune capacité de stockage n'est exposée via le
-        // snapshot système — le champ restera à 0 tant qu'aucune source
-        // fiable de quota disque n'est branchée. Toute demande de stockage
-        // sera refusée (0 = rien d'allouable).
-        total_storage_bytes: 0,
+        // Espace réellement disponible sur le montage du répertoire de données,
+        // mesuré par la plateforme (`resources::StorageInfo`). Une mesure
+        // manquante vaut zéro et refuse toute demande (`storage_headroom_bytes`,
+        // fail-closed) : on ne publie jamais une capacité inventée. C'est un
+        // plafond mesuré, pas une réservation — voir la note sur
+        // `enforced_storage_bytes` plus bas.
+        total_storage_bytes: snap.storage.available_bytes,
         // Rien n'est contraint par l'OS, et c'est mesuré, pas supposé :
         // `GlowUpEngine::apply` ne pose qu'une priorité `nice` ; aucun
         // plafond mémoire de cgroup, aucun quota CPU, aucune affinité écrits par le
@@ -196,6 +198,7 @@ mod tests {
     /// qu'aucune ne puisse coïncider par accident avec un défaut codé en dur.
     fn snapshot() -> SystemSnapshot {
         SystemSnapshot {
+            storage: Default::default(),
             cpu: CpuSnapshot {
                 usage_percent: 12.5,
                 // 6 cœurs → `cpu_cores` doit valoir 6, pas les 3 de `DaemonState::new`.

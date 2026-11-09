@@ -56,6 +56,47 @@ impl MemoryInfo {
     }
 }
 
+/// Mesure du stockage d'un montage disque.
+///
+/// `Default` vaut zéro partout, et c'est volontairement fail-closed : une
+/// mesure manquante ne se distingue pas d'un disque plein, donc aucun
+/// consommateur ne peut allouer du stockage sur une ignorance — même règle que
+/// `UserActivity::Unknown` du côté de l'activité utilisateur.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StorageInfo {
+    /// Taille totale du montage.
+    pub total_bytes: u64,
+    /// Espace libre réellement disponible (équivaut `f_bavail` de statvfs).
+    pub available_bytes: u64,
+}
+
+impl StorageInfo {
+    pub fn free_percent(&self) -> f64 {
+        if self.total_bytes == 0 {
+            0.0
+        } else {
+            self.available_bytes as f64 / self.total_bytes as f64 * 100.0
+        }
+    }
+}
+
+/// Choisit le montage qui couvre `path`, par plus long préfixe.
+///
+/// Entrée : une liste de `(point de montage, total, disponible)`. Sortie :
+/// le couple `(total, disponible)` du montage le plus spécifique dont le point
+/// de montage est un préfixe de `path`. `None` si aucun montage ne couvre —
+/// l'appelant décide alors du comportement conservateur.
+pub(crate) fn mount_for_path<'a, I>(mounts: I, path: &std::path::Path) -> Option<(u64, u64)>
+where
+    I: IntoIterator<Item = (&'a std::path::Path, u64, u64)>,
+{
+    mounts
+        .into_iter()
+        .filter(|(mount, _, _)| path.starts_with(mount))
+        .max_by_key(|(mount, _, _)| mount.components().count())
+        .map(|(_, total, available)| (total, available))
+}
+
 /// Network interface statistics
 #[derive(Debug, Clone)]
 pub struct NetInterface {
@@ -246,6 +287,15 @@ pub trait Platform: Send + Sync + 'static {
     fn memory_info(&self) -> anyhow::Result<MemoryInfo>;
     fn process_memory(&self) -> anyhow::Result<ProcessMemory>;
 
+    // Storage
+    //
+    // Implémentation par défaut volontairement vide (tout à zéro) : une
+    // plateforme sans mesure fiable n'annonce PAS de capacité — elle refuse.
+    // Les implémentations qui savent mesurer (Linux, macOS) surchargent.
+    fn storage_info(&self) -> anyhow::Result<StorageInfo> {
+        Ok(StorageInfo::default())
+    }
+
     // Bandwidth
     fn bandwidth_info(&self) -> anyhow::Result<BandwidthInfo>;
     fn primary_interface(&self) -> anyhow::Result<String>;
@@ -296,3 +346,94 @@ compile_error!(
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 compile_error!("Polygone daemon only supports Linux, macOS, and Windows");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mounts() -> Vec<(&'static std::path::Path, u64, u64)> {
+        vec![
+            (
+                std::path::Path::new("/"),
+                500 * 1024 * 1024 * 1024,
+                100 * 1024 * 1024 * 1024,
+            ),
+            (
+                std::path::Path::new("/home"),
+                250 * 1024 * 1024 * 1024,
+                50 * 1024 * 1024 * 1024,
+            ),
+            (
+                std::path::Path::new("/home/lvs0/data"),
+                10 * 1024 * 1024 * 1024,
+                1024 * 1024 * 1024,
+            ),
+        ]
+    }
+
+    #[test]
+    fn mount_for_path_picks_longest_prefix() {
+        let path = std::path::Path::new("/home/lvs0/data/polygone/blocks");
+        assert_eq!(
+            mount_for_path(mounts(), path),
+            Some((10 * 1024 * 1024 * 1024, 1024 * 1024 * 1024)),
+            "le montage le plus spécifique gagne, pas le premier trouvé"
+        );
+    }
+
+    #[test]
+    fn mount_for_path_falls_back_to_shallower_mount() {
+        let path = std::path::Path::new("/home/lvs0/Documents");
+        assert_eq!(
+            mount_for_path(mounts(), path),
+            Some((250 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024)),
+            "un chemin hors du montage dédié retombe sur /home"
+        );
+    }
+
+    #[test]
+    fn mount_for_path_no_match_is_none() {
+        // Sans montage racine dans la liste, un chemin extérieur ne couvre
+        // rien. (Avec "/" présent, tout chemin absolu couvre — c'est voulu :
+        // la racine est le fallback universel.)
+        let no_root = vec![
+            (
+                std::path::Path::new("/home"),
+                250 * 1024 * 1024 * 1024,
+                50 * 1024 * 1024 * 1024,
+            ),
+            (
+                std::path::Path::new("/home/lvs0/data"),
+                10 * 1024 * 1024 * 1024,
+                1024 * 1024 * 1024,
+            ),
+        ];
+        assert_eq!(
+            mount_for_path(no_root, std::path::Path::new("/mnt/autre-disque/x")),
+            None,
+            "aucun montage couvrant : None, l'appelant applique le fail-closed"
+        );
+    }
+
+    #[test]
+    fn mount_for_path_root_covers_every_absolute_path() {
+        // Le montage "/" est un fallback universel : un chemin inconnu
+        // retombe dessus plutôt que de renvoyer None.
+        assert_eq!(
+            mount_for_path(mounts(), std::path::Path::new("/mnt/autre-disque/x")),
+            Some((500 * 1024 * 1024 * 1024, 100 * 1024 * 1024 * 1024)),
+        );
+    }
+
+    #[test]
+    fn storage_info_default_is_zero_fail_closed() {
+        let info = StorageInfo::default();
+        assert_eq!(info.total_bytes, 0);
+        assert_eq!(info.available_bytes, 0);
+        assert_eq!(
+            info.free_percent(),
+            0.0,
+            "un disque non mesuré n'est pas un disque vide à 0 % libre"
+        );
+    }
+}

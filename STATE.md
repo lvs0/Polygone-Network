@@ -29,6 +29,13 @@ Décision `D1` tranchée : **option D1-b**, documentée dans
 | `cargo build --workspace` | exit 0, 4 binaires produits, dont `polygone` et `polygone-relay` |
 | `POLYGONE_SKIP_BUILD=1 ./scripts/p0-two-process.sh` | **PASS**, exit 0 — 3 processus réels : relais, émetteur A (`f4a1de26…`), récepteur B (`cfd38084…`) ; session `01c25dfb…`, 7 fragments + KEM_CT, ancre de confiance apprise, `HELLO_DENIED auth_required` sur identité non prouvée, aucun secret dans les journaux |
 
+| `cargo test -p polygone-client --bin polygone net::peers_tests` | **5/5** — migration v1→v2 : double entrée, copie `peers.json.v1.bak`, idempotence, entrée illisible conservée, plafond respecté |
+| `scripts/peers-migration-smoke.sh` | **PASS** — fichier v1 réel migré, 2 entrées, copie 0600, aucune perte |
+| `scripts/cross-version-smoke.sh` | **PASS** — relais strict refuse un `HELLO` hérité, `--allow-insecure-hello` l'accepte, client du 2026-11-07 produit un identifiant de 16 caractères |
+| `gitleaks 8.30.1` (`git` + `dir`) | **aucune fuite** — 280 commits, 247 Mo d'arbre |
+| Mesure de stockage restaurée | `StorageInfo`, `mount_for_path`, `Platform::storage_info` ; `total_storage_bytes` publié depuis `snap.storage.available_bytes`, plus jamais une constante |
+| Revue des 78 modifications de `Polygone-real` | 4 fichiers porteurs d'une fonctionnalité réelle **réintégrés** ; 31 restent à statuer (dont la réservation de stockage du ledger) — `project/DIRTY-REVIEW.md` |
+
 **Non vérifié, et pourquoi** : `gitleaks` n'est pas installé sur cette machine — le scan d'historique exigé par l'étape 9 du plan n'a **pas** été exécuté. Aucune publication vers `origin` n'a été faite. Le test de migration `peers.json` v1 → v2 (AK-02) n'existe pas encore : l'identifiant `node_id` a changé de longueur avec S1, donc la migration est un prérequis de version stable, pas un détail.
 
 ## Dernière session

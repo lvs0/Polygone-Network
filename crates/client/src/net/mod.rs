@@ -73,9 +73,14 @@ fn load_peers_from_path(path: &std::path::Path) -> Result<HashMap<String, String
     }
     crate::identity::ensure_private_file(path)?;
     let raw = std::fs::read_to_string(path)?;
-    serde_json::from_str(&raw).map_err(|error| {
+    let mut peers: HashMap<String, String> = serde_json::from_str(&raw).map_err(|error| {
         anyhow::anyhow!("ancre de confiance invalide ({}): {error}", path.display())
-    })
+    })?;
+    let migrated = migrate_legacy_peer_ids(&mut peers);
+    if !migrated.is_empty() {
+        persist_peer_migration(path, &raw, &peers, &migrated);
+    }
+    Ok(peers)
 }
 
 /// Load the trust anchor (empty map = first contact, TOFU).
@@ -93,6 +98,96 @@ fn save_peers_to_path(path: &std::path::Path, peers: &HashMap<String, String>) -
 /// Persist the trust anchor atomically with enforced 0600 permissions.
 pub fn save_peers(peers: &HashMap<String, String>) -> Result<()> {
     save_peers_to_path(&peers_path(), peers)
+}
+
+/// Hex length of a pre-S1 `node_id`, derived from the KEM key.
+pub const LEGACY_NODE_ID_HEX_LEN: usize = 16;
+/// Hex length of the current `node_id`, derived from the ML-DSA signing key.
+pub const NODE_ID_HEX_LEN: usize = 32;
+
+/// Where the untouched v1 store is preserved the first time a migration runs.
+pub fn peers_v1_backup_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.with_file_name("peers.json.v1.bak")
+}
+
+/// Re-key a trust store written by a pre-S1 client, **without dropping anything**.
+///
+/// Before S1, `node_id` was derived from the ML-KEM key and was 16 hex
+/// characters long. Since S1 it is `hex(BLAKE3(NODE_ID_CONTEXT || sign_pk)[..16])`,
+/// 32 characters. A trust store written by an old client therefore keys its
+/// entries under identifiers this build never computes, which would silently
+/// degrade every known peer to « first contact » (TOFU).
+///
+/// The migration derives the new identifier from the stored ML-DSA public key and
+/// **adds** it next to the legacy one. Adding rather than renaming is what keeps
+/// the file readable by an older binary: it still finds the identifiers it knows.
+/// Entries whose key cannot be derived (not a valid ML-DSA public key) are left
+/// untouched and reported, never removed.
+fn migrate_legacy_peer_ids(peers: &mut HashMap<String, String>) -> Vec<(String, String)> {
+    let mut migrated = Vec::new();
+    let legacy: Vec<(String, String)> = peers
+        .iter()
+        .filter(|(id, _)| {
+            id.len() == LEGACY_NODE_ID_HEX_LEN && id.chars().all(|c| c.is_ascii_hexdigit())
+        })
+        .map(|(id, key)| (id.clone(), key.clone()))
+        .collect();
+
+    for (legacy_id, sign_pk_hex) in legacy {
+        let Some(derived) = polygone_core::sign::node_id_from_sign_pk_hex(&sign_pk_hex) else {
+            log::warn!(
+                "ancre de confiance : {legacy_id} n'est pas migrable (clé de signature illisible) — entrée conservée telle quelle"
+            );
+            continue;
+        }; // Défense en profondeur : un identifiant de largeur inattendue n'entre
+           // pas dans le magasin. Refuser ici vaut mieux que de stocker une clé
+           // sous un identifiant que ce binaire ne recalculera jamais.
+        if derived.len() != NODE_ID_HEX_LEN
+            || derived == legacy_id
+            || peers.contains_key(&derived)
+            || peers.len() >= MAX_KNOWN_PEERS
+        {
+            continue;
+        }
+        peers.insert(derived.clone(), sign_pk_hex);
+        migrated.push((legacy_id, derived));
+    }
+    migrated
+}
+
+/// Write the migrated store, keeping the original bytes once as `peers.json.v1.bak`.
+///
+/// A failure here is logged, not fatal: the caller already holds the migrated map,
+/// so this process enforces the trust anchors correctly, and the next successful
+/// load retries the write. Silence would be the only unacceptable outcome.
+fn persist_peer_migration(
+    path: &std::path::Path,
+    original: &str,
+    peers: &HashMap<String, String>,
+    migrated: &[(String, String)],
+) {
+    let backup = peers_v1_backup_path(path);
+    if !backup.exists() {
+        if let Err(error) = crate::identity::write_private_atomic(&backup, original.as_bytes()) {
+            log::warn!(
+                "ancre de confiance : copie v1 non écrite ({}): {error}",
+                backup.display()
+            );
+        }
+    }
+    match save_peers_to_path(path, peers) {
+        Ok(()) => {
+            for (legacy_id, derived) in migrated {
+                log::info!(
+                    "ancre de confiance : {legacy_id} migré en {derived} (entrée v1 conservée)"
+                );
+            }
+        }
+        Err(error) => log::warn!(
+            "ancre de confiance : migration non persistée ({}): {error}",
+            path.display()
+        ),
+    }
 }
 
 /// Maximum accepted relay frame. The relay enforces the same cap; the client
@@ -1694,6 +1789,9 @@ pub fn hide_decrypt_chunk(payload: &[u8], key: &symmetric::SessionKey) -> Result
 pub fn hide_encrypt_chunk(chunk: &[u8], key: &symmetric::SessionKey) -> Result<Vec<u8>> {
     Ok(symmetric::encrypt(chunk, key)?)
 }
+
+#[cfg(test)]
+mod peers_tests;
 
 #[cfg(test)]
 mod s1_tests;
