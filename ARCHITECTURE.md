@@ -106,19 +106,23 @@ polygone/
 
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
-| `core`       | 11       | 1 373      | — (lib)              | 29    |
-| `client`     | 31       | 14 827     | `polygone`           | 187   |
-| `relay`      | 3        | 1 117      | `polygone-relay`     | 19    |
-| `gateway`    | 7        | 2 572      | `polygone-gateway`   | 47    |
-| `petals`     | 13       | 3 241      | — (lib)              | 19    |
+| `core`       | 12       | 1 476      | — (lib)              | 32    |
+| `client`     | 32       | 15 082     | `polygone`           | 190   |
+| `relay`      | 4        | 1 675      | `polygone-relay`     | 28    |
+| `gateway`    | 7        | 2 583      | `polygone-gateway`   | 47    |
+| `petals`     | 12       | 3 094      | — (lib)              | 19    |
 | `serverless` | 3        | 776        | — (lib)              | 17    |
 | `daemon`     | 17       | 10 243     | `polygoned`          | 118   |
 | doc-tests    | —        | —          | —                    | comptés dans leur crate |
-| **Total**    | **85**   | **34 149** | **4 binaires**       | **436** |
+| **Total**    | **87**   | **34 929** | **4 binaires**       | **451** |
 
 > Re-mesuré le **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
-> 85 fichiers Rust, 34 149 lignes et 436 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> 87 fichiers Rust, 34 929 lignes et 451 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> *Mise à jour du 2026-11-09* : la réconciliation canonique (`docs/decisions/ADR-0001`)
+> ajoute quatre fichiers Rust issus de `realign/v2` et du correctif P0
+> (`relay/auth_tests.rs`, `client/net/s1_tests.rs`, `core/sign/node_id_tests.rs`,
+> `client/tests/`) ; les compteurs de tests restent à recomputer par `make test`.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
@@ -143,7 +147,8 @@ polygone/
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **436 tests, 0 échec**.
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **451 tests, 0 échec**
+> (recompté le 2026-11-09 sur l'arbre réconcilié).
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is
@@ -358,7 +363,7 @@ relay routing/drop/ignore tests.
 
 ```bash
 cargo build --release            # all 4 binaries
-cargo test --workspace           # 436 tests
+cargo test --workspace           # 451 tests
 cargo clippy --all --all-targets -- -D warnings
 ```
 

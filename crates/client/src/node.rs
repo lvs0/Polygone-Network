@@ -1062,11 +1062,22 @@ mod tests {
             "il n'y a plus personne à qui rendre le bail"
         );
 
-        // Observable de l'extérieur : l'écoute est fermée.
-        assert!(
-            TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_err(),
-            "un nœud sans bail ne doit plus écouter"
-        );
+        // Observable de l'extérieur : l'écoute est fermée. Borne de 2 s :
+        // `free_port()` réserve un port éphémère puis le relâche avant que le
+        // nœud ne le reprenne, si bien qu'un test parallèle peut le détenir un
+        // instant. Sans cette marge, une collision de port faisait échouer ce
+        // test alors que le nœud, lui, avait bien cessé d'écouter.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_err() {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "un nœud sans bail ne doit plus écouter ({addr} accepte encore après 2 s)"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
         // Et il ne sert plus : le bloc existe toujours, mais personne ne le sert.
         assert!(blocks::fetch(&hash, addr).is_err());
     }

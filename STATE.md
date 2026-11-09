@@ -3,6 +3,30 @@
 > Mis à jour par l'orchestrateur après chaque bloc de travail.
 > Ne jamais écrire ici une valeur non vérifiée.
 
+## Réconciliation canonique — 2026-11-09
+
+Décision `D1` tranchée : **option D1-b**, documentée dans
+`docs/decisions/ADR-0001-base-canonique-et-reconciliation.md`.
+
+| Champ | Valeur |
+|---|---|
+| Dépôt canonique de travail | `~/Polygone-canonical` (clone de `Polygone-real`, remote `realign` → `~/Polygone-Atlas/03-REALIGNED`) |
+| Branche | `reconcile/2026-11` — base `main` (`f3d09c0`), fusion `realign/v2` (`967afdb`), puis `p0/first-secure-network` (`d6e7229`) |
+| Commits créés | `3486e4b` (fusion des deux lignées), `9f5413c` (correctif P0/S1) |
+| Conflits | 65, tous `add/add` (aucun ancêtre commun) ; version `realign/v2` retenue, liste exhaustive en annexe de l'ADR-0001 |
+| Non-perte | `comm -23` sur les deux arbres : **0 fichier perdu** de chaque côté ; 391 fichiers dans l'arbre canonique |
+| Histoires préservées | `main` et `realign/realign/v2` intactes, aucun force-push |
+| Hors fusion | les 78 modifications non commitées de `Polygone-real` (jamais commitées) restent dans `~/Ops/backups/polygone-unification-2026-11-09/dirty/` |
+
+## Vérifications du 2026-11-09 (arbre réconcilié)
+
+| Commande | Résultat |
+|---|---|
+| `cargo test --workspace` | **451 passés, 0 échec**, 22 suites, exit 0 (mesuré sur `reconcile/2026-11`) |
+| `node scripts/check-docs.mjs` | **documents cohérents avec le code**, 71 Markdown indexés, exit 0 |
+| `comm -23` sur les deux arbres | aucun fichier de `main` ni de `realign/v2` perdu par la fusion |
+| `test_node_stops_when_lease_is_lost` | échouait une fois sur deux passes complètes : collision de port de test (`free_port` relâche le port avant que le nœud le reprenne), pas un défaut du nœud. Le test borne désormais 2 s de réessai et nomme la cause. |
+
 ## Dernière session
 
 | Champ | Valeur |

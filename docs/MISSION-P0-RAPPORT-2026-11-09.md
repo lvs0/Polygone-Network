@@ -1,5 +1,13 @@
 # Mission P0 — rapport de preuves
 
+> ## ⚠ Instantané daté — ne pas lire comme l'état courant
+>
+> Ce rapport décrit la branche `p0/first-secure-network` au **2026-11-09**, avant
+> la réconciliation canonique. Le correctif qu'il prouve est depuis intégré à la
+> branche `reconcile/2026-11` (commit `9f5413c`). Les compteurs (451 tests) sont
+> ceux de cette branche à cette date ; pour l'état mesuré courant, voir
+> [`../STATE.md`](../STATE.md) et [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
+
 > Exécution du 2026-11-09. Dépôt `lvs0/Polygone-Network`, branche
 > `p0/first-secure-network`, bâtie sur S1 (`40fe6ba`).
 > Une seule machine physique disponible : la démonstration à deux machines
