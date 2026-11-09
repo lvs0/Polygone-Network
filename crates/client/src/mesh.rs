@@ -278,7 +278,7 @@ fn parse_announce(line: &str, addr: SocketAddr) -> Option<Peer> {
     if !(parts.len() == 4 || parts.len() == 5)
         || parts[0] != "POLYGONE"
         || parts[1] != "v1"
-        || parts[2].len() != 16
+        || parts[2].len() != 32
         || !parts[2].bytes().all(|byte| byte.is_ascii_hexdigit())
         || !valid_relay_endpoint(parts[3])
     {
@@ -603,9 +603,12 @@ mod tests {
     #[test]
     fn parses_only_well_formed_announcements_from_mesh_port() {
         let addr: SocketAddr = "192.168.1.20:7642".parse().unwrap();
-        let peer =
-            parse_announce("POLYGONE v1 0123456789abcdef 192.168.1.20:7000 4096", addr).unwrap();
-        assert_eq!(peer.node_id, "0123456789abcdef");
+        let peer = parse_announce(
+            "POLYGONE v1 0123456789abcdef0123456789abcdef 192.168.1.20:7000 4096",
+            addr,
+        )
+        .unwrap();
+        assert_eq!(peer.node_id, "0123456789abcdef0123456789abcdef");
         assert_eq!(peer.relay, "192.168.1.20:7000");
         assert_eq!(peer.free_ram_mb, Some(4096));
     }
@@ -615,18 +618,20 @@ mod tests {
         let addr: SocketAddr = "192.168.1.20:7642".parse().unwrap();
         for line in [
             "POLYGONE v1 short 192.168.1.20:7000",
-            "POLYGONE v1 0123456789abcdef not-a-relay",
-            "POLYGONE v1 0123456789abcdef 192.168.1.20:0",
-            "POLYGONE v1 0123456789abcdef 192.168.1.20:7000 not-a-number",
-            "POLYGONE v1 0123456789abcdef 192.168.1.20:7000 4096 extra",
-            "POLYGONE v2 0123456789abcdef 192.168.1.20:7000",
+            "POLYGONE v1 0123456789abcdef0123456789abcdef not-a-relay",
+            "POLYGONE v1 0123456789abcdef0123456789abcdef 192.168.1.20:0",
+            "POLYGONE v1 0123456789abcdef0123456789abcdef 192.168.1.20:7000 not-a-number",
+            "POLYGONE v1 0123456789abcdef0123456789abcdef 192.168.1.20:7000 4096 extra",
+            "POLYGONE v2 0123456789abcdef0123456789abcdef 192.168.1.20:7000",
         ] {
             assert!(parse_announce(line, addr).is_none(), "accepted {line:?}");
         }
         let wrong_port: SocketAddr = "192.168.1.20:12345".parse().unwrap();
-        assert!(
-            parse_announce("POLYGONE v1 0123456789abcdef 192.168.1.20:7000", wrong_port).is_none()
-        );
+        assert!(parse_announce(
+            "POLYGONE v1 0123456789abcdef0123456789abcdef 192.168.1.20:7000",
+            wrong_port
+        )
+        .is_none());
     }
 
     #[test]

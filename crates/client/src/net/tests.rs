@@ -899,55 +899,30 @@ fn compute_request_replay_cache_fails_closed_when_full() {
     );
 }
 
-// ── TOFU : premier contact appris, ancre ENFORCÉE ensuite ───────────────
+// ── TOFU : premier contact appris, puis identité NON SUBSTITUABLE ───────
 // La config production charge known_peers depuis peers.json (vide au
-// premier contact) et l'apprend après un message vérifié. Ce test
-// verrouille la propriété réelle :
-//   1. premier contact (map vide) → accepté (TOFU) + binding appris ;
-//   2. message suivant du MÊME from avec une AUTRE clé → rejeté.
+// premier contact) et l'apprend après un message vérifié. Avec S1, le
+// `from` est dérivé de la clé de signature : une autre clé ne peut plus
+// revendiquer l'identité d'un pair déjà ancré, même en premier contact.
 #[test]
 fn tofu_learns_and_enforces_the_anchor() {
-    let alice = LocalIdentity::generate(); // la vraie Alice
-    let eve = LocalIdentity::generate(); // l'attaquante
+    let eve = LocalIdentity::generate(); // premier contact légitime
+    let alice = LocalIdentity::generate(); // tentative de substitution
     let bob = LocalIdentity::generate(); // la victime
     let pk = bob.kem_public_key().unwrap();
     let bob_node = node_id(&bob);
-    let alice_node = node_id(&alice);
+    let eve_node = node_id(&eve);
 
     let mut known_peers: HashMap<String, String> = HashMap::new(); // vide = prod fraîche
     let mut completed: CompletedSessions = VecDeque::new();
 
-    // 1) Eve (premier contact, from=alice, SA clé) → TOFU accepte…
+    // 1) Eve (from=eve, SA clé) → TOFU accepte et apprend le binding.
     let output = crate::msg::send("premier contact", &pk).unwrap();
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
     let session1 = "tofu-1";
-    let ciphertext = output.ciphertext.clone().expect("ciphertext");
-    let sig = eve.sign_signer().unwrap().sign(&canonical_bytes(
-        session1,
-        &alice_node,
-        &bob_node,
-        test_now(),
-        output.kem_ct.as_bytes(),
-        &ciphertext,
-    ));
-    let env = NetEnvelope {
-        kind: "fragment".into(),
-        from: alice_node.clone(),
-        to: bob_node.clone(),
-        session: session1.into(),
-        seq: 0,
-        typ: "kem".into(),
-        idx: 0,
-        threshold: 4,
-        total: 7,
-        payload: output.kem_ct.as_bytes().to_vec(),
-        sig: Some(sig.as_bytes().to_vec()),
-        signer: Some(eve.sign_pk_hex.clone()),
-        name_ct: None,
-        ts: Some(test_now()),
-    };
+    let kem_line = signed_kem_json(session1, &eve, &bob_node, test_now(), &output, None);
     process_line(
-        &serde_json::to_string(&env).unwrap(),
+        &kem_line,
         &bob,
         &mut known_peers,
         test_now(),
@@ -956,13 +931,7 @@ fn tofu_learns_and_enforces_the_anchor() {
     )
     .unwrap();
     for frag in output.fragments.iter() {
-        let line = frag_json(
-            session1,
-            &node_id(&alice),
-            &bob_node,
-            frag.index,
-            &frag.share,
-        );
+        let line = frag_json(session1, &eve_node, &bob_node, frag.index, &frag.share);
         let _ = process_line(
             &line,
             &bob,
@@ -973,21 +942,22 @@ fn tofu_learns_and_enforces_the_anchor() {
         )
         .unwrap();
     }
-    // …et le binding from→clé d'Eve est APPRIS.
     assert_eq!(
-        known_peers.get(&alice_node).map(|s| s.as_str()),
+        known_peers.get(&eve_node).map(|s| s.as_str()),
         Some(eve.sign_pk_hex.as_str()),
         "le premier contact vérifié doit être appris (TOFU)"
     );
 
-    // 2) La vraie Alice, MÊME from, SA clé → REJETÉE (ancre enforce).
-    let output2 = crate::msg::send("vraiment alice cette fois", &pk).unwrap();
+    // 2) Alice signe un message qui revendique `from = eve` : sa clé ne
+    //    dérive pas cet identifiant, donc la session est refusée et le
+    //    binding ancré n'est pas écrasé.
+    let output2 = crate::msg::send("substitution", &pk).unwrap();
     let mut sessions2: HashMap<String, SessionBuffer> = HashMap::new();
     let session2 = "tofu-2";
     let ciphertext2 = output2.ciphertext.clone().expect("ciphertext");
     let sig2 = alice.sign_signer().unwrap().sign(&canonical_bytes(
         session2,
-        &alice_node,
+        &eve_node,
         &bob_node,
         test_now(),
         output2.kem_ct.as_bytes(),
@@ -995,7 +965,7 @@ fn tofu_learns_and_enforces_the_anchor() {
     ));
     let env2 = NetEnvelope {
         kind: "fragment".into(),
-        from: alice_node.clone(),
+        from: eve_node.clone(),
         to: bob_node.clone(),
         session: session2.into(),
         seq: 0,
@@ -1018,15 +988,10 @@ fn tofu_learns_and_enforces_the_anchor() {
         &mut sessions2,
     )
     .unwrap();
-    for frag in output2.fragments.iter() {
-        let line = frag_json(
-            session2,
-            &node_id(&alice),
-            &bob_node,
-            frag.index,
-            &frag.share,
-        );
-        let r = process_line(
+    let mut last_refusal = None;
+    for frag in output2.fragments.iter().take(4) {
+        let line = frag_json(session2, &eve_node, &bob_node, frag.index, &frag.share);
+        let (received, refusal) = process_line_detailed(
             &line,
             &bob,
             &mut known_peers,
@@ -1036,13 +1001,15 @@ fn tofu_learns_and_enforces_the_anchor() {
         )
         .unwrap();
         assert!(
-            r.is_none(),
-            "une clé différente pour un from déjà ancré doit être rejetée"
+            received.is_none(),
+            "une identité substituée ne doit jamais être livrée"
         );
+        last_refusal = refusal;
     }
+    assert_eq!(last_refusal, Some(Refusal::IdentityMismatch));
     // Le premier from ancré est conservé (pas écrasé par le second).
     assert_eq!(
-        known_peers.get(&alice_node).map(|s| s.as_str()),
+        known_peers.get(&eve_node).map(|s| s.as_str()),
         Some(eve.sign_pk_hex.as_str())
     );
 }
@@ -1493,7 +1460,9 @@ async fn replay_through_relay_is_refused_with_an_explicit_code() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let relay_addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        let _ = polygone_relay::relay::run_listener(listener).await;
+        // This test exercises replay refusal, not the handshake: keep the
+        // legacy registration explicit so the fixture stays minimal.
+        let _ = polygone_relay::relay::run_listener_with_options(listener, true).await;
     });
 
     // Le récepteur s'enregistre ; HELLO_OK prouve qu'il possède son slot.

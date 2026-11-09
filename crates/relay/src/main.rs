@@ -50,7 +50,10 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    rt.block_on(relay::run(args.port))
+    rt.block_on(relay::run_with_options(
+        args.port,
+        args.allow_insecure_hello,
+    ))
 }
 
 /// Make the Commands struct constructible before parsing — for early exit.
@@ -66,6 +69,10 @@ struct Args {
 
     #[arg(long, help = "Print only errors and warnings")]
     quiet: bool,
+
+    /// Accept the legacy unauthenticated `HELLO` handshake (insecure).
+    #[arg(long, default_value_t = false)]
+    allow_insecure_hello: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,

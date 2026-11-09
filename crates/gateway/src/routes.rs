@@ -234,7 +234,13 @@ impl Gateway {
             );
         };
 
-        let node_id: String = pair.kem_public_key_hex.chars().take(16).collect();
+        // The node id is derived from the signing key, not the KEM key: it is
+        // the key that signs this node's envelopes.
+        let node_id = match polygone_core::sign::node_id_from_sign_pk_hex(&pair.sign_public_key_hex)
+        {
+            Some(node_id) => node_id,
+            None => return HttpResponse::text(400, "clé publique ML-DSA-65 invalide"),
+        };
         self.nodes.write().await.insert(
             node_id.clone(),
             NodeInfo {
@@ -844,7 +850,8 @@ mod tests {
     async fn pair_flow_registers_a_fresh_node() {
         let gateway = gateway();
         let (kem_public_key_hex, sign_public_key_hex) = public_keys();
-        let expected_node_id: String = kem_public_key_hex.chars().take(16).collect();
+        let expected_node_id = polygone_core::sign::node_id_from_sign_pk_hex(&sign_public_key_hex)
+            .expect("valid signing key");
         let payload = json!({
             "device_name":"tv",
             "kem_public_key_hex": kem_public_key_hex,
@@ -935,6 +942,8 @@ mod tests {
     async fn concurrent_pair_acceptance_consumes_a_bearer_token_once() {
         let gateway = gateway();
         let (kem_public_key_hex, sign_public_key_hex) = public_keys();
+        let expected_node_id = polygone_core::sign::node_id_from_sign_pk_hex(&sign_public_key_hex)
+            .expect("valid signing key");
         let request = json!({
             "device_name":"phone",
             "kem_public_key_hex": kem_public_key_hex,
@@ -959,7 +968,7 @@ mod tests {
         assert_eq!(statuses.iter().filter(|status| **status == 404).count(), 1);
         assert_eq!(gateway.nodes.read().await.len(), 1);
         let node = gateway.nodes.read().await.values().next().unwrap().clone();
-        assert_eq!(node.id.len(), 16);
+        assert_eq!(node.id, expected_node_id);
         assert!(node.signing_key_hex.is_some());
     }
 

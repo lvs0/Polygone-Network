@@ -203,6 +203,66 @@ pub const SIGNATURE_SIZE: usize = 3309;
 pub const PUBLIC_KEY_SIZE: usize = 1952;
 pub const SECRET_KEY_SIZE: usize = 4032;
 
+/// Domain separation for node identities derived from the ML-DSA-65 key.
+pub const NODE_ID_CONTEXT: &str = "polygone node id v1";
+
+/// Domain separation for the relay authentication token.
+pub const RELAY_AUTH_CONTEXT: &str = "polygone relay auth token v2";
+
+/// Derive the 128-bit node identifier from an ML-DSA-65 public key.
+///
+/// `node_id = hex(BLAKE3-256(NODE_ID_CONTEXT || sign_pk)[..16])`
+///
+/// Binding the routing identity to the key that signs envelopes is what lets
+/// a receiver check `from == node_id(signer)` without trusting the relay or a
+/// directory. The KEM key is deliberately not part of the derivation: the
+/// relay handshake proves possession of it separately.
+pub fn node_id_from_sign_pk_hex(sign_pk_hex: &str) -> Option<String> {
+    let bytes = hex::decode(sign_pk_hex.trim()).ok()?;
+    if bytes.len() != PUBLIC_KEY_SIZE {
+        return None;
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(NODE_ID_CONTEXT.as_bytes());
+    hasher.update(&bytes);
+    let digest = hasher.finalize();
+    Some(hex::encode(&digest.as_bytes()[..16]))
+}
+
+/// The exact bytes signed by the client and verified by the relay during
+/// `AUTH_RESP`.
+///
+/// Every field is fixed-width hex or an ASCII identifier, and fields are
+/// newline-separated, so no two field tuples share an encoding. The transcript
+/// binds the node id, both public keys and the fresh KEM ciphertext together.
+pub fn relay_auth_transcript(
+    node_id: &str,
+    sign_pk_hex: &str,
+    kem_pk_hex: &str,
+    kem_ct_hex: &str,
+) -> Vec<u8> {
+    format!("polygone-relay-auth-v1\n{node_id}\n{sign_pk_hex}\n{kem_pk_hex}\n{kem_ct_hex}")
+        .into_bytes()
+}
+
+/// Derive the relay authentication token from a KEM shared secret.
+///
+/// Kept here so the relay and the client derive exactly the same bytes without
+/// duplicating the domain-separation constant.
+pub fn relay_auth_token(shared_secret: &[u8]) -> String {
+    hex::encode(blake3::derive_key(RELAY_AUTH_CONTEXT, shared_secret))
+}
+
+/// Hex encoding for protocol frames.
+pub fn encode_hex(bytes: &[u8]) -> String {
+    hex::encode(bytes)
+}
+
+/// Hex decoding for protocol frames; `None` on malformed input.
+pub fn decode_hex(value: &str) -> Option<Vec<u8>> {
+    hex::decode(value).ok()
+}
+
 // ── proof_of_key ───────────────────────────────────────────────────────────────
 /// Proof-of-key for Sybil resistance (P-A2 / P-S2).
 ///
@@ -230,6 +290,9 @@ pub fn verify_key(
     msg[16..].copy_from_slice(nonce);
     verifier.verify(&msg, sig)
 }
+
+#[cfg(test)]
+mod node_id_tests;
 
 #[cfg(test)]
 mod tests {

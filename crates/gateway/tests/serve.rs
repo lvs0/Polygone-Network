@@ -213,7 +213,9 @@ async fn heartbeat_round_trip_over_real_http_is_persisted() {
     let (kem_public, _) = polygone_core::crypto::kem::generate_keypair().unwrap();
     let keys = polygone_core::sign::generate_keypair().unwrap();
     let kem_hex = kem_public.to_hex();
-    let node_id: String = kem_hex.chars().take(16).collect();
+    let node_id =
+        polygone_core::sign::node_id_from_sign_pk_hex(&keys.verifier.public_key().to_hex())
+            .expect("valid signing key");
     let request = serde_json::json!({
         "device_name": "heartbeat-http",
         "kem_public_key_hex": kem_hex,
