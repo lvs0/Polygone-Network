@@ -26,6 +26,10 @@ Décision `D1` tranchée : **option D1-b**, documentée dans
 | `node scripts/check-docs.mjs` | **documents cohérents avec le code**, 71 Markdown indexés, exit 0 |
 | `comm -23` sur les deux arbres | aucun fichier de `main` ni de `realign/v2` perdu par la fusion |
 | `test_node_stops_when_lease_is_lost` | échouait une fois sur deux passes complètes : collision de port de test (`free_port` relâche le port avant que le nœud le reprenne), pas un défaut du nœud. Le test borne désormais 2 s de réessai et nomme la cause. |
+| `cargo build --workspace` | exit 0, 4 binaires produits, dont `polygone` et `polygone-relay` |
+| `POLYGONE_SKIP_BUILD=1 ./scripts/p0-two-process.sh` | **PASS**, exit 0 — 3 processus réels : relais, émetteur A (`f4a1de26…`), récepteur B (`cfd38084…`) ; session `01c25dfb…`, 7 fragments + KEM_CT, ancre de confiance apprise, `HELLO_DENIED auth_required` sur identité non prouvée, aucun secret dans les journaux |
+
+**Non vérifié, et pourquoi** : `gitleaks` n'est pas installé sur cette machine — le scan d'historique exigé par l'étape 9 du plan n'a **pas** été exécuté. Aucune publication vers `origin` n'a été faite. Le test de migration `peers.json` v1 → v2 (AK-02) n'existe pas encore : l'identifiant `node_id` a changé de longueur avec S1, donc la migration est un prérequis de version stable, pas un détail.
 
 ## Dernière session
 
