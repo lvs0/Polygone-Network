@@ -1,5 +1,7 @@
 # PLAN_PRIORITES_2B5 — cgroup, réglages morts, allocation CPU
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-09-29 (date des mesures citées) ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 Incrément 2b-5a : plan de priorisation, **aucun code écrit, un seul fichier créé (ce
 document)**. Références : `docs/PLAN_FREIN.md`, `docs/DAEMON_STATE.md`. Mesures faites avec
 `target/debug/polygoned` du 29/09 01:54 (post-2b-4b) : linux, cgroup v2, 4 cœurs, 7,5 Gio.

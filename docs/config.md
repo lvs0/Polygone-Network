@@ -1,5 +1,7 @@
 # config.md — Configuration de Polygone
 
+> **Instantané daté — ne pas lire comme l'état courant.** Sa date de rédaction n'est pas indiquée ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > *État réel du produit v2.0.0-rc2. Ce document décrit ce qui existe
 > aujourd'hui, pas une architecture rêvée.*
 

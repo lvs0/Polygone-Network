@@ -1,5 +1,156 @@
 # CHANGELOG — Polygone
 
+## [Unreleased] — 2026-11-02 — IPC du daemon et retraits de bail vérifiables
+
+### Gateway — appairage MVP
+- Jetons d'appairage porteurs portés à 256 bits, expirés après cinq minutes ;
+  file pendante plafonnée à 4 096 jetons et nettoyée lors des nouvelles demandes.
+- `pair_accept` exige le token initial, le consomme atomiquement et refuse
+  l'expiration, les tokens inconnus ou tout rejeu, y compris concurrent.
+- `pair_qr` refuse et purge les tokens expirés ; le deep link n'est exposé que
+  tant que le token reste valide. Cela ne fournit pas encore la preuve signée
+  de possession de clé ni l'authentification mutuelle des deux appareils.
+
+- Le Gateway est maintenant distribué lui aussi : quatrième binaire `polygone-gateway`
+  et bundle complet `web/` (PWA, service worker, écrans et styles). Le Gateway
+  retrouve ses ressources depuis le chemin d'installation, même lancé ailleurs.
+- Le Gateway refuse les binds non-loopback jusqu'à livraison TLS + authentification
+  mutuelle. `scripts/gateway-smoke.sh` vérifie le bundle installé, la page, l'API
+  de statut et le refus d'une écoute publique.
+### Distribution et installateur
+- Les releases vérifient désormais `SHA256SUMS` avant extraction ; absence,
+  empreinte incorrecte, chemins inattendus et liens symboliques font échouer
+  la voie binaire et déclenchent le build source.
+- L'archive ne contient que les trois vrais binaires Cargo (`polygone`,
+  `polygone-relay`, `polygoned`) ; `polygone-client` est créé comme alias
+  de compatibilité vers `polygone`, et le relay est vérifié à l'installation.
+- Le Rust minimum de l'installateur passe à 1.85, requis pour que Cargo lise
+  les manifests du workspace qui contiennent l'édition 2024. Les binaires
+  précompilés sont essayés avant l'installation de Rust.
+- Les fonctions de fetch/build ne mélangent plus les logs et le chemin retourné,
+  les répertoires temporaires survivent jusqu'à la copie puis sont supprimés,
+  et le build source respecte le tag `vX.Y.Z`.
+- `polygoned --gen-config --config <path>` écrit désormais au chemin explicite.
+- `scripts/test-installer.sh` couvre checksums absents/invalides, archive
+  malformée, alias, build source et nettoyage temporaire.
+- Le workflow crée la release une seule fois avant les quatre jobs d'upload
+  parallèles, évitant une course sur la création de la release.
+- Le job `SHA256SUMS` télécharge maintenant les assets avec `gh release download`
+  (l'input `download_assets` n'existe pas dans softprops/action-gh-release v2),
+  puis publie le manifeste sur le tag courant avec les permissions nécessaires.
+- La CI épingle checkout/toolchain, réduit le token à `contents: read`, vérifie
+  tous les scripts shell et exécute le smoke de l'installateur hors ligne.
+
+### Compute, mesh et relay — durcissement
+- L'historique de réputation utilise désormais un score sans débordement,
+  borne/valide les entrées chargées et sauvegarde par renommage atomique en
+  mode 0600. Les tests utilisent des chemins temporaires, jamais le HOME réel.
+- Les empreintes TOFU visibles utilisent maintenant BLAKE3-256 complet (256 bits)
+  calculé sur les octets ML-DSA décodés, au lieu des seuls 64 premiers bits.
+- Les grants compute signés avec `ok=false` sont traités comme des échecs ; la
+  CLI retourne un code non nul et la réputation enregistre le résultat réel.
+- Une commande sandboxée qui sort avec un code non nul renvoie une erreur avec
+  le code et stderr, au lieu de fournir une sortie de réussite.
+- Les caches anti-rejeu compute et messages expirent leurs marqueurs avant la
+  vérification de capacité et refusent les nouvelles sessions quand ils sont
+  pleins : aucun marqueur encore valide n'est évincé. Le cache de messages est
+  indexé par expéditeur + session et plafonné à 16 384 entrées.
+- Le récepteur purge ses sessions expirées avant d'appliquer le plafond de 1 024 ;
+  un cache plein d'anciennes sessions ne bloque donc plus définitivement le nœud.
+- Les clés de session wire sont bornées, l'ancrage TOFU et l'historique de
+  réputation sont plafonnés à 4 096 pairs sans évincer une confiance existante.
+- La découverte LAN rejette les annonces mal formées, les identifiants invalides,
+  les endpoints relay incorrects et les paquets hors du port mesh. Les annonces
+  périodiques sont espacées de 5 s et la RAM annoncée tient compte des limites
+  `memory.max` cgroup v2 de tous les ancêtres (pas seulement de la RAM hôte).
+- Le relay borne aussi l'écriture vers les pairs lents à dix secondes puis
+  ferme la route bloquée, pour ne pas retenir un mutex d'écriture indéfiniment.
+- Le relay réserve les slots de connexion par CAS atomique, impose un délai de
+  handshake HELLO, borne les identifiants, lit les lignes par blocs, applique
+  un recul sur erreurs d'acceptation et libère le slot sur tous les chemins
+  de sortie (y compris limite de débit et erreur I/O).
+- Le client et le relay bornent chaque trame reçue à 64 Kio et abandonnent une
+  trame partielle qui ne se termine pas sous cinq secondes, sans fermer les
+  connexions simplement inactives. Le client applique aussi une échéance absolue
+  aux attentes de grants compute/hide et refuse localement
+  les enveloppes sortantes dépassant la limite du protocole. Les huit trames
+  d'un envoi sont pré-encodées avant connexion : aucun KEM orphelin n'est envoyé
+  si un fragment de fichier dépasse la limite.
+- Le relay utilise un verrou d'écriture par pair plutôt que de garder un verrou
+  de shard pendant l'I/O ; le nettoyage compare l'identité de connexion pour
+  qu'un ancien handler ne puisse pas supprimer la route d'un pair reconnecté.
+- `scripts/compute-smoke.sh` exerce un aller-retour réel relay/prêteur/emprunteur,
+  avec une tâche réussie, une tâche en échec, les deux réputations et TOFU.
+- `scripts/mesh-smoke.sh` teste l'annonce UDP, le PING de découverte et la
+  redécouverte du nœud sur le LAN avec un HOME temporaire.
+- La RAM annoncée par le mesh est le minimum entre `MemAvailable` et la marge
+  restante des limites cgroup v2 finies (leaf + ancêtres). L'annonce périodique
+  est espacée de cinq secondes, sans retarder les réponses aux PING.
+
+### Ajouté
+- **IPC Unix activé dans le binaire `polygoned`** : le serveur v1 est maintenant
+  réellement démarré hors `--dry-run`, publie le même état que `runtime::run_tick`,
+  utilise un socket propriétaire (`0600`) et nettoie ce socket à l'arrêt propre.
+- **`polygone node servir` / `polygone node status`** : le client obtient un bail
+  avant d'ouvrir le port TCP, sert le magasin de blocs, écrit un état local,
+  surveille la connexion au daemon et rend le bail à l'arrêt.
+- **`polygone node servir --isoler` (Linux)** : relance le consommateur dans un
+  scope systemd utilisateur sous `app.slice`, impose `MemoryMax` et `CPUQuota`,
+  puis vérifie les fichiers cgroup v2 effectifs avant le bind et le bail. Test
+  réel : 256 Mio et 100 % CPU, scope supprimé après SIGINT, groupe de session
+  resté sans plafond (`memory.max=max`, `cpu.max=max 100000`).
+- **Persistance isolée en tests** : le serveur IPC accepte un chemin de ledger
+  explicite, sans mutation de variables d'environnement globales entre tests.
+- **Allocation initiale bornée** : `GlowUpEngine::new` limite son état de départ
+  à la mémoire mesurée et au plafond du palier/configuration personnalisée.
+
+### Corrigé
+- **Hystérésis de retrait RAM** : la tendance de l'allocation lissée ne pouvait
+  jamais déclencher un premier retrait (l'historique restait plat). Le moteur
+  compte maintenant les cycles consécutifs de pression, puis maintient le signal
+  `shrinking` durant toute la contraction progressive.
+- **Pas de nouveaux baux pendant un retrait** : `alloc_request` reçoit
+  `policy_shrinking` tant que le daemon ramène l'allocation vers sa cible.
+- **Gateway et tests d'intégration** : `Gateway::serve` accepte un listener déjà
+  lié ; les tests ne libèrent plus puis ne reprennent plus le même port éphémère,
+  ce qui supprimait une course intermittente.
+
+### Limites inchangées
+- Le bail reste une licence ; le consommateur reste auto-limité sans `--isoler`.
+  Sous Linux, le mode explicite `--isoler` ajoute les limites OS cgroup v2 vérifiées.
+- `UserActivity` reste `Unknown` sur Linux/macOS faute de source de vérité fiable.
+- Windows n'est pas validé ; le test de processus réel a été exécuté sur Linux.
+
+### Vérification
+- `cargo test --workspace` : **333 tests réussis** ; daemon : 95 tests.
+- Tests de processus réels : status, alloc, release, permissions du socket,
+  nettoyage SIGINT, service de blocs et retrait piloté de bout en bout.
+- `cargo fmt --all -- --check`, `cargo test --workspace`, `cargo clippy --workspace
+  --all-targets -- -D warnings` et `git diff --check` : voir la dernière sortie de
+  vérification avant toute intégration Git.
+
+---
+
+## [2.1.0-dev] — 2026-10-30 — Platform, serverless, planner Petals, circuit Hide
+
+### Ajouté
+- **`crates/serverless`** — nouveau crate `polygone-serverless` : split Shamir 4-of-7 réel de la charge utile (transit), reconstitution vérifiée par hash BLAKE3, quorum de `threshold` nœuds **distincts** sur le hash de sortie, verdicts explicites `Agreed` / `Disagreement` / `Insufficient`. Chaque `NodeOutcome` porte un reçu ML-DSA-65 optionnel, mais `tally` ne le vérifie pas : la vérification reste à la charge de l'appelant. La commande `polygone serverless` s'y branche. Le dispatch sur le relay n'est pas fait.
+- **`docs/SERVERLESS-SPEC.md`** — sémantique du quorum, raison pour laquelle Shamir ne s'applique pas au calcul, modes d'échec, non-objectifs.
+- **Platform** — la gateway sert réellement le site `web/` (MIME, index, refus des chemins hors racine), répond 404/405/OPTIONS au lieu de 200 partout, expose `/api/v1/services` et garde les endpoints d'appairage.
+- **PWA** — `web/manifest.webmanifest`, `web/sw.js` (coquille en cache, API jamais mise en cache, repli hors-ligne), `web/pwa.js` (bouton d'installation sur `beforeinstallprompt` seulement), `web/offline.html`, `web/icon.svg`.
+- **Petals distribué (planner)** — `crates/petals/src/pipeline.rs` : affectation de plages de couches contiguës à des pairs, sans doublon, couvrant le modèle exactement, avec débit estimé et refus explicites. Aucun transfert de poids.
+- **Hide** — type de circuit (1 à 3 sauts, sans doublon) et cible SOCKS5 conservée sous forme de nom : la résolution DNS appartient à l'exit node, pas au client.
+
+### Corrigé
+- **La gateway ne ment plus sur l'état du réseau** : `latency_ms_median` est calculée à partir des latences mesurées et vaut `null` sans mesure (au lieu de `42` en dur) ; `active` compte les nœuds vus dans les 5 dernières minutes au lieu de la taille de la table.
+- **README** — le tableau « ce que ça ne fait pas » ne prétend plus qu'il n'y a pas d'interface web, et l'état ne recopie plus un nombre de tests qui change à chaque commit.
+
+### Vérification
+- `cargo test --workspace` — voir la sortie de la commande, pas un chiffre recopié ici.
+- `cargo clippy --workspace --all-targets -- -D warnings` — 0 warning attendu.
+
+---
+
 ## [Unreleased] — 2026-10-22 — Le client Petals parle enfin le protocole du daemon
 
 ### Fixed

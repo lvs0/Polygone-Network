@@ -139,7 +139,8 @@ impl fmt::Display for NodeError {
             ),
             NodeError::Denied { reason } => write!(
                 f,
-                "bail REFUSÉ par le daemon ({reason}) — le nœud n'a rien ouvert"
+                "bail REFUSÉ par le daemon ({}) — le nœud n'a rien ouvert",
+                crate::refusal::describe(reason)
             ),
             NodeError::Unexpected(reply) => {
                 write!(f, "réponse inattendue du daemon : {reply:?}")
@@ -175,6 +176,8 @@ pub enum StopReason {
     Signal,
     /// Le daemon a disparu : le bail n'existe plus.
     LeaseLost,
+    /// Le daemon signale une pression de ressources : retrait conservateur.
+    PolicyShrink,
 }
 
 impl StopReason {
@@ -182,6 +185,7 @@ impl StopReason {
         match self {
             StopReason::Signal => "signal",
             StopReason::LeaseLost => "bail_perdu",
+            StopReason::PolicyShrink => "retrait_politique",
         }
     }
 }
@@ -324,12 +328,28 @@ impl Node {
             if stop.load(Ordering::SeqCst) {
                 break StopReason::Signal;
             }
-            if client.status().is_err() {
-                // La connexion qui portait le bail ne répond plus : le daemon est
-                // mort, ou a fermé. Servir une seconde de plus serait servir sans
-                // licence.
-                log::warn!("node: bail perdu — le daemon ne répond plus, arrêt du service");
-                break StopReason::LeaseLost;
+            match client.status() {
+                Ok(Reply::Status {
+                    shrinking: true, ..
+                }) => {
+                    // Le daemon signale que sa politique doit reprendre des
+                    // ressources. Le protocole ne sait pas réduire un bail en
+                    // place : on arrête donc ce service et on rend tout le bail.
+                    log::info!("node: retrait demandé par la politique de ressources");
+                    break StopReason::PolicyShrink;
+                }
+                Ok(Reply::Status { .. }) => {}
+                Ok(other) => {
+                    log::warn!("node: réponse de statut inattendue {other:?} — arrêt conservateur");
+                    break StopReason::LeaseLost;
+                }
+                Err(error) => {
+                    // La connexion qui portait le bail ne répond plus : le daemon
+                    // est mort ou a fermé. Servir plus longtemps serait servir
+                    // sans licence.
+                    log::warn!("node: bail perdu ({error}) — arrêt du service");
+                    break StopReason::LeaseLost;
+                }
             }
             state.update(&served);
             write_state(&config.state_path, &state);
@@ -348,7 +368,9 @@ impl Node {
         // rendre : le daemon qui l'a accordé n'existe plus, et sa disparition a
         // déjà libéré la réservation en même temps que la connexion.
         let released = match reason {
-            StopReason::Signal => client.release(&lease.allocation_id).is_ok(),
+            StopReason::Signal | StopReason::PolicyShrink => {
+                client.release(&lease.allocation_id).is_ok()
+            }
             StopReason::LeaseLost => false,
         };
 
@@ -429,6 +451,9 @@ fn sleep_step(total: Duration, stop: &AtomicBool) {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NodeState {
     pub pid: u32,
+    /// Instant d'obtention du bail, distinct du battement de fraîcheur.
+    #[serde(default)]
+    pub started_at_unix: u64,
     pub updated_at_unix: u64,
     pub status: String,
     pub allocation_id: String,
@@ -449,6 +474,7 @@ impl NodeState {
     fn serving(lease: &Lease, addr: SocketAddr, limit: usize, served: &Served) -> Self {
         Self {
             pid: std::process::id(),
+            started_at_unix: now_unix().saturating_sub(lease.granted_at.elapsed().as_secs()),
             updated_at_unix: now_unix(),
             status: "serving".to_string(),
             allocation_id: lease.allocation_id.clone(),
@@ -546,12 +572,14 @@ pub fn status_report(state_path: &Path, mesh_scan: Duration) -> String {
             };
 
             out.push_str(&format!("  État        : {freshness}\n"));
+            let grant_age = if state.started_at_unix == 0 {
+                "durée inconnue".to_string()
+            } else {
+                format!("{} s", now_unix().saturating_sub(state.started_at_unix))
+            };
             out.push_str(&format!(
-                "  Bail        : {} · {} Gio · {} cœur(s) — accordé il y a {} s (état local)\n",
-                state.allocation_id,
-                state.ram_gb,
-                state.cpu_cores,
-                age.as_secs()
+                "  Bail        : {} · {} Gio · {} cœur(s) — accordé depuis {} (état local)\n",
+                state.allocation_id, state.ram_gb, state.cpu_cores, grant_age
             ));
             out.push_str(&format!(
                 "  Écoute      : {} · plafond auto-imposé {} transfert(s)\n",
@@ -604,7 +632,7 @@ pub fn status_report(state_path: &Path, mesh_scan: Duration) -> String {
 mod tests {
     use super::*;
     use polygoned::socket::{
-        bind_listener, serve_with_timeout, DaemonState, CONNECTION_IDLE_TIMEOUT,
+        bind_listener, serve_with_timeout_at, DaemonState, CONNECTION_IDLE_TIMEOUT,
     };
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::{UnixListener, UnixStream};
@@ -652,16 +680,29 @@ mod tests {
     fn spawn_real_daemon(
         root: &TempRoot,
         state: DaemonState,
-    ) -> (PathBuf, Arc<AtomicBool>, thread::JoinHandle<()>) {
+    ) -> (
+        PathBuf,
+        Arc<RwLock<DaemonState>>,
+        Arc<AtomicBool>,
+        thread::JoinHandle<()>,
+    ) {
         let path = root.socket_path();
         let listener = bind_listener(&path).expect("bind du daemon de test");
         let state = Arc::new(RwLock::new(state));
         let shutdown = Arc::new(AtomicBool::new(false));
         let serve_shutdown = Arc::clone(&shutdown);
+        let serve_state = Arc::clone(&state);
+        let ledger_path = root.path().join("ledger.json");
         let handle = thread::spawn(move || {
-            serve_with_timeout(listener, state, serve_shutdown, CONNECTION_IDLE_TIMEOUT)
+            serve_with_timeout_at(
+                listener,
+                serve_state,
+                serve_shutdown,
+                CONNECTION_IDLE_TIMEOUT,
+                ledger_path,
+            )
         });
-        (path, shutdown, handle)
+        (path, state, shutdown, handle)
     }
 
     fn stop_real_daemon(shutdown: &Arc<AtomicBool>, handle: thread::JoinHandle<()>) {
@@ -765,12 +806,24 @@ mod tests {
                             ram_gb,
                             gpu_vram_gb: None,
                             storage_gb: None,
-                            expires_at: None,
+                            // Un bail réel a toujours une échéance depuis
+                            // DAEMON.1 : un faux daemon qui annoncerait `None`
+                            // testerait un protocole qui n'existe plus.
+                            expires_at: Some(4_000_000_000),
+                            enforced: false,
                         },
                         polygoned::socket::Request::Alloc { id, .. } => {
                             polygoned::socket::Reply::AllocDenied {
                                 id,
                                 reason: polygoned::socket::REASON_INSUFFICIENT_HEADROOM.to_string(),
+                            }
+                        }
+                        // Le faux daemon ne tient pas de compteurs ; il répond
+                        // une carte vide, ce que le nœud n'interroge pas.
+                        polygoned::socket::Request::Refusals { id } => {
+                            polygoned::socket::Reply::Refusals {
+                                id,
+                                counts: Default::default(),
                             }
                         }
                         polygoned::socket::Request::Status { id } => status_reply(id),
@@ -779,6 +832,13 @@ mod tests {
                         }
                         polygoned::socket::Request::Ping { id } => {
                             polygoned::socket::Reply::Pong { id }
+                        }
+                        polygoned::socket::Request::Renew { id, allocation_id } => {
+                            polygoned::socket::Reply::Renewed {
+                                id,
+                                allocation_id,
+                                expires_at: 4_000_000_000,
+                            }
                         }
                     };
                     if writer
@@ -821,6 +881,9 @@ mod tests {
             gpu_free_vram_mb: 0,
             shrinking: false,
             uptime_secs: 0,
+            // Faux daemon legacy : le nœud n'a pas besoin de ces diagnostics.
+            ram_capacity: None,
+            storage_capacity: None,
         }
     }
 
@@ -890,7 +953,7 @@ mod tests {
         // alloué. La demande doit donc être refusée par le ledger.
         let mut state = DaemonState::new("balanced");
         state.ram_bytes = state.allowed_ram_bytes();
-        let (socket, shutdown, handle) = spawn_real_daemon(&root, state);
+        let (socket, _state, shutdown, handle) = spawn_real_daemon(&root, state);
 
         let port = free_port();
         let config = NodeConfig {
@@ -931,7 +994,8 @@ mod tests {
     fn test_node_serves_only_with_lease() {
         let root = TempRoot::new();
         let hash = seeded_blocks(&root);
-        let (socket, shutdown, handle) = spawn_real_daemon(&root, DaemonState::new("balanced"));
+        let (socket, _state, shutdown, handle) =
+            spawn_real_daemon(&root, DaemonState::new("balanced"));
 
         let config = NodeConfig {
             listen: SocketAddr::from(([127, 0, 0, 1], free_port())),
@@ -1010,7 +1074,8 @@ mod tests {
     #[test]
     fn test_node_releases_lease_on_sigint() {
         let root = TempRoot::new();
-        let (socket, shutdown, handle) = spawn_real_daemon(&root, DaemonState::new("balanced"));
+        let (socket, _state, shutdown, handle) =
+            spawn_real_daemon(&root, DaemonState::new("balanced"));
 
         let config = NodeConfig {
             listen: SocketAddr::from(([127, 0, 0, 1], free_port())),
@@ -1051,11 +1116,37 @@ mod tests {
     }
 
     #[test]
+    fn test_node_releases_lease_when_policy_shrinks() {
+        let root = TempRoot::new();
+        let (socket, state, shutdown, handle) =
+            spawn_real_daemon(&root, DaemonState::new("balanced"));
+        let config = NodeConfig {
+            listen: SocketAddr::from(([127, 0, 0, 1], free_port())),
+            blocks_root: root.blocks_root(),
+            state_path: root.state_path(),
+            ..NodeConfig::default()
+        };
+        let node = Node::acquire(&socket, config).expect("bail accordé");
+        let (_addr, running) = RunningNode::start(node);
+
+        state.write().expect("état daemon").shrinking = true;
+        let outcome = running
+            .handle
+            .join()
+            .expect("arrêt sur retrait politique")
+            .expect("arrêt propre");
+        assert_eq!(outcome.reason, StopReason::PolicyShrink);
+        assert!(outcome.released, "le bail doit être rendu au daemon vivant");
+        stop_real_daemon(&shutdown, handle);
+    }
+
+    #[test]
     fn test_node_respects_its_own_limit() {
         let root = TempRoot::new();
         let hash = seeded_blocks(&root);
-        let (socket, shutdown, handle) = spawn_real_daemon(&root, DaemonState::new("balanced")); // Bail par DÉFAUT : 1 cœur, 0.25 Gio → auto-limite **2** (deux transferts
-                                                                                                 // par cœur, bornés par la RAM accordée et le plafond du module).
+        let (socket, _state, shutdown, handle) =
+            spawn_real_daemon(&root, DaemonState::new("balanced")); // Bail par DÉFAUT : 1 cœur, 0.25 Gio → auto-limite **2** (deux transferts
+                                                                    // par cœur, bornés par la RAM accordée et le plafond du module).
         let config = NodeConfig {
             listen: SocketAddr::from(([127, 0, 0, 1], free_port())),
             blocks_root: root.blocks_root(),
@@ -1209,6 +1300,7 @@ mod tests {
         let path = root.state_path();
         let mut state = NodeState {
             pid: 1234,
+            started_at_unix: now_unix().saturating_sub(45),
             updated_at_unix: now_unix(),
             status: "serving".to_string(),
             allocation_id: "bail-1".to_string(),
@@ -1227,6 +1319,10 @@ mod tests {
 
         let fresh = status_report(&path, Duration::from_millis(200));
         assert!(fresh.contains("à jour"), "état frais :\n{fresh}");
+        assert!(
+            fresh.contains("accordé depuis 45 s"),
+            "l'âge du bail doit être distinct de la fraîcheur du fichier :\n{fresh}"
+        );
 
         // On recule l'horodatage : le rapport doit crier « périmé » au lieu
         // d'afficher des chiffres morts comme s'ils étaient vivants.

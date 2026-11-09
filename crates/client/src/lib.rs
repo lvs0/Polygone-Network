@@ -8,6 +8,8 @@
 //! - [`mesh`] — la découverte des pairs du LAN (UDP `7642`). Monté ici à
 //!   l'incrément 2b-13 parce que `node status` doit **mesurer** le mesh, pas le
 //!   supposer : le binaire s'y branche par `use polygone_client::mesh;`.
+//! - [`node`] — le service de blocs qui obtient un bail du daemon, sert sous
+//!   ce bail et s'arrête sur signal, perte du daemon ou retrait de politique.
 //! - [`calc`] — le cache de calcul : la clé porte la **version du calculateur**
 //!   (`BLAKE3(version ‖ entrée)`), le résultat est un bloc vérifié par son hash.
 //!
@@ -16,13 +18,11 @@
 
 pub mod blocks;
 pub mod calc;
+pub mod ecosystem;
 pub mod mesh;
-
-// `node` n'est PAS monté : `src/node.rs` est un incrément en cours qui importe
-// `polygoned::DaemonClient`, mais `crates/client/Cargo.toml` ne dépend pas du
-// crate daemon — et ne le peut pas en l'état, `polygoned` étant un binaire.
-// L'exposer comme bibliothèque est une décision d'architecture (D-?), pas un
-// effet de bord. Tant qu'elle n'est pas prise, monter ce module casse
-// `cargo test --workspace` pour tout le monde. Le fichier reste sur disque,
-// prêt à être branché le jour où la dépendance existera.
-// pub mod node;
+pub mod node;
+pub mod node_isolation;
+pub mod pause;
+pub mod profile;
+pub mod refusal;
+pub mod uninstall;

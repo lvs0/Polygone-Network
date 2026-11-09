@@ -196,6 +196,15 @@ impl DaemonClient {
         self.request(Request::Status { id: None })
     }
 
+    /// Compteurs de refus d'allocation, par motif (OPS.2).
+    ///
+    /// Requête séparée de `status` : un daemon antérieur répond
+    /// `unknown_type`, et l'appelant doit alors dire « non mesuré » plutôt que
+    /// d'afficher zéro.
+    pub fn refusals(&mut self) -> Result<Reply, ClientError> {
+        self.request(Request::Refusals { id: None })
+    }
+
     /// Demande une allocation.
     ///
     /// Un accord est une **licence, pas une contrainte** (voir `Reply::AllocGranted`) :
@@ -248,6 +257,7 @@ impl DaemonClient {
 fn with_id(request: Request, id: String) -> Request {
     match request {
         Request::Status { .. } => Request::Status { id: Some(id) },
+        Request::Refusals { .. } => Request::Refusals { id: Some(id) },
         Request::Ping { .. } => Request::Ping { id: Some(id) },
         Request::Alloc {
             client,
@@ -268,6 +278,10 @@ fn with_id(request: Request, id: String) -> Request {
             id: Some(id),
             allocation_id,
         },
+        Request::Renew { allocation_id, .. } => Request::Renew {
+            id: Some(id),
+            allocation_id,
+        },
     }
 }
 
@@ -276,9 +290,11 @@ fn reply_id(reply: &Reply) -> Option<&str> {
     match reply {
         Reply::Hello { .. } => None,
         Reply::Status { id, .. }
+        | Reply::Refusals { id, .. }
         | Reply::AllocGranted { id, .. }
         | Reply::AllocDenied { id, .. }
         | Reply::Released { id, .. }
+        | Reply::Renewed { id, .. }
         | Reply::Pong { id, .. }
         | Reply::Error { id, .. } => id.as_deref(),
     }
@@ -312,7 +328,10 @@ mod tests {
         let listener = bind_listener(&path).expect("bind sur un socket temporaire");
         // Le ledger est isolé par test, comme le socket : sans ça, un test hérite
         // des réservations laissées par un test précédent (`insufficient_headroom`).
-        std::env::set_var(crate::socket::ENV_LEDGER_PATH, dir.path().join("ledger.json"));
+        std::env::set_var(
+            crate::socket::ENV_LEDGER_PATH,
+            dir.path().join("ledger.json"),
+        );
         let state = Arc::new(RwLock::new(DaemonState::new("balanced")));
         let shutdown = Arc::new(AtomicBool::new(false));
 

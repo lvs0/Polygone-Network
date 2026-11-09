@@ -33,6 +33,7 @@ use crate::socket::{Reply, Request};
 use crate::system::SystemSnapshot;
 use anyhow::Result;
 use clap::Subcommand;
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -330,9 +331,24 @@ fn daemon_summary(socket: &Path) -> String {
         );
     }
 
-    match DaemonClient::connect_with_timeout(socket, STATUS_PROBE_TIMEOUT)
-        .and_then(|mut client| client.status())
-    {
+    // Deux requêtes sur la MÊME connexion, donc le MÊME délai de lecture à
+    // chaque fois. Le budget total doit rester `STATUS_PROBE_TIMEOUT` : on le
+    // partage entre les deux plutôt que de le payer deux fois (un daemon muet
+    // coûtait sinon 2 s à `status`, régression vue par
+    // `test_status_probe_does_not_hang_on_silent_daemon`).
+    let per_request = STATUS_PROBE_TIMEOUT / 2;
+    let mut client = match DaemonClient::connect_with_timeout(socket, per_request) {
+        Ok(client) => client,
+        Err(e) => return format!("daemon non joignable ({e})"),
+    };
+
+    // Deux requêtes distinctes : un refus de mesure n'annule pas l'état.
+    let refusals = match client.refusals() {
+        Ok(Reply::Refusals { counts, .. }) => refusal_summary(Some(&counts)),
+        _ => "non mesurés".to_string(),
+    };
+
+    match client.status() {
         Ok(Reply::Status {
             tier,
             seq,
@@ -343,12 +359,28 @@ fn daemon_summary(socket: &Path) -> String {
             ..
         }) => format!(
             "tier={tier} seq={seq} | RAM {:.1} GB allouée | CPU {cpu_cores} cœurs | \
-             uptime {uptime_secs} s{}",
+             uptime {uptime_secs} s{} | refus {refusals}",
             ram_mb as f64 / 1024.0,
-            if shrinking { " | rétrécit" } else { "" }
+            if shrinking { " | rétrécit" } else { "" },
         ),
         Ok(other) => format!("réponse inattendue : {other:?}"),
         Err(e) => format!("daemon non joignable ({e})"),
+    }
+}
+
+/// Résume les refus d'allocation en une ligne, motifs triés (BTreeMap).
+///
+/// « aucun » plutôt qu'une ligne vide : l'absence de refus est une information,
+/// pas un manque de mesure. Un compteur inconnu garde son nom brut — le taire
+/// ferait disparaître un refus ajouté sans constante.
+fn refusal_summary(counts: Option<&BTreeMap<String, u64>>) -> String {
+    match counts {
+        None => "aucun".to_string(),
+        Some(counts) => counts
+            .iter()
+            .map(|(reason, count)| format!("{reason}={count}"))
+            .collect::<Vec<_>>()
+            .join(", "),
     }
 }
 
@@ -521,6 +553,30 @@ fn doctor_report(args: &CliArgs<'_>) -> String {
         args.socket.display(),
         if args.socket.exists() { "✅" } else { "❌" }
     );
+
+    // Les compteurs vivent dans le serveur : sans lui, ils ne sont pas "zéro",
+    // ils sont NON MESURÉS. Écrire 0 sans daemon serait la faute exacte que
+    // `doctor` est censé empêcher.
+    let _ = writeln!(out, "\n  Refus d'allocation :");
+    match DaemonClient::connect_with_timeout(&args.socket, STATUS_PROBE_TIMEOUT)
+        .and_then(|mut client| client.refusals())
+    {
+        Ok(Reply::Refusals { counts, .. }) if !counts.is_empty() => {
+            for (reason, count) in &counts {
+                let _ = writeln!(out, "    {reason:<22}: {count}");
+            }
+        }
+        Ok(Reply::Refusals { .. }) => {
+            let _ = writeln!(out, "    aucun depuis le démarrage");
+        }
+        Ok(other) => {
+            let _ = writeln!(out, "    non mesurés (réponse inattendue : {other:?})");
+        }
+        Err(_) => {
+            let _ = writeln!(out, "    non mesurés (daemon absent)");
+        }
+    }
+
     let _ = writeln!(out, "\n  ✅ All checks complete");
 
     out
@@ -530,7 +586,10 @@ fn doctor_report(args: &CliArgs<'_>) -> String {
 mod tests {
     use super::*;
     use crate::resources::create_platform;
-    use crate::socket::{bind_listener, serve_with_timeout, DaemonState, CONNECTION_IDLE_TIMEOUT};
+    use crate::socket::{
+        bind_listener, serve_with_timeout, DaemonState, CONNECTION_IDLE_TIMEOUT,
+        REASON_EXCEEDS_MEASURED,
+    };
     use std::os::unix::net::UnixListener;
     use std::sync::{Arc, RwLock};
     use std::thread;
@@ -696,6 +755,49 @@ mod tests {
         stop_server(&shutdown, handle);
     }
 
+    /// OPS.2 : un refus réel est compté par le serveur, puis NOMMÉ par `status`
+    /// et `doctor`. Le test provoque le refus par le vrai protocole, il ne
+    /// fabrique pas un `Reply` à la main.
+    #[test]
+    fn test_cli_reports_refusal_counts() {
+        let (path, shutdown, handle, _dir) = start_server("balanced");
+        let platform = create_platform();
+        let config = DaemonConfig::default();
+
+        let mut direct = DaemonClient::connect(&path).expect("connexion directe");
+        match direct.allocate(1000.0, 1).expect("réponse de refus") {
+            Reply::AllocDenied { reason, .. } => {
+                assert_eq!(reason, REASON_EXCEEDS_MEASURED)
+            }
+            other => panic!("refus attendu, reçu {other:?}"),
+        }
+
+        let args = CliArgs {
+            socket: path.clone(),
+            command: Commands::Status,
+            config: &config,
+            platform: &*platform,
+        };
+
+        let report = status_report(&args);
+        assert!(
+            report.contains("exceeds_measured=1"),
+            "status doit nommer le motif et son compte :\n{report}"
+        );
+
+        let doctor = doctor_report(&args);
+        assert!(
+            doctor.contains("exceeds_measured"),
+            "doctor doit nommer le motif :\n{doctor}"
+        );
+        assert!(
+            doctor.contains("Refus d'allocation"),
+            "doctor doit avoir une section de refus :\n{doctor}"
+        );
+
+        stop_server(&shutdown, handle);
+    }
+
     #[test]
     fn test_cli_reports_daemon_absent_without_panicking() {
         let dir = tempfile::tempdir().expect("dossier temporaire");
@@ -750,6 +852,18 @@ mod tests {
         assert!(
             report.contains("daemon non joignable"),
             "l'absence de daemon doit être dite :\n{report}"
+        );
+
+        // `doctor` ne doit pas inventer zéro refus quand personne ne répond.
+        let doctor = doctor_report(&CliArgs {
+            socket: missing.clone(),
+            command: Commands::Status,
+            config: &config,
+            platform: &*platform,
+        });
+        assert!(
+            doctor.contains("non mesurés (daemon absent)"),
+            "l'absence de daemon doit rendre les refus NON MESURÉS :\n{doctor}"
         );
     }
 

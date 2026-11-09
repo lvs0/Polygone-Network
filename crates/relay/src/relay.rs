@@ -28,26 +28,106 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
+use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use std::time::Instant;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// Max length of a single wire line (envelope). 64 KiB bounds memory.
 const MAX_LINE: usize = 64 * 1024;
 /// Max envelopes forwarded per second per connection.
 const RATE_LIMIT_PER_SEC: usize = 200;
+/// Max envelopes forwarded per second **per identity**, across reconnects.
+/// Lower than the connection limit so one peer cannot consume a relay alone.
+const IDENTITY_RATE_PER_SEC: usize = 100;
+/// Identity windows idle this long are forgotten, bounding memory.
+const IDENTITY_WINDOW_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
+/// Hard cap on tracked identities before a prune is attempted.
+const MAX_IDENTITY_WINDOWS: usize = 1024;
 /// Max simultaneous connections (anti-DoS): each holds a routing entry.
 const MAX_CONNECTIONS: usize = 1024;
+/// A TCP client must complete HELLO promptly or release its connection slot.
+const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Once a frame starts, it must finish promptly; idle registered sockets remain open.
+const FRAME_CONTINUATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+/// A slow recipient must not pin a relay task and a per-peer writer forever.
+const DESTINATION_WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Bound attacker-controlled routing keys even before registration.
+const MAX_NODE_ID_LEN: usize = 64;
 /// Number of routing-table shards (parallelism for forwarding).
 const SHARDS: usize = 16;
 
 /// In-memory routing table: node_id → open write half, sharded to avoid a
 /// global write lock serializing every forward.
-type Shard = RwLock<HashMap<String, OwnedWriteHalf>>;
+type PeerWriter = Arc<Mutex<OwnedWriteHalf>>;
+type Shard = RwLock<HashMap<String, PeerWriter>>;
 type Peers = Arc<Vec<Shard>>;
+
+/// Fenêtre d'une identité : nombre d'enveloppes acceptées dans la seconde.
+struct IdentityWindow {
+    started: Instant,
+    count: usize,
+    last_seen: Instant,
+}
+
+/// Limite par identité (FV-SEC-10). Le compteur est partagé entre connexions :
+/// une identité qui se reconnecte ne remet pas son quota à zéro.
+#[derive(Default)]
+struct IdentityLimiter {
+    windows: HashMap<String, IdentityWindow>,
+}
+
+impl IdentityLimiter {
+    /// `true` si l'enveloppe de cette identité peut être traitée. Un refus ne
+    /// ferme pas la connexion et ne touche aucune autre identité : la limite
+    /// est locale au pair abusif, jamais un déni de service global.
+    fn allow(&mut self, id: &str, now: Instant) -> bool {
+        if self.windows.len() >= MAX_IDENTITY_WINDOWS && !self.windows.contains_key(id) {
+            self.windows
+                .retain(|_, window| now.duration_since(window.last_seen) < IDENTITY_WINDOW_IDLE);
+        }
+        let window = self
+            .windows
+            .entry(id.to_string())
+            .or_insert(IdentityWindow {
+                started: now,
+                count: 0,
+                last_seen: now,
+            });
+        if now.duration_since(window.started).as_secs() >= 1 {
+            window.started = now;
+            window.count = 0;
+        }
+        window.last_seen = now;
+        if window.count >= IDENTITY_RATE_PER_SEC {
+            return false;
+        }
+        window.count += 1;
+        true
+    }
+}
+
+/// Remove a route only if it still points to the connection that observed the
+/// failure/disconnect. A stale handler must never erase a replacement peer.
+fn remove_peer_if_current(
+    table: &mut HashMap<String, PeerWriter>,
+    node_id: &str,
+    expected: &PeerWriter,
+) -> bool {
+    if table
+        .get(node_id)
+        .is_some_and(|current| Arc::ptr_eq(current, expected))
+    {
+        table.remove(node_id);
+        true
+    } else {
+        false
+    }
+}
 
 fn shard_for<'a>(peers: &'a Peers, node_id: &str) -> &'a Shard {
     use std::hash::{Hash, Hasher};
@@ -61,55 +141,172 @@ fn shard_for<'a>(peers: &'a Peers, node_id: &str) -> &'a Shard {
 async fn read_line_capped(
     reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
     cap: usize,
+    continuation_timeout: std::time::Duration,
 ) -> std::io::Result<Option<Option<Vec<u8>>>> {
     let mut buf = Vec::with_capacity(256);
+    let mut deadline = None;
     loop {
-        let mut byte = [0u8; 1];
-        let n = reader.read(&mut byte).await?;
-        if n == 0 {
+        let available = match deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, reader.fill_buf())
+                .await
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "relay frame continuation timed out",
+                    )
+                })??,
+            None => reader.fill_buf().await?,
+        };
+        if available.is_empty() {
             return Ok(if buf.is_empty() {
                 None
             } else {
                 Some(Some(buf))
             });
         }
-        if byte[0] == b'\n' {
+
+        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+            if buf.len().saturating_add(newline) > cap {
+                reader.consume(newline + 1);
+                return Ok(Some(None));
+            }
+            buf.extend_from_slice(&available[..newline]);
+            reader.consume(newline + 1);
             return Ok(Some(Some(buf)));
         }
-        buf.push(byte[0]);
-        if buf.len() > cap {
-            // Drain until newline so the stream stays aligned, then report.
+
+        let available_len = available.len();
+        if buf.len().saturating_add(available_len) > cap {
+            let drain_deadline =
+                deadline.unwrap_or_else(|| tokio::time::Instant::now() + continuation_timeout);
+            reader.consume(available_len);
+            // Drain only this oversized line, with the same absolute deadline.
             loop {
-                let n = reader.read(&mut byte).await?;
-                if n == 0 || byte[0] == b'\n' {
-                    break;
+                let chunk = tokio::time::timeout_at(drain_deadline, reader.fill_buf())
+                    .await
+                    .map_err(|_| {
+                        io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "oversized relay frame continuation timed out",
+                        )
+                    })??;
+                if chunk.is_empty() {
+                    return Ok(Some(None));
                 }
+                if let Some(newline) = chunk.iter().position(|byte| *byte == b'\n') {
+                    reader.consume(newline + 1);
+                    return Ok(Some(None));
+                }
+                let len = chunk.len();
+                reader.consume(len);
             }
-            return Ok(Some(None));
+        }
+
+        buf.extend_from_slice(available);
+        reader.consume(available_len);
+        if deadline.is_none() {
+            deadline = Some(tokio::time::Instant::now() + continuation_timeout);
         }
     }
 }
 
+/// Atomically reserve a connection slot. A load followed by fetch_add is
+/// racy: simultaneous accepts could all pass the cap before incrementing.
+fn try_acquire_connection_slot(conns: &std::sync::atomic::AtomicUsize, max: usize) -> bool {
+    use std::sync::atomic::Ordering;
+    let mut current = conns.load(Ordering::Relaxed);
+    loop {
+        if current >= max {
+            return false;
+        }
+        match conns.compare_exchange_weak(current, current + 1, Ordering::AcqRel, Ordering::Relaxed)
+        {
+            Ok(_) => return true,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
+fn valid_node_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_NODE_ID_LEN
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+/// Read and validate a HELLO under a bounded deadline. Non-HELLO lines are
+/// tolerated for compatibility, but cannot keep an unauthenticated socket
+/// alive indefinitely.
+async fn read_hello(
+    reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
+    timeout: std::time::Duration,
+) -> Result<Option<String>> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let result = match tokio::time::timeout_at(
+            deadline,
+            read_line_capped(reader, MAX_LINE, FRAME_CONTINUATION_TIMEOUT),
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_) => return Ok(None),
+        };
+        let line = match result {
+            Some(Some(bytes)) => String::from_utf8_lossy(&bytes).to_string(),
+            Some(None) => anyhow::bail!("oversized HELLO"),
+            None => return Ok(None),
+        };
+        if let Some(rest) = line.trim().strip_prefix("HELLO ") {
+            let node_id = rest.trim();
+            if !valid_node_id(node_id) {
+                anyhow::bail!("invalid node_id in HELLO");
+            }
+            return Ok(Some(node_id.to_string()));
+        }
+    }
+}
+
+async fn write_frame_with_timeout<W: tokio::io::AsyncWrite + Unpin>(
+    writer: &mut W,
+    frame: &[u8],
+    timeout: std::time::Duration,
+) -> io::Result<()> {
+    match tokio::time::timeout(timeout, writer.write_all(frame)).await {
+        Ok(result) => result,
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "relay destination write timed out",
+        )),
+    }
+}
+
+fn outbound_line(line: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(line.len() + 1);
+    out.extend_from_slice(line);
+    out.push(b'\n');
+    out
+}
+
 /// Handle one client connection.
-async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: Peers) -> Result<()> {
+async fn handle_client(
+    stream: TcpStream,
+    peer_addr: SocketAddr,
+    peers: Peers,
+    identities: Arc<Mutex<IdentityLimiter>>,
+) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
 
-    // ── Handshake: first line must be "HELLO <node_id>" ───────────────────
-    let hello = loop {
-        let line = match read_line_capped(&mut reader, MAX_LINE).await? {
-            Some(Some(b)) => String::from_utf8_lossy(&b).to_string(),
-            Some(None) => {
-                log::warn!("relay: oversized HELLO from {} — dropping", peer_addr);
-                return Ok(());
-            }
-            None => return Ok(()), // disconnected before HELLO
-        };
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("HELLO ") {
-            break rest.trim().to_string();
+    // ── Handshake: bounded, validated, and required before registration ───
+    let hello = match read_hello(&mut reader, HANDSHAKE_TIMEOUT).await {
+        Ok(Some(node_id)) => node_id,
+        Ok(None) => return Ok(()),
+        Err(error) => {
+            log::warn!("relay: invalid HELLO from {}: {}", peer_addr, error);
+            return Ok(());
         }
-        log::debug!("relay: ignoring non-HELLO from {}", peer_addr);
     };
 
     // ── Registration: the slot, decided and acknowledged ───────────────────
@@ -118,7 +315,7 @@ async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: Peers) -
     // deterministic — a client knows, before sending a single byte, whether
     // it owns the slot. A denied registration never silently sends its
     // traffic into a slot it does not own.
-    {
+    let route_writer = {
         let mut table = shard_for(&peers, &hello).write().await;
         if table.contains_key(&hello) {
             log::warn!(
@@ -130,107 +327,128 @@ async fn handle_client(stream: TcpStream, peer_addr: SocketAddr, peers: Peers) -
             return Ok(());
         }
         let _ = writer.write_all(b"HELLO_OK\n").await;
-        table.insert(hello.clone(), writer);
-    }
+        let route_writer = Arc::new(Mutex::new(writer));
+        table.insert(hello.clone(), route_writer.clone());
+        route_writer
+    };
     log::debug!("relay: {} registered as '{}'", peer_addr, hello);
-    let mut dead_streams = Vec::new();
-
-    // ── Relay loop ────────────────────────────────────────────────────────
-    let mut rate_tokens = RATE_LIMIT_PER_SEC;
-    let mut rate_window_start = std::time::Instant::now();
-    loop {
-        let line = match read_line_capped(&mut reader, MAX_LINE).await? {
-            Some(Some(b)) => b,
-            Some(None) => {
-                log::warn!("relay: oversized line from {} — dropping", peer_addr);
+    // Keep cleanup outside the loop future so every exit path (EOF, I/O
+    // error, rate limit) unregisters this exact live slot.
+    let relay_result: Result<()> = async {
+        let mut rate_tokens = RATE_LIMIT_PER_SEC;
+        let mut rate_window_start = std::time::Instant::now();
+        loop {
+            let line =
+                match read_line_capped(&mut reader, MAX_LINE, FRAME_CONTINUATION_TIMEOUT).await? {
+                    Some(Some(bytes)) => bytes,
+                    Some(None) => {
+                        log::warn!("relay: oversized line from {} — dropping", peer_addr);
+                        continue;
+                    }
+                    None => break,
+                };
+            if line.is_empty() {
                 continue;
             }
-            None => break, // client disconnected
-        };
-        if line.is_empty() {
-            continue;
-        }
-        // Per-connection rate limit: token bucket, refilled each second.
-        let now = std::time::Instant::now();
-        if now.duration_since(rate_window_start).as_secs() >= 1 {
-            rate_window_start = now;
-            rate_tokens = RATE_LIMIT_PER_SEC;
-        }
-        if rate_tokens == 0 {
-            log::warn!("relay: rate limit exceeded by {} — dropping", peer_addr);
-            return Ok(());
-        }
-        rate_tokens -= 1;
 
-        // The ONLY inspection: kind + routing fields. Never the payload.
-        let val: serde_json::Value = match serde_json::from_slice(&line) {
-            Ok(v) => v,
-            Err(_) => {
-                log::warn!("relay: ignoring non-JSON from {}", peer_addr);
-                continue;
+            let now = std::time::Instant::now();
+            if now.duration_since(rate_window_start).as_secs() >= 1 {
+                rate_window_start = now;
+                rate_tokens = RATE_LIMIT_PER_SEC;
             }
-        };
+            if rate_tokens == 0 {
+                log::warn!("relay: rate limit exceeded by {} — dropping", peer_addr);
+                break;
+            }
+            rate_tokens -= 1;
 
-        let kind = val.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-        if kind != "fragment" {
-            log::trace!("relay: ignored {} envelope from {}", kind, peer_addr);
-            continue;
-        }
-
-        // Anti-spoofing: a connection forwards only under its own name.
-        let from = val.get("from").and_then(|v| v.as_str()).unwrap_or("");
-        if from != hello {
-            log::warn!(
-                "relay: '{}' tried to forward as '{}' — dropped",
-                hello,
-                from
-            );
-            continue;
-        }
-
-        let to = val.get("to").and_then(|v| v.as_str()).unwrap_or("");
-        if to.is_empty() {
-            continue;
-        }
-
-        // Forward to the destination if it is connected.
-        let mut table = shard_for(&peers, to).write().await;
-        let mut out = line.clone();
-        out.push(b'\n'); // NDJSON framing: the peer's read_line needs the newline
-        let forwarded = match table.get_mut(to) {
-            Some(dst) => {
-                // Dead streams are dropped on write failure.
-                let mut ok = true;
-                if let Err(e) = dst.write_all(&out).await {
-                    log::warn!("relay: drop dead peer '{}': {}", to, e);
-                    ok = false;
-                    dead_streams.push(to.to_string());
+            let value: serde_json::Value = match serde_json::from_slice(&line) {
+                Ok(value) => value,
+                Err(_) => {
+                    log::warn!("relay: ignoring non-JSON from {}", peer_addr);
+                    continue;
                 }
-                ok
+            };
+            let kind = value.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            if kind != "fragment" {
+                log::trace!("relay: ignored {} envelope from {}", kind, peer_addr);
+                continue;
             }
-            None => {
+
+            let from = value.get("from").and_then(|v| v.as_str()).unwrap_or("");
+            if from != hello {
+                log::warn!(
+                    "relay: '{}' tried to forward as '{}' — dropped",
+                    hello,
+                    from
+                );
+                continue;
+            }
+            // Limite par identité : une enveloppe au-delà du quota est
+            // journalisée et ignorée. La connexion et les autres pairs ne
+            // sont pas affectés — pas de déni de service global.
+            if !identities.lock().await.allow(&hello, Instant::now()) {
+                log::warn!(
+                    "relay: identity '{}' above the per-peer limit — envelope dropped",
+                    hello
+                );
+                continue;
+            }
+            let to = value.get("to").and_then(|v| v.as_str()).unwrap_or("");
+            if to.is_empty() {
+                continue;
+            }
+
+            // Clone the destination writer under a short routing-table read
+            // lock, then serialize writes per peer. No shard lock is held over I/O.
+            let destination = shard_for(&peers, to).read().await.get(to).cloned();
+            let forwarded = if let Some(destination) = destination {
+                let write_result = {
+                    let mut writer = destination.lock().await;
+                    let frame = outbound_line(&line);
+                    let result =
+                        write_frame_with_timeout(&mut *writer, &frame, DESTINATION_WRITE_TIMEOUT)
+                            .await;
+                    if result.is_err() {
+                        // Close this writer before releasing its mutex. Any
+                        // already-cloned routes then fail instead of reusing
+                        // a socket that stalled or partially wrote a frame.
+                        let _ = tokio::time::timeout(DESTINATION_WRITE_TIMEOUT, writer.shutdown())
+                            .await;
+                    }
+                    result
+                };
+                match write_result {
+                    Ok(()) => true,
+                    Err(error) => {
+                        log::warn!("relay: drop dead peer '{}': {}", to, error);
+                        let mut table = shard_for(&peers, to).write().await;
+                        remove_peer_if_current(&mut table, to, &destination);
+                        false
+                    }
+                }
+            } else {
                 log::debug!("relay: '{}' not connected — fragment dropped", to);
                 false
+            };
+
+            if forwarded {
+                log::debug!(
+                    "relay: forwarded fragment (session={:?}) from '{}' to '{}'",
+                    value.get("session").and_then(|v| v.as_str()),
+                    hello,
+                    to
+                );
             }
-        };
-
-        for dead in dead_streams.drain(..) {
-            table.remove(&dead);
         }
-
-        if forwarded {
-            log::debug!(
-                "relay: forwarded fragment (session={:?}) from '{}' to '{}'",
-                val.get("session").and_then(|v| v.as_str()),
-                hello,
-                to
-            );
-        }
+        Ok(())
     }
+    .await;
 
     log::debug!("relay: '{}' ({}) disconnected", hello, peer_addr);
-    shard_for(&peers, &hello).write().await.remove(&hello);
-    Ok(())
+    let mut table = shard_for(&peers, &hello).write().await;
+    remove_peer_if_current(&mut table, &hello, &route_writer);
+    relay_result
 }
 
 /// Start the relay TCP server on the given port.
@@ -242,12 +460,13 @@ pub async fn run(port: u16) -> Result<()> {
 }
 
 /// Serve on an already-bound listener (used by tests with port 0).
-async fn run_listener(listener: TcpListener) -> Result<()> {
+pub async fn run_listener(listener: TcpListener) -> Result<()> {
     let mut shards = Vec::with_capacity(SHARDS);
     for _ in 0..SHARDS {
         shards.push(RwLock::new(HashMap::new()));
     }
     let peers: Peers = Arc::new(shards);
+    let identities: Arc<Mutex<IdentityLimiter>> = Arc::new(Mutex::new(IdentityLimiter::default()));
     // Global connection cap: an attacker cannot open unbounded connections
     // (each holds a routing entry + buffers). Beyond the cap, connections
     // are accepted and dropped immediately.
@@ -256,7 +475,7 @@ async fn run_listener(listener: TcpListener) -> Result<()> {
     loop {
         match listener.accept().await {
             Ok((stream, peer_addr)) => {
-                if conns.load(std::sync::atomic::Ordering::SeqCst) >= MAX_CONNECTIONS {
+                if !try_acquire_connection_slot(&conns, MAX_CONNECTIONS) {
                     log::warn!(
                         "relay: connection cap ({MAX_CONNECTIONS}) reached — dropping {}",
                         peer_addr
@@ -264,18 +483,19 @@ async fn run_listener(listener: TcpListener) -> Result<()> {
                     drop(stream);
                     continue;
                 }
-                conns.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let peers = peers.clone();
+                let identities = identities.clone();
                 let conns = conns.clone();
                 tokio::spawn(async move {
                     let _guard = ConnGuard(conns);
-                    if let Err(e) = handle_client(stream, peer_addr, peers).await {
+                    if let Err(e) = handle_client(stream, peer_addr, peers, identities).await {
                         log::error!("relay: client error {}: {}", peer_addr, e);
                     }
                 });
             }
             Err(e) => {
                 log::error!("relay: accept error: {}", e);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         }
     }
@@ -294,6 +514,121 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tokio::io::AsyncBufReadExt;
+
+    #[tokio::test]
+    async fn destination_write_deadline_drops_a_non_reading_peer() {
+        let (mut writer, _reader) = tokio::io::duplex(8);
+        let error = write_frame_with_timeout(&mut writer, &[0u8; 64], Duration::from_millis(20))
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[tokio::test]
+    async fn stale_disconnect_cannot_remove_a_replacement_route() {
+        async fn writer_half() -> OwnedWriteHalf {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let (client, accepted) = tokio::join!(TcpStream::connect(addr), listener.accept());
+            let _client = client.unwrap();
+            let (server, _) = accepted.unwrap();
+            let (_reader, writer) = server.into_split();
+            writer
+        }
+        let old_route = Arc::new(Mutex::new(writer_half().await));
+        let new_route = Arc::new(Mutex::new(writer_half().await));
+        let mut table = HashMap::new();
+        table.insert("alice".to_string(), new_route.clone());
+
+        assert!(!remove_peer_if_current(&mut table, "alice", &old_route));
+        assert!(table
+            .get("alice")
+            .is_some_and(|route| Arc::ptr_eq(route, &new_route)));
+        assert!(remove_peer_if_current(&mut table, "alice", &new_route));
+        assert!(!table.contains_key("alice"));
+    }
+
+    #[test]
+    fn connection_slot_cap_is_atomic_under_contention() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+        let slots = Arc::new(AtomicUsize::new(0));
+        let successes = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(32));
+        let threads: Vec<_> = (0..32)
+            .map(|_| {
+                let slots = slots.clone();
+                let successes = successes.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    if try_acquire_connection_slot(&slots, 5) {
+                        successes.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(successes.load(Ordering::Relaxed), 5);
+        assert_eq!(slots.load(Ordering::Relaxed), 5);
+    }
+
+    #[test]
+    fn node_ids_are_bounded_and_safe_for_routing_keys() {
+        assert!(valid_node_id("0123456789abcdef"));
+        assert!(valid_node_id("legacy-node_1"));
+        assert!(!valid_node_id(""));
+        assert!(!valid_node_id("node with spaces"));
+        assert!(!valid_node_id(&"a".repeat(MAX_NODE_ID_LEN + 1)));
+        assert!(!valid_node_id("node\nHELLO attacker"));
+    }
+
+    #[tokio::test]
+    async fn partial_frame_times_out_after_its_first_byte() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (client, accepted) = tokio::join!(TcpStream::connect(addr), listener.accept());
+        let mut client = client.unwrap();
+        let (server, _) = accepted.unwrap();
+        let (read, _write) = server.into_split();
+        let mut reader = BufReader::new(read);
+        client.write_all(b"{\"kind\":").await.unwrap();
+        let error = read_line_capped(&mut reader, MAX_LINE, Duration::from_millis(20))
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    }
+
+    #[tokio::test]
+    async fn incomplete_handshake_times_out_and_releases_the_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = TcpStream::connect(addr);
+        let (_client_stream, accepted) = tokio::join!(client, listener.accept());
+        let (server, _) = accepted.unwrap();
+        let (read, _write) = server.into_split();
+        let mut reader = BufReader::new(read);
+        let result = read_hello(&mut reader, Duration::from_millis(20))
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn malformed_or_oversized_node_ids_are_rejected() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (client, accepted) = tokio::join!(TcpStream::connect(addr), listener.accept());
+        let mut client = client.unwrap();
+        let (server, _) = accepted.unwrap();
+        let (read, _write) = server.into_split();
+        let mut reader = BufReader::new(read);
+        client.write_all(b"HELLO invalid id\n").await.unwrap();
+        let result = read_hello(&mut reader, Duration::from_secs(1)).await;
+        assert!(result.is_err());
+    }
 
     /// Spawn a relay on a random port, return the bound address.
     async fn spawn_relay() -> std::net::SocketAddr {
@@ -330,6 +665,57 @@ mod tests {
         let result = tokio::time::timeout(Duration::from_millis(200), run(0)).await;
         // Err(TimeoutElapsed) because run() loops forever — that's fine.
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn per_identity_limit_denies_only_the_abusive_peer() {
+        let mut limiter = IdentityLimiter::default();
+        let now = Instant::now();
+        for _ in 0..IDENTITY_RATE_PER_SEC {
+            assert!(limiter.allow("alice", now));
+        }
+        assert!(
+            !limiter.allow("alice", now),
+            "le pair abusif doit être refusé au-delà du quota"
+        );
+        assert!(
+            limiter.allow("bob", now),
+            "la limite d'Alice ne doit jamais toucher Bob"
+        );
+    }
+
+    #[test]
+    fn per_identity_limit_resets_after_window() {
+        let mut limiter = IdentityLimiter::default();
+        let start = Instant::now();
+        for _ in 0..IDENTITY_RATE_PER_SEC {
+            assert!(limiter.allow("alice", start));
+        }
+        assert!(!limiter.allow("alice", start));
+        let later = start + std::time::Duration::from_secs(1);
+        assert!(
+            limiter.allow("alice", later),
+            "une nouvelle fenêtre doit réadmettre le pair"
+        );
+    }
+
+    #[tokio::test]
+    async fn rate_limited_connection_releases_its_node_id_slot() {
+        let addr = spawn_relay().await;
+        let mut first = TcpStream::connect(addr).await.unwrap();
+        hello(&mut first, "alice").await;
+        let envelope = r#"{"kind":"fragment","from":"alice","to":"offline","session":"rate-limit","seq":1,"payload":[]}"#;
+        for _ in 0..=RATE_LIMIT_PER_SEC {
+            first
+                .write_all(format!("{envelope}\n").as_bytes())
+                .await
+                .unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // If early return skipped cleanup, this same node ID would be denied.
+        let mut replacement = TcpStream::connect(addr).await.unwrap();
+        hello(&mut replacement, "alice").await;
     }
 
     #[tokio::test]
@@ -417,14 +803,22 @@ mod tests {
         assert!(got.is_err(), "relay must not forward non-fragments");
     }
 
+    /// SEC.4 — the regression that must never disappear silently.
+    ///
+    /// Alice is authenticated as `alice`. If she emits an envelope under
+    /// Mallory's name, the relay must drop it. The test also keeps a **positive
+    /// witness**: the legitimate frame she sends next, on the same connection to
+    /// the same recipient, must still be forwarded. Without that witness, a relay
+    /// that had simply stopped routing would pass the spoofing assertion.
     #[tokio::test]
-    async fn drops_envelopes_with_mismatched_from() {
+    async fn refuse_from_spoofing_through_relay() {
         let addr = spawn_relay().await;
 
         let mut bob = TcpStream::connect(addr).await.unwrap();
         hello(&mut bob, "bob").await;
         let mut alice = TcpStream::connect(addr).await.unwrap();
         hello(&mut alice, "alice").await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Alice tries to forward under Mallory's name — anti-spoofing.
         let forged = r#"{"kind":"fragment","from":"mallory","to":"bob","session":"sX","seq":1,"type":"frag","idx":1,"threshold":4,"total":7,"payload":[9,9]}"#;
@@ -433,13 +827,105 @@ mod tests {
             .await
             .unwrap();
 
+        let mut forged_line = String::new();
+        let forged_delivery = tokio::time::timeout(Duration::from_millis(300), async {
+            let mut reader = BufReader::new(&mut bob);
+            reader.read_line(&mut forged_line).await.unwrap();
+        })
+        .await;
+        assert!(
+            forged_delivery.is_err(),
+            "relay forwarded an envelope spoofing `from`: {forged_line}"
+        );
+
+        // Positive witness: same connection, same recipient, truthful `from`.
+        let legit = r#"{"kind":"fragment","from":"alice","to":"bob","session":"sX-legit","seq":2,"payload":[7]}"#;
+        alice
+            .write_all(format!("{legit}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut legit_line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            let mut reader = BufReader::new(&mut bob);
+            reader.read_line(&mut legit_line).await.unwrap();
+        })
+        .await
+        .expect("the legitimate frame must still reach bob after the drop");
+        assert!(
+            legit_line.contains(r#""from":"alice""#),
+            "forwarded frame is not alice's: {legit_line}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fragment_is_forwarded_only_to_its_intended_recipient() {
+        let addr = spawn_relay().await;
+
+        let mut bob = TcpStream::connect(addr).await.unwrap();
+        hello(&mut bob, "bob").await;
+        let mut carol = TcpStream::connect(addr).await.unwrap();
+        hello(&mut carol, "carol").await;
+        let mut alice = TcpStream::connect(addr).await.unwrap();
+        hello(&mut alice, "alice").await;
+
+        let fragment = r#"{"kind":"fragment","from":"alice","to":"bob","session":"routing-test","seq":1,"payload":[1,2,3]}"#;
+        alice
+            .write_all(format!("{fragment}\n").as_bytes())
+            .await
+            .unwrap();
+
+        let mut bob_line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            let mut reader = BufReader::new(&mut bob);
+            reader.read_line(&mut bob_line).await.unwrap();
+        })
+        .await
+        .expect("intended recipient should receive the fragment");
+        assert_eq!(bob_line.trim(), fragment);
+
+        let mut carol_line = String::new();
+        let received = tokio::time::timeout(Duration::from_millis(200), async {
+            let mut reader = BufReader::new(&mut carol);
+            reader.read_line(&mut carol_line).await.unwrap()
+        })
+        .await;
+        assert!(
+            received.is_err(),
+            "unrelated recipient received a fragment: {carol_line}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fragment_for_disconnected_recipient_is_dropped() {
+        let addr = spawn_relay().await;
+
+        let mut alice = TcpStream::connect(addr).await.unwrap();
+        hello(&mut alice, "alice").await;
+
+        let missing = r#"{"kind":"fragment","from":"alice","to":"not-connected","session":"missing-test","seq":1,"payload":[9]}"#;
+        alice
+            .write_all(format!("{missing}\n").as_bytes())
+            .await
+            .unwrap();
+
+        // Routing to an absent peer is a drop, not a connection failure: the
+        // same sender can still forward to a subsequently connected peer.
+        let mut bob = TcpStream::connect(addr).await.unwrap();
+        hello(&mut bob, "bob").await;
+        let valid = r#"{"kind":"fragment","from":"alice","to":"bob","session":"after-missing","seq":2,"payload":[4]}"#;
+        alice
+            .write_all(format!("{valid}\n").as_bytes())
+            .await
+            .unwrap();
+
         let mut line = String::new();
-        let got = tokio::time::timeout(Duration::from_millis(300), async {
+        tokio::time::timeout(Duration::from_secs(2), async {
             let mut reader = BufReader::new(&mut bob);
             reader.read_line(&mut line).await.unwrap();
         })
-        .await;
-        assert!(got.is_err(), "relay must not forward a mismatched from");
+        .await
+        .expect("sender should continue routing after a missing recipient");
+        assert_eq!(line.trim(), valid);
     }
 
     #[tokio::test]

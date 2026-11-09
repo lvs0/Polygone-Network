@@ -1,92 +1,80 @@
-# Polygone — Vision complète unifiée
+# Polygone — vision unifiée et état vérifié
 
-> *Synthèse exhaustive depuis les conversations et notes.*
-> *Objectif : produit prêt pour adoption publique, sécurisé, sans compromis.*
+> **Instantané daté — ne pas lire comme l'état courant.** Sa date de rédaction n'est pas indiquée ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
+> Document de cadrage : distinguer les capacités réellement exécutées, les prototypes locaux et les objectifs futurs. Une fonction présente ou un test unitaire ne suffit pas à déclarer un service livré.
+> Audit détaillé : `AUDIT_VERACITE_VISION.md`.
 
 ---
 
-## 1. Serverless sur Polygone
+## 1. Calcul et exécution distribuée
 
-- Exécution de fonctions/tâches sur les nœuds du réseau.
-- Modèle : demande → fragmentation Shamir → exécution sur ≥4 nœuds → résultat reconstruit.
-- Backends : Ollama local (petals), WASM (wasmi), sandbox Linux (`exec.rs`).
-- Réputation des nœuds (`reputation.rs`) pour préférer les pairs fiables.
-- Kill-switch : arrêt immédiat si compromission détectée.
+- **Compute (partiel mais utilisable)** : un nœud peut recevoir une requête via le relay et exécuter une commande shell dans un scope systemd contraint, ou un module WASM via wasmi (`crates/client/src/net/mod.rs`, `crates/client/src/exec.rs`). Les grants sont signés ML-DSA-65 et vérifiés par le demandeur (`net/mod.rs`, `verify_grant`).
+- **Limites Compute** : la réputation est locale et affichée ; elle ne sélectionne pas automatiquement les pairs. Il n'existe pas encore de reçu signé de résultat d'exécution ni d'échange de réputation réseau. Le grant signé prouve l'autorisation/réponse du nœud, pas la justesse du résultat.
+- **Serverless (prototype local)** : le crate sait fragmenter une charge utile par Shamir, la reconstituer et calculer un quorum en fonctions pures. La commande actuelle vérifie seulement le split/reassemble local ; elle contacte zéro nœud. Le transport, l'exécution distante orchestrée et le décompte des réponses ne sont pas câblés.
+- **Petals** : l'IA locale via Ollama est disponible sous `polygone petals`. Le planner de pipeline de couches existe, mais le transfert des poids et l'inférence distribuée entre pairs ne sont pas branchés.
 
-## 2. Gateway domaine public
+## 2. Gateway et API
 
-- Un domaine → front web statique + API JSON.
-- Le client web parle à un proxy local (`polygone-gateway`) qui se connecte au réseau.
-- Pas de navigateur spécial : HTTPS + WebCrypto côté client.
-  - **Note** : le projet ne dispose pas actuellement d'un Service Worker, ce qui signifie qu'il n'y a pas de PWA installable ni de fonctionnalité de synchronisation en arrière-plan.
-- Le téléphone mobile peut rejoindre comme nœud via le même domaine.
+- Le crate `polygone-gateway` sert une interface statique et des routes JSON sur un vrai socket TCP. Routes présentes : statut, services, demande/acceptation d'appairage, deep-link et information d'un nœud.
+- Le binaire écoute par défaut sur `127.0.0.1:8088` et refuse désormais tout bind non-loopback. Il ne termine pas TLS ; le Gateway ne peut pas encore être exposé publiquement même derrière une simple variable d'adresse.
+- Les données de nœuds sont conservées en mémoire dans le processus Gateway. Elles ne sont pas alimentées par le relay ; les mesures de latence ne disposent pas encore de producteur en production.
+- L'appairage est un MVP par jeton porteur : secret aléatoire de 256 bits, expiration à cinq minutes, plafond de demandes pendantes et consommation atomique à l'acceptation (rejeu refusé). Cela ne constitue pas encore une authentification mutuelle : aucune preuve signée de possession de la clé associée n'est exigée, et le Gateway ne termine pas TLS.
 
-## 3. Site officiel
+## 3. Site et PWA
 
-- Design sobre, honnête, anti-AI-slop.
-- Sections : pitch, crypto, démo, téléchargement, documentation, état du réseau.
-- Généré depuis les docs existantes (`README.md`, `STRATEGIE.md`, `docs/*`).
-- Hébergement statique : `site/index.html` + CI deploy vers Pages/Vercel/Cloudflare.
-  - **Note** : le site est actuellement hébergé à la racine du dépôt (`site/index.html`) et non dans `docs/site/` comme annoncé. Le répertoire `docs/site/` n'existe pas.
+- Le site statique se trouve dans `web/` (`index.html`, `landing.html`). Il n'est pas généré automatiquement depuis les documents et aucun workflow de déploiement web n'est présent dans `.github/workflows/`.
+- La PWA possède un manifeste, un service worker, une coque mise en cache et une page hors ligne. L'installation dépend des capacités du navigateur.
+- La PWA n'exécute pas de daemon réseau et ne transforme pas un téléphone en nœud Polygone.
 
 ## 4. Mobile comme nœud
 
-- PWA installable avec consentement explicite ("Acceptez-vous de participer comme nœud ?").
-- **Note** : le projet ne dispose pas actuellement d'un Service Worker, ce qui signifie qu'il n'y a pas de fonctionnalité de synchronisation en arrière-plan.
-- Contribution optionnelle : messaging, relais local, compute mineur.
-- Batterie/network aware : pauses auto si <20% batterie ou mobile data only.
+- **Non implémenté** : consentement de contribution, participation au réseau, relais/compute mobile, pause selon batterie ou type de connexion, synchronisation en arrière-plan.
+- Ces fonctions restent des objectifs de conception et ne doivent pas être présentées comme disponibles.
 
 ## 5. État du réseau
 
-- `/api/v1/network/status` : nœuds actifs, latence moyenne.
-  - **Note** : la passerelle renvoie actuellement `latency_ms_median: 42` en dur et `active = nodes.len()` pour le nombre de nœuds actifs. La charge n'est pas actuellement mesurée ou rapportée.
-- Carte des pairs anonymisée (pas d’IP, seulement NodeId + pays estimé).
-- Historique 24h agrégé.
+- `/api/v1/network/status` renvoie le nombre d'entrées, les entrées vues récemment, une médiane de latence optionnelle et l'uptime du processus Gateway.
+- **Limite majeure** : la table est locale au processus ; elle n'est pas synchronisée avec le réseau Polygone. Le champ de latence est `null` tant qu'aucune mesure n'est alimentée. Pas de carte mondiale, de pays estimés ni d'historique 24 h.
 
 ## 6. Comptes utilisateurs
 
-- Authentification par clé locale : pas de mot de passe, pas d’email.
-- `polygone login` génère une paire locale + enrollment token signé.
-- Le site accepte le même token pour lier un appareil.
-- Multi-appareils : chaque appareil a sa clé, le compte agrège les appareils.
+- Aucun compte réseau, `polygone login`, enrollment token ou agrégation multi-appareils n'est livré.
+- L'identité actuelle est une paire de clés locale persistée sur l'appareil. Les relais facultatifs transportent les enveloppes ; ils ne constituent pas un système de compte.
 
-## 7. QR / Deep link / Passkey
+## 7. QR, deep links et passkeys
 
-- `polygone pair --qr` : affiche un QR avec `polygone://pair/<token>`.
-- iPhone : ouvre directement l’app Polygone ou propose “Ajouter au trousseau”.
-- Android : intent filter sur `polygone://`.
-- Passkey WebAuthn : le site propose “Ajouter Polygone Passkey”.
+- L'API Gateway peut retourner une chaîne `polygone://pair/<token>` pour un token présent en mémoire.
+- Aucun générateur de QR, gestionnaire de deep-link iOS/Android, intent filter ou flux WebAuthn/passkey n'est câblé.
+- Le parcours d'appairage doit être sécurisé avant d'être exposé comme fonctionnalité produit.
 
-## 8. Sécurité
+## 8. Sécurité et confidentialité
 
-- Zero trust : chaque message signé ML-DSA-65, chaque fragment chiffré AES-256-GCM.
-- Kill-switch : USB + clavier + GPIO.
-- Auditabilité : logs locaux uniquement, pas de serveur central.
-- Transparence : code AGPL-3.0, bounty program, security.txt.
+- Le chemin de message réseau utilise ML-KEM-1024, AES-256-GCM, Shamir 4-of-7 et une signature ML-DSA-65 sur l'enveloppe KEM ; le relay ne lit pas le contenu chiffré.
+- Le relay reste un serveur réseau : il voit l'adresse IP de connexion et les identifiants de routage, et ses journaux peuvent contenir ces métadonnées. « Aveugle » signifie qu'il ne lit pas le payload, pas qu'il ne voit aucune métadonnée.
+- `polygone duress --confirmer` est une commande manuelle qui détruit certains états locaux. Aucun déclenchement automatique sur compromission ni déclencheur USB/clavier/GPIO n'est implémenté.
+- Le dépôt est sous AGPL-3.0 et possède `SECURITY.md` ainsi que `.well-known/security.txt`. Il n'existe pas de programme de bug bounty rémunéré.
 
 ## 9. Activité de mes nœuds
 
-- Dashboard local (`polygone status`) + distant via compte.
-- Métriques : messages envoyés/reçus, fichiers transférés, temps de disponibilité.
-- Réputation locale + globale.
+- `polygone node status` expose l'état local du nœud de stockage : bail, fraîcheur, blocs/octets servis et connexions acceptées/refusées.
+- Pas de tableau de bord global des messages, fichiers, disponibilité de tous les services ou réputation réseau. Les compteurs du nœud de stockage ne doivent pas être extrapolés aux autres services.
 
 ## 10. Accès aux services
 
-- CLI unifié (`polygone`) avec sous-commandes pour chaque service.
-- Web : interface statique + API gateway.
-- Mobile : PWA avec les mêmes services.
+- Le CLI unifié expose les fonctions effectivement présentes : messagerie, écoute relay, mesh, compute, node, Serverless prototype, Petals local, Hide mono-saut, duress manuel.
+- Le site statique et l'API Gateway sont distincts du transport pair-à-pair ; leur intégration à un compte et à une application mobile commune reste à faire.
 
 ---
 
-## Priorités d’implémentation
+## Ordre de finalisation proposé depuis l'état réel
 
-1. **P0** : Finaliser `drive.rs` + TUI honnête + `brain.rs` (cette session)
-2. **P1** : Serverless module + gateway HTTP minimal
-3. **P2** : Site officiel statique
-4. **P3** : Mobile PWA + QR/pairing
-5. **P4** : Comptes + dashboard réseau
-6. **P5** : Release GitHub + CI + P8 binaires
+1. Corriger les incohérences d'identité et de confiance (notamment `polygone id`, identité réseau persistante, appairage réellement authentifié).
+2. Définir un reçu de résultat signé utile, distinct du grant d'autorisation, et brancher sa vérification à la réputation locale avant toute réputation réseau.
+3. Alimenter Gateway avec des événements/heartbeats réels et des mesures de latence, ou retirer toute prétention de statut global jusqu'à ce que le flux existe.
+4. Définir le contrat d'orchestration Serverless : sélection des nœuds, transport, exécution, réponses, reçus, quorum, timeouts, retrait et coûts ; puis l'implémenter et le tester sur plusieurs processus.
+5. N'engager Petals distribué qu'avec un protocole de transfert des poids et d'exécution inter-étapes testable ; le planner seul ne suffit pas.
+6. Concevoir le mobile comme nœud séparément, avec consentement, contraintes OS/batterie/réseau et tests sur appareils réels.
+7. Préparer un déploiement public uniquement après authentification, TLS, gestion des secrets, observabilité et modèle de menace revus.
 
----
-
-*Document vivant — mis à jour au fur et à mesure de l’implémentation.*
+*Les statuts et limites détaillés sont dans `AUDIT_VERACITE_VISION.md` et `STAGING.md`. Les objectifs futurs ne sont pas des capacités livrées.*

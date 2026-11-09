@@ -1,6 +1,177 @@
 use super::*;
 use crate::identity::LocalIdentity;
 
+fn private_test_path(label: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "polygone-{label}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ))
+}
+
+#[test]
+fn missing_peer_store_means_first_contact_only_when_file_is_absent() {
+    let root = private_test_path("peers-absent");
+    let path = root.join(".polygone").join("peers.json");
+    assert!(load_peers_from_path(&path).unwrap().is_empty());
+    assert!(!path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn malformed_peer_store_is_an_error_not_an_empty_tofu_store() {
+    let root = private_test_path("peers-malformed");
+    let path = root.join(".polygone").join("peers.json");
+    crate::identity::write_private_atomic(&path, b"{not-json").unwrap();
+    let error = load_peers_from_path(&path).unwrap_err();
+    assert!(error.to_string().contains("ancre de confiance invalide"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn peer_store_is_atomic_private_and_restricted_before_reading() {
+    let root = private_test_path("peers-private");
+    let path = root.join(".polygone").join("peers.json");
+    let peers = HashMap::from([("alice".to_string(), "public-key-hex".to_string())]);
+    save_peers_to_path(&path, &peers).unwrap();
+    assert_eq!(load_peers_from_path(&path).unwrap(), peers);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(load_peers_from_path(&path).unwrap(), peers);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn peer_store_symlink_is_refused() {
+    let root = private_test_path("peers-symlink");
+    std::fs::create_dir_all(&root).unwrap();
+    let target = root.join("outside.json");
+    std::fs::write(&target, b"{}").unwrap();
+    let link = root.join("peers.json");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    assert!(load_peers_from_path(&link).is_err());
+    assert_eq!(std::fs::read(&target).unwrap(), b"{}");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn peer_store_symlink_parent_is_refused_even_when_store_is_missing() {
+    let root = private_test_path("peers-parent-symlink");
+    std::fs::create_dir_all(&root).unwrap();
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    let private_dir = root.join(".polygone");
+    std::os::unix::fs::symlink(&outside, &private_dir).unwrap();
+    let path = private_dir.join("peers.json");
+    assert!(load_peers_from_path(&path).is_err());
+    assert!(!outside.join("peers.json").exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn oversized_file_is_rejected_before_opening_a_relay_connection() {
+    let sender = LocalIdentity::generate();
+    let recipient = LocalIdentity::generate();
+    let payload = vec![0x5a; 128 * 1024];
+    let error = send_network(
+        "127.0.0.1:1",
+        &node_id(&recipient),
+        &payload,
+        Some("large.bin"),
+        &recipient.kem_public_key().unwrap(),
+        &sender,
+    )
+    .await
+    .expect_err("the serialized Shamir share exceeds the 64 KiB relay frame cap");
+    assert!(
+        error.to_string().contains("enveloppe trop volumineuse"),
+        "preflight must fail before trying the intentionally closed relay: {error}"
+    );
+}
+
+#[test]
+fn outgoing_relay_envelopes_are_rejected_above_the_wire_cap() {
+    let env = NetEnvelope {
+        kind: "fragment".into(),
+        from: "0123456789abcdef".into(),
+        to: "fedcba9876543210".into(),
+        session: "oversized".into(),
+        seq: 0,
+        typ: "req".into(),
+        idx: 0,
+        threshold: 0,
+        total: 0,
+        payload: vec![0; MAX_WIRE_LINE],
+        sig: None,
+        signer: None,
+        name_ct: None,
+        ts: Some(1),
+    };
+    let error = encode_net_envelope(&env).unwrap_err();
+    assert!(error.to_string().contains("enveloppe trop volumineuse"));
+}
+
+#[tokio::test]
+async fn relay_frame_reader_times_out_after_a_partial_frame_starts() {
+    let (mut writer, stream) = tokio::io::duplex(64);
+    tokio::io::AsyncWriteExt::write_all(&mut writer, b"{\"kind\":")
+        .await
+        .unwrap();
+    let mut reader = tokio::io::BufReader::new(stream);
+    let error = read_line_capped(
+        &mut reader,
+        MAX_WIRE_LINE,
+        std::time::Duration::from_millis(20),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+}
+
+#[tokio::test]
+async fn relay_frame_reader_accepts_bounded_lines_and_strips_newline() {
+    let (mut writer, stream) = tokio::io::duplex(64);
+    tokio::io::AsyncWriteExt::write_all(&mut writer, b"hello relay\n")
+        .await
+        .unwrap();
+    let mut reader = tokio::io::BufReader::new(stream);
+    let line = read_line_capped(&mut reader, 32, FRAME_CONTINUATION_TIMEOUT)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(line, b"hello relay");
+}
+
+#[tokio::test]
+async fn relay_frame_reader_rejects_oversized_lines_before_unbounded_growth() {
+    let (mut writer, stream) = tokio::io::duplex(64);
+    tokio::io::AsyncWriteExt::write_all(&mut writer, b"0123456789\n")
+        .await
+        .unwrap();
+    let mut reader = tokio::io::BufReader::new(stream);
+    let error = read_line_capped(&mut reader, 8, FRAME_CONTINUATION_TIMEOUT)
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+}
+
 /// Build a signed KEM envelope exactly like `send_network` does.
 fn signed_kem_json(
     session: &str,
@@ -69,6 +240,37 @@ fn test_now() -> u64 {
 }
 
 #[test]
+fn announce_new_peer_reports_exact_full_blake3_key_fingerprint() {
+    let older = LocalIdentity::generate();
+    let new = LocalIdentity::generate();
+    let mut peers = HashMap::new();
+    peers.insert("older-peer".to_string(), older.sign_pk_hex.clone());
+    peers.insert("new-peer".to_string(), new.sign_pk_hex.clone());
+    let new_pk = polygone_core::sign::PublicKey::from_hex(&new.sign_pk_hex).unwrap();
+    let expected = blake3::hash(new_pk.as_bytes()).to_hex().to_string();
+    assert_eq!(
+        peer_fingerprint(&peers, "new-peer").as_deref(),
+        Some(expected.as_str())
+    );
+    assert_eq!(expected.len(), 64);
+    assert_eq!(peer_fingerprint(&peers, "missing-peer"), None);
+}
+
+#[test]
+fn tofu_peer_map_is_bounded_and_never_rebinds_an_existing_node() {
+    let mut peers = HashMap::new();
+    assert!(bind_peer_key(&mut peers, "alice", "key-a".into()));
+    assert!(bind_peer_key(&mut peers, "alice", "key-a".into()));
+    assert!(!bind_peer_key(&mut peers, "alice", "key-b".into()));
+    for index in 0..MAX_KNOWN_PEERS - 1 {
+        peers.insert(format!("peer-{index}"), "pinned-key".into());
+    }
+    assert_eq!(peers.len(), MAX_KNOWN_PEERS);
+    assert!(!bind_peer_key(&mut peers, "new-peer", "new-key".into()));
+    assert_eq!(peers.len(), MAX_KNOWN_PEERS);
+}
+
+#[test]
 fn canonical_bytes_are_deterministic() {
     let a = canonical_bytes("s1", "alice", "bob", 123, &[1, 2, 3], &[4, 5]);
     let b = canonical_bytes("s1", "alice", "bob", 123, &[1, 2, 3], &[4, 5]);
@@ -88,7 +290,7 @@ fn full_pipeline_signed_message_round_trip() {
     let session = "test-session-1";
     let bob_node = node_id(&bob);
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
 
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
 
@@ -153,7 +355,7 @@ fn forged_signature_is_rejected() {
     known_peers.insert(alice_node.clone(), alice.sign_pk_hex.clone());
 
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
     // KEM envelope: from = Alice's node, sig+signer = Eve's key.
     let ciphertext = output.ciphertext.clone().expect("sender ciphertext");
     let sig = eve.sign_signer().unwrap().sign(&canonical_bytes(
@@ -227,7 +429,7 @@ fn known_peer_with_matching_key_is_accepted() {
     known_peers.insert(alice_node.clone(), alice.sign_pk_hex.clone());
 
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
     let kem_line = signed_kem_json(session, &alice, &bob_node, test_now(), &output, None);
     process_line(
         &kem_line,
@@ -277,7 +479,7 @@ fn tampered_fragment_is_detected_and_rejected() {
     let session = "tamper-session";
     let bob_node = node_id(&bob);
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
 
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
     let kem_line = signed_kem_json(session, &alice, &bob_node, test_now(), &output, None);
@@ -326,7 +528,7 @@ fn wrong_recipient_is_ignored() {
     let output = crate::msg::send("message pour bob", &pk).unwrap();
     let session = "wrong-recipient";
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
 
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
     // Envelope addressed to carol, delivered to bob.
@@ -353,7 +555,7 @@ fn duplicate_fragment_index_is_dropped() {
     let session = "dup-idx";
     let bob_node = node_id(&bob);
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
 
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
     let kem_line = signed_kem_json(session, &alice, &bob_node, test_now(), &output, None);
@@ -438,7 +640,7 @@ fn unsigned_envelope_is_rejected() {
     let bob = LocalIdentity::generate();
     let bob_node = node_id(&bob);
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
     let pk = bob.kem_public_key().unwrap();
     let output = crate::msg::send("pas signé", &pk).unwrap();
     let session = "unsigned";
@@ -495,7 +697,7 @@ fn full_pipeline_signed_file_with_encrypted_name() {
     let session = "test-session-file";
     let bob_node = node_id(&bob);
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
 
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
     let kem_line = signed_kem_json(
@@ -565,7 +767,7 @@ fn three_fragments_never_complete() {
     let session = "test-incomplete";
     let bob_node = node_id(&bob);
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
 
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
     process_line(
@@ -599,12 +801,15 @@ fn three_fragments_never_complete() {
 }
 
 #[test]
-fn grant_reply_routes_back_to_requester() {
+fn grant_reply_routes_back_and_signs_the_final_output_payload() {
     let ghost = LocalIdentity::generate();
+    let borrower = LocalIdentity::generate();
+    let borrower_node = node_id(&borrower);
+    let ghost_node = node_id(&ghost);
     let req = NetEnvelope {
         kind: "fragment".into(),
-        from: "borrower-node".into(),
-        to: "ghost-node".into(),
+        from: borrower_node.clone(),
+        to: ghost_node.clone(),
         session: "res-session-1".into(),
         seq: 0,
         typ: "req".into(),
@@ -620,15 +825,78 @@ fn grant_reply_routes_back_to_requester() {
         ts: None,
     };
 
-    let grant = grant_for(&req, &ghost);
+    let mut body = grant_payload(&ghost);
+    body["output"] = serde_json::Value::String("résultat signé".into());
+    let grant = grant_for(&req, &ghost, body).expect("grant signing succeeds");
     assert_eq!(grant.typ, "grant");
-    assert_eq!(grant.to, "borrower-node"); // routed back to the requester
-    assert_eq!(grant.session, "res-session-1"); // same session context
-    assert_eq!(grant.from, node_id(&ghost)); // granted by the ghost
+    assert_eq!(grant.to, borrower_node);
+    assert_eq!(grant.session, "res-session-1");
+    assert_eq!(grant.from, ghost_node);
     let body: serde_json::Value =
         serde_json::from_slice(&grant.payload).expect("grant payload is JSON");
     assert_eq!(body["ok"], true);
     assert_eq!(body["node"], node_id(&ghost));
+    assert_eq!(body["output"], "résultat signé");
+
+    // The requester accepts the exact final payload, but not a changed output.
+    let mut known = HashMap::new();
+    assert!(verify_grant(&grant, &mut known, &node_id(&ghost)));
+    assert_eq!(known.get(&node_id(&ghost)), Some(&ghost.sign_pk_hex));
+
+    let mut tampered = grant;
+    let mut changed: serde_json::Value = serde_json::from_slice(&tampered.payload).unwrap();
+    changed["output"] = serde_json::Value::String("résultat falsifié".into());
+    tampered.payload = changed.to_string().into_bytes();
+    assert!(!verify_grant(&tampered, &mut known, &node_id(&ghost)));
+}
+
+#[test]
+fn compute_request_replay_cache_rejects_duplicates_and_expires() {
+    let mut seen = HashSet::new();
+    let mut order = VecDeque::new();
+    assert_eq!(
+        remember_compute_request(&mut seen, &mut order, "alice", "session-1", 100, 2),
+        ComputeReplayDecision::Accepted
+    );
+    assert_eq!(
+        remember_compute_request(&mut seen, &mut order, "alice", "session-1", 101, 2),
+        ComputeReplayDecision::Duplicate
+    );
+    assert_eq!(
+        remember_compute_request(&mut seen, &mut order, "bob", "session-1", 101, 2),
+        ComputeReplayDecision::Accepted
+    );
+    assert_eq!(
+        remember_compute_request(
+            &mut seen,
+            &mut order,
+            "alice",
+            "session-1",
+            100 + COMPUTE_REPLAY_TTL_SECS + 1,
+            2,
+        ),
+        ComputeReplayDecision::Accepted
+    );
+}
+
+#[test]
+fn compute_request_replay_cache_fails_closed_when_full() {
+    let mut seen = HashSet::new();
+    let mut order = VecDeque::new();
+    assert_eq!(
+        remember_compute_request(&mut seen, &mut order, "alice", "live-1", 100, 1),
+        ComputeReplayDecision::Accepted
+    );
+    assert_eq!(
+        remember_compute_request(&mut seen, &mut order, "bob", "live-2", 101, 1),
+        ComputeReplayDecision::Capacity
+    );
+    assert!(seen.contains(&("alice".into(), "live-1".into())));
+    assert_eq!(
+        order.len(),
+        1,
+        "unexpired replay markers must not be evicted"
+    );
 }
 
 // ── TOFU : premier contact appris, ancre ENFORCÉE ensuite ───────────────
@@ -647,7 +915,7 @@ fn tofu_learns_and_enforces_the_anchor() {
     let alice_node = node_id(&alice);
 
     let mut known_peers: HashMap<String, String> = HashMap::new(); // vide = prod fraîche
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
 
     // 1) Eve (premier contact, from=alice, SA clé) → TOFU accepte…
     let output = crate::msg::send("premier contact", &pk).unwrap();
@@ -788,7 +1056,7 @@ fn replayed_session_is_rejected() {
     let bob_node = node_id(&bob);
 
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
 
     // Session complète (ts valide).
@@ -863,7 +1131,7 @@ fn stale_timestamp_is_rejected() {
     let bob_node = node_id(&bob);
 
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
 
     // Signé il y a 10 heures (hors fenêtre ±300 s).
@@ -901,16 +1169,93 @@ fn stale_timestamp_is_rejected() {
 }
 
 #[test]
+fn completed_session_cache_fails_closed_instead_of_evicting_live_replay_markers() {
+    let bob = LocalIdentity::generate();
+    let bob_node = node_id(&bob);
+    let mut known_peers = HashMap::new();
+    let mut completed: CompletedSessions = (0..MAX_COMPLETED)
+        .map(|index| {
+            (
+                format!("sender-{index}"),
+                format!("session-{index}"),
+                test_now(),
+            )
+        })
+        .collect();
+    let mut sessions = HashMap::new();
+    let env = NetEnvelope {
+        kind: "fragment".into(),
+        from: "fresh-sender".into(),
+        to: bob_node,
+        session: "fresh-session".into(),
+        seq: 0,
+        typ: "kem".into(),
+        idx: 0,
+        threshold: 4,
+        total: 7,
+        payload: vec![0; 32],
+        sig: None,
+        signer: None,
+        name_ct: None,
+        ts: None,
+    };
+    let line = serde_json::to_string(&env).unwrap();
+    assert!(process_line(
+        &line,
+        &bob,
+        &mut known_peers,
+        test_now(),
+        &mut completed,
+        &mut sessions
+    )
+    .unwrap()
+    .is_none());
+    assert!(
+        sessions.is_empty(),
+        "full live replay cache must fail closed"
+    );
+    assert_eq!(completed.len(), MAX_COMPLETED);
+
+    for (_, _, completed_at) in completed.iter_mut() {
+        *completed_at = test_now().saturating_sub(MAX_TS_SKEW_SECS + 1);
+    }
+    let _ = process_line(
+        &line,
+        &bob,
+        &mut known_peers,
+        test_now(),
+        &mut completed,
+        &mut sessions,
+    )
+    .unwrap();
+    assert!(
+        completed.is_empty(),
+        "expired replay markers must be purged"
+    );
+    assert_eq!(
+        sessions.len(),
+        1,
+        "a fresh session can proceed after expiry"
+    );
+}
+
+#[test]
 fn session_cap_rejects_new_sessions() {
     let bob = LocalIdentity::generate();
     let bob_node = node_id(&bob);
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
 
     // Fill the map to the cap with dummy (from|session) keys.
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
     for i in 0..MAX_SESSIONS {
-        sessions.insert(format!("node{}|s{}", i % 7, i), SessionBuffer::default());
+        sessions.insert(
+            format!("node{}|s{}", i % 7, i),
+            SessionBuffer {
+                touched: test_now(),
+                ..Default::default()
+            },
+        );
     }
     assert_eq!(sessions.len(), MAX_SESSIONS);
 
@@ -949,6 +1294,55 @@ fn session_cap_rejects_new_sessions() {
 }
 
 #[test]
+fn expired_sessions_are_purged_before_a_full_session_cap_rejects_new_work() {
+    let bob = LocalIdentity::generate();
+    let bob_node = node_id(&bob);
+    let mut known_peers = HashMap::new();
+    let mut completed = VecDeque::new();
+    let mut sessions = HashMap::new();
+    for i in 0..MAX_SESSIONS {
+        sessions.insert(
+            format!("stale-node-{i}|stale-session-{i}"),
+            SessionBuffer {
+                touched: test_now().saturating_sub(SESSION_TTL_SECS + 1),
+                ..Default::default()
+            },
+        );
+    }
+    let env = NetEnvelope {
+        kind: "fragment".into(),
+        from: "fresh-node".into(),
+        to: bob_node,
+        session: "fresh-session-after-expiry".into(),
+        seq: 0,
+        typ: "kem".into(),
+        idx: 0,
+        threshold: 4,
+        total: 7,
+        payload: vec![0u8; 32],
+        sig: None,
+        signer: None,
+        name_ct: None,
+        ts: None,
+    };
+    let _ = process_line(
+        &serde_json::to_string(&env).unwrap(),
+        &bob,
+        &mut known_peers,
+        test_now(),
+        &mut completed,
+        &mut sessions,
+    )
+    .unwrap();
+    assert_eq!(
+        sessions.len(),
+        1,
+        "expired entries must be purged before insertion"
+    );
+    assert!(sessions.contains_key("fresh-node|fresh-session-after-expiry"));
+}
+
+#[test]
 fn out_of_range_fragment_index_is_dropped() {
     let alice = LocalIdentity::generate();
     let bob = LocalIdentity::generate();
@@ -957,7 +1351,7 @@ fn out_of_range_fragment_index_is_dropped() {
     let bob_node = node_id(&bob);
 
     let mut known_peers: HashMap<String, String> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
 
     let session = "bad-idx";
@@ -1005,4 +1399,240 @@ fn out_of_range_fragment_index_is_dropped() {
             assert!(r.is_some(), "4 fragments valides doivent compléter");
         }
     }
+}
+
+#[test]
+fn test_session_ttl_matches_the_published_promise() {
+    // MSG.1 : la constante valait 300 s alors que trois documents publiés
+    // annonçaient 30 s. Ce test relie les deux, dans les deux sens.
+    assert_eq!(
+        SESSION_TTL_SECS, PUBLISHED_SESSION_TTL_SECS,
+        "la valeur implémentée et la valeur publiée doivent être la même"
+    );
+
+    let expected = format!("≤ {} s", PUBLISHED_SESSION_TTL_SECS);
+    let documents: [(&str, &str); 3] = [
+        ("LEGAL.md", include_str!("../../../../LEGAL.md")),
+        (
+            "THREAT_MODEL.md",
+            include_str!("../../../../THREAT_MODEL.md"),
+        ),
+        (
+            "docs/threat-commodity.md",
+            include_str!("../../../../docs/threat-commodity.md"),
+        ),
+    ];
+    for (name, text) in documents {
+        assert!(
+            text.contains(&expected),
+            "{name} doit annoncer « {expected} » : c'est la durée que le code applique"
+        );
+    }
+
+    // Et le relais ne doit pas être décrit comme stockant : il ne stocke rien.
+    assert!(
+        !documents[0].1.contains("≤ 30 s sur relay"),
+        "LEGAL.md ne doit pas situer le TTL sur le relais, qui ne conserve aucun fragment"
+    );
+}
+
+/// Lit une trame livrée par le relais, avec une borne : un test qui attend
+/// indéfiniment est un test qui ment sur son résultat.
+async fn read_relay_line(
+    reader: &mut tokio::io::BufReader<tokio::net::tcp::OwnedReadHalf>,
+) -> String {
+    use tokio::io::AsyncBufReadExt as _;
+    let mut line = String::new();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        reader.read_line(&mut line),
+    )
+    .await
+    .expect("le relais doit livrer la trame dans les 2 s")
+    .expect("lecture relay");
+    assert!(!line.is_empty(), "connexion fermée par le relais");
+    line
+}
+
+/// Écrit une rafale de trames d'un seul coup : le relais reçoit exactement les
+/// octets d'origine, sans recomposition côté test.
+async fn send_frames(writer: &mut tokio::net::tcp::OwnedWriteHalf, frames: &[String]) {
+    use tokio::io::AsyncWriteExt as _;
+    let bytes: Vec<u8> = frames
+        .iter()
+        .flat_map(|frame| format!("{frame}\n").into_bytes())
+        .collect();
+    writer.write_all(&bytes).await.unwrap();
+}
+
+/// SEC.3 — l'anti-rejeu prouvé **sur le fil**, à travers le vrai relais.
+///
+/// Le relais est aveugle : il ne refuse rien, il recopie. Le refus vient donc
+/// du récepteur, et il doit porter un code. Ce test fait traverser une vraie
+/// socket TCP et le vrai `polygone_relay` aux octets d'une session valide,
+/// les capture, puis les renvoie **à l'identique** :
+///
+///   1. session valide → déchiffrée (témoin positif, sans quoi un relais qui
+///      ne route plus passerait le test) ;
+///   2. rejeu immédiat  → `REPLAY.SESSION_ALREADY_COMPLETED` ;
+///   3. rejeu à +10 min → `REPLAY.STALE_TIMESTAMP`.
+///
+/// Limite assumée : un adversaire qui contrôle l'horloge des deux pairs peut
+/// rester dans la fenêtre ; c'est écrit dans `docs/threat-commodity.md`.
+#[tokio::test]
+async fn replay_through_relay_is_refused_with_an_explicit_code() {
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+    use tokio::net::{TcpListener, TcpStream};
+
+    let alice = LocalIdentity::generate();
+    let bob = LocalIdentity::generate();
+    let bob_node = node_id(&bob);
+    let alice_node = node_id(&alice);
+
+    // Le VRAI relais, sur un port éphémère.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = polygone_relay::relay::run_listener(listener).await;
+    });
+
+    // Le récepteur s'enregistre ; HELLO_OK prouve qu'il possède son slot.
+    let bob_stream = TcpStream::connect(relay_addr).await.unwrap();
+    let (bob_read, mut bob_write) = bob_stream.into_split();
+    let mut bob_reader = BufReader::new(bob_read);
+    bob_write
+        .write_all(format!("HELLO {bob_node}\n").as_bytes())
+        .await
+        .unwrap();
+    let mut ack = String::new();
+    bob_reader.read_line(&mut ack).await.unwrap();
+    assert_eq!(
+        ack.trim(),
+        "HELLO_OK",
+        "le relais doit accepter bob : {ack}"
+    );
+
+    // L'émetteur, sur le même relais.
+    let alice_stream = TcpStream::connect(relay_addr).await.unwrap();
+    let (alice_read, mut alice_write) = alice_stream.into_split();
+    let mut alice_reader = BufReader::new(alice_read);
+    alice_write
+        .write_all(format!("HELLO {alice_node}\n").as_bytes())
+        .await
+        .unwrap();
+    let mut aack = String::new();
+    alice_reader.read_line(&mut aack).await.unwrap();
+    assert_eq!(
+        aack.trim(),
+        "HELLO_OK",
+        "le relais doit accepter alice : {aack}"
+    );
+
+    // Une session valide, exactement comme `envoyer` la produit.
+    let output =
+        crate::msg::send("message rejoué sur le fil", &bob.kem_public_key().unwrap()).unwrap();
+    let session = "replay-wire-1";
+    let mut frames = vec![signed_kem_json(
+        session,
+        &alice,
+        &bob_node,
+        test_now(),
+        &output,
+        None,
+    )];
+    for frag in output.fragments.iter().take(4) {
+        frames.push(frag_json(
+            session,
+            &alice_node,
+            &bob_node,
+            frag.index,
+            &frag.share,
+        ));
+    }
+
+    let mut known_peers: HashMap<String, String> = HashMap::new();
+    let mut completed: CompletedSessions = VecDeque::new();
+    let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
+
+    // 1) Témoin positif : la session traverse le relais et se déchiffre.
+    send_frames(&mut alice_write, &frames).await;
+    let mut delivered = None;
+    for _ in 0..frames.len() {
+        let line = read_relay_line(&mut bob_reader).await;
+        let (outcome, refusal) = process_line_detailed(
+            &line,
+            &bob,
+            &mut known_peers,
+            test_now(),
+            &mut completed,
+            &mut sessions,
+        )
+        .unwrap();
+        assert_eq!(refusal, None, "trame valide refusée : {refusal:?}");
+        if let Some((_, received)) = outcome {
+            delivered = Some(received);
+        }
+    }
+    match delivered.expect("la session valide doit aboutir à travers le relais") {
+        Received::Message(text) => assert_eq!(text, "message rejoué sur le fil"),
+        _ => panic!("message attendu"),
+    }
+
+    // 2) Rejeu immédiat, octets identiques : refus explicite, jamais livré.
+    send_frames(&mut alice_write, &frames).await;
+    for _ in 0..frames.len() {
+        let line = read_relay_line(&mut bob_reader).await;
+        let (outcome, refusal) = process_line_detailed(
+            &line,
+            &bob,
+            &mut known_peers,
+            test_now(),
+            &mut completed,
+            &mut sessions,
+        )
+        .unwrap();
+        assert!(outcome.is_none(), "un rejeu ne doit jamais être livré");
+        assert_eq!(
+            refusal.map(Refusal::code),
+            Some("REPLAY.SESSION_ALREADY_COMPLETED"),
+            "rejeu immédiat : {refusal:?}"
+        );
+    }
+
+    // 3) Rejeu décalé de 10 minutes, vers un récepteur FRAIS : processus
+    //    redémarré, cache anti-rejeu vide. Le cache ne peut donc pas sauver
+    //    la mise — c'est la fenêtre signée ±300 s qui doit refuser, et elle
+    //    le dit avec son propre code.
+    let later = test_now() + 2 * MAX_TS_SKEW_SECS;
+    let mut fresh_completed: CompletedSessions = VecDeque::new();
+    let mut fresh_sessions: HashMap<String, SessionBuffer> = HashMap::new();
+    send_frames(&mut alice_write, &frames).await;
+    let mut stale_refusals = 0;
+    for _ in 0..frames.len() {
+        let line = read_relay_line(&mut bob_reader).await;
+        let (outcome, refusal) = process_line_detailed(
+            &line,
+            &bob,
+            &mut known_peers,
+            later,
+            &mut fresh_completed,
+            &mut fresh_sessions,
+        )
+        .unwrap();
+        assert!(
+            outcome.is_none(),
+            "un rejeu décalé ne doit jamais être livré"
+        );
+        if refusal.map(Refusal::code) == Some("REPLAY.STALE_TIMESTAMP") {
+            stale_refusals += 1;
+        }
+    }
+    assert_eq!(
+        stale_refusals, 1,
+        "le rejeu décalé doit être refusé une fois, avec son code"
+    );
+    assert!(
+        fresh_completed.is_empty(),
+        "une session refusée pour horodatage périmé ne doit pas être mémorisée comme livrée"
+    );
 }

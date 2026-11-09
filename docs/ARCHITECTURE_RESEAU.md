@@ -1,5 +1,7 @@
 # ARCHITECTURE_RESEAU — ce qui se partage, ce qui ne peut pas, et la première brique
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-10-01 (mise à jour 2b-13) ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > 2b-11a, 30/09/2026. **Aucun code, un seul fichier écrit.** État : 2b-10a — protocole v1 complet, client de
 > référence, 98 tests verts. **Mis à jour 2b-13 (01/10/2026)** : un premier consommateur de production
 > existe — `polygone node servir` demande un **bail** à son daemon avant d'ouvrir une écoute, s'y

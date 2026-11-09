@@ -3,14 +3,22 @@
 > *For contributors. Read [`ECOSYSTEM.md`](./ECOSYSTEM.md) first to
 > understand what we are building. This document is about how.*
 >
-> **Status 2026-08-07** : this document describes the **real** workspace
-> (4 crates). The previous `src/` monolith (libp2p, HTTP relay, 4-tab TUI)
-> was archived to `archive/2026-07-src/` — it is not built, not tested, not
-> the product. The code is the source of truth; this document follows it.
+> **Status 2026-11-04** : this document describes the **real** workspace
+> (**7 members**, 4 binaries). The previous `src/` monolith (libp2p, HTTP
+> relay, 4-tab TUI) was archived to `archive/2026-07-src/` — it is not built,
+> not tested, not the product. The code is the source of truth; this document
+> follows it.
+>
+> *Correction du 2026-11-03* : la version précédente de ce document annonçait
+> « 4 crates, ~9 600 LOC, 109 tests » (état du 2026-08-07). C'était vrai à
+> cette date. `gateway`, `petals` et `serverless` ont été intégrés le
+> 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
+> **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
+> `cargo test --workspace -j 2` (**412 tests, 0 échec**) pour les tests.
 
 ---
 
-## 1. Workspace layout — 4 crates
+## 1. Workspace layout — 7 members, 4 binaries
 
 ```
 polygone/
@@ -34,20 +42,48 @@ polygone/
 │   ├── client/                   the product — one binary: `polygone`
 │   │   ├── main.rs               clap CLI + command dispatcher
 │   │   ├── msg.rs                offline pipeline: KEM → KDF → AES → Shamir
-│   │   ├── net.rs                real network transport (plane 2)
+│   │   ├── net/                  real network transport (plane 2)
 │   │   ├── identity.rs           ~/.polygone/identity.json (chmod 600)
+│   │   ├── blocks.rs             content-addressed store (BLAKE3), port 7643
+│   │   ├── calc.rs               computation cache, keyed BLAKE3(version‖input)
+│   │   ├── node.rs               daemon lease: serve, stop on lease loss
+│   │   ├── serverless.rs         client side of split/reassemble
 │   │   ├── exec.rs               RES execution (systemd-run + wasmi)
+│   │   ├── hide.rs               SOCKS5 via relay (mono-saut)
 │   │   ├── mesh.rs               LAN discovery (UDP broadcast, port 7642)
 │   │   ├── reputation.rs         ghost-node trust ledger
 │   │   ├── petals.rs             local AI (Ollama HTTP, no cloud)
-│   │   ├── duress.rs             kill-switch (Axiome 5)
+│   │   ├── product.rs            packaging helpers for the single-command product
+│   │   ├── duress.rs             kill-switch (Axiome 5, manuel)
 │   │   ├── demo.rs               flagship E2E demo (in-process)
 │   │   ├── self_test.rs          crypto self-test suite
-│   │   └── tui.rs                vim-style command TUI (:envoyer / :quitter)
+│   │   ├── node_isolation.rs     tests du bail et de l'isolation
+│   │   ├── testutil.rs           fixtures partagées
+│   │   ├── tui.rs                vim-style command TUI (:envoyer / :quitter)
+│   │   ├── drive.rs              PRÉSENT MAIS NON MONTÉ (zéro appelant)
+│   │   └── brain.rs              PRÉSENT MAIS NON MONTÉ (zéro appelant)
 │   │
 │   ├── relay/                    the blind relay — one binary: `polygone-relay`
 │   │   ├── main.rs               CLI (port, bind)
 │   │   └── relay.rs              async TCP server, in-memory routing table
+│   │
+│   ├── gateway/                  HTTP loopback — one binary: `polygone-gateway`
+│   │   ├── lib.rs                Gateway · NetworkStatus · PairRequest
+│   │   ├── http.rs               socket TCP réel (testé dans tests/serve.rs)
+│   │   ├── routes.rs             routes JSON + table de statut
+│   │   ├── static_files.rs       web/ · PWA (POLYGONE_SITE_DIR)
+│   │   └── status.rs             état réseau publié (table en mémoire)
+│   │
+│   ├── petals/                   inference backend planner — library only
+│   │   ├── backends.rs           Ollama · vLLM · llama.cpp
+│   │   ├── pipeline.rs           planner de pipeline (aucun consommateur hors tests)
+│   │   ├── daemon.rs             client de démon petals
+│   │   ├── models.rs             ModelRegistry
+│   │   └── benchmarks.rs         BenchmarkConfig / BenchmarkResult
+│   │
+│   ├── serverless/               split/reassemble + quorum — library only
+│   │   ├── request.rs            Shamir split, reassemble (tests négatifs)
+│   │   └── quorum.rs             seuil de votes (jamais appelé par le CLI)
 │   │
 │   └── (daemon lives at repo root, see §7)
 │
@@ -66,15 +102,49 @@ polygone/
 └── .github/workflows/            ci.yml · release.yml
 ```
 
-**Reality check (2026-08-07) :**
+**Reality check — measured 2026-11-05 :**
 
-| Crate      | LOC (rust) | Binaries              | Tests |
-| ---------- | ---------- | --------------------- | ----- |
-| core       | ~2 200     | — (lib)               | 34    |
-| client     | ~3 600     | `polygone`            | 47    |
-| relay      | ~340       | `polygone-relay`      | 7     |
-| daemon     | ~3 500     | `polygoned`           | 21    |
-| **Total**  | **~9 600** | 4 binaries            | **109** |
+| Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
+| ------------ | -------- | ---------- | -------------------- | ----- |
+| `core`       | 11       | 1 373      | — (lib)              | 29    |
+| `client`     | 31       | 14 827     | `polygone`           | 187   |
+| `relay`      | 3        | 1 117      | `polygone-relay`     | 19    |
+| `gateway`    | 7        | 2 572      | `polygone-gateway`   | 47    |
+| `petals`     | 13       | 3 241      | — (lib)              | 19    |
+| `serverless` | 3        | 776        | — (lib)              | 17    |
+| `daemon`     | 17       | 10 243     | `polygoned`          | 118   |
+| doc-tests    | —        | —          | —                    | comptés dans leur crate |
+| **Total**    | **85**   | **34 149** | **4 binaires**       | **436** |
+
+> Re-mesuré le **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
+> (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
+> 85 fichiers Rust, 34 149 lignes et 436 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
+> `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
+> `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
+> `DOC.3` un bandeau `Instantané daté` sur les 29 documents historiques, dont
+> l'absence fait échouer `scripts/check-docs.mjs` ; `CI.1` une matrice Windows
+> honnête ; `OPS.2` des compteurs de refus par motif, lus par `polygoned status`
+> et `doctor`, avec « non mesurés » plutôt que zéro quand le daemon est absent ;
+> `SEC.8` un test qui refuse un secret suivi par git, avec sa preuve négative ;
+> `CLI.3` trois profils d'usage (`sobre|equilibre|genereux`) qui écrivent une
+> config réellement relue par `polygoned`, sans jamais annoncer de limite OS ;
+> `GW.1` un heartbeat ML-DSA-65 vérifié contre la clé épinglée à l'appairage,
+> avec `last_seen` écrit atomiquement et rechargé au démarrage ; `GW.2` une
+> latence mesurée par ping/pong signé, challenge à usage unique et médiane qui
+> n'utilise que des nœuds réellement mesurés ; `SEC.1` un modèle de menace par
+> service (`docs/THREAT-MODEL-SERVICES.md`) qui cite les tests existants ;
+> `CLI.6` une table exhaustive des motifs de refus avec cause et action,
+> le code technique toujours affiché ; `FV-SEC-10` une limite par identité
+> (100 env/s) partagée entre reconnexions, qui n'affecte jamais les autres pairs ;
+> `FV-SEC-05` une rotation de clé de signature qui signe la nouvelle clé avec
+> l'ancienne, révoque l'ancienne et survit au redémarrage.
+> Le contrôleur `scripts/check-docs.mjs` recalcule ces valeurs et échoue si elles
+> divergent — c'est lui qui a trouvé les six écarts précédents.
+
+Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **436 tests, 0 échec**.
+Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is
 real: `pqcrypto-mlkem` (FIPS 203) and `pqcrypto-mldsa` (FIPS 204) with
@@ -244,16 +314,25 @@ files (Axiome 5).
 ## 7. The daemon (polygoned)
 
 A 5-second loop: `SystemSnapshot::capture` → `GlowUpEngine::tick` →
-`apply`. It measures CPU, RAM, GPU, bandwidth and computes an
-allocation; `apply()` re-nices the daemon and writes `memory.max` into
-its own cgroup. A command socket (`~/.polygone/daemon.sock`) accepts
-`set_alloc / shrink / grow / status`.
+`apply` → publication of the live IPC state. On Unix, `polygoned` starts
+`~/.polygone/daemon.sock` (unless `--dry-run`) and serves protocol v1
+requests: `status`, `ping`, `alloc_request` and `release`. The socket is
+owner-only (`0600`) and is removed after a graceful shutdown.
 
-> **Honest status :** no process currently reads the daemon socket, and
-> `user_active()` returns `false` on Linux — the "throttle on user
-> activity" is not wired. Bandwidth/GPU numbers are *reported, not
-> enforced*. `allocator.rs` (the "Wozniak" allocator) is legacy code not
-> used by the loop — the policy engine is `GlowUpEngine`.
+> **Honest status — 2026-11-02:** `apply()` only changes the daemon's
+> `nice` priority. The client now exposes `polygone node servir/status`: it
+> obtains a lease before opening the block-store port, and stops on daemon loss
+> or a `shrinking` policy signal. That signal persists through the full RAM
+> contraction; new leases are refused with `policy_shrinking` during that phase.
+> The transfer ceiling is self-imposed. On Linux, `polygone node servir
+> --isoler` can relaunch the consumer into a dedicated user-systemd cgroup v2
+> scope and verifies `memory.max` + `cpu.max`; the scope is outside the desktop
+> session cgroup. Without that explicit flag, no CPU/RAM OS quota is imposed.
+> macOS has no equivalent wired yet. `user_active()` remains `Unknown` on
+> Linux/macOS, not a verified idle state.
+> Bandwidth/GPU values are measured/reported, not enforced.
+> `allocator.rs` (the "Wozniak" allocator) is legacy code not used by the
+> active `GlowUpEngine` policy.
 
 ---
 
@@ -268,8 +347,8 @@ are written by hand.
 
 ## 9. Testing
 
-`cargo test --workspace` — 109 tests (client 47, core 34, relay 7,
-daemon 21). Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
+`cargo test --workspace` is the source of truth; do not rely on stale hard-coded
+counts. The workspace had **431 passing tests** on 2026-11-05. Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
 exact sizes, wrong-key KEM failure, full network pipeline round-trips,
 relay routing/drop/ignore tests.
 
@@ -279,7 +358,7 @@ relay routing/drop/ignore tests.
 
 ```bash
 cargo build --release            # all 4 binaries
-cargo test --workspace           # 109 tests
+cargo test --workspace           # 436 tests
 cargo clippy --all --all-targets -- -D warnings
 ```
 

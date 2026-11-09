@@ -1,5 +1,7 @@
 # STRATEGIE.md — Pourquoi Polygone existe, et par où il va
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-08-06 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > *Consolidé le 2026-08-06 depuis les notes Bear (11/07) + la synthèse
 > actionnable + l'état réel du produit v2.0.0-rc2.*
 > *Posture : honesty-first. Ce document dit ce qu'on fait, et ce qu'on ne
@@ -66,8 +68,11 @@ pas nécessaire pour le B2B, contraire aux axiomes.)
 
 Emprunter les ressources des PC inactifs pour ajouter des nœuds au réseau
 P2P décentralisé. Note Bear : « un vrai coup de génie ». Le daemon
-(`polygoned`, allocateur CPU/RAM/GPU + policy GlowUp) est déjà le socle
-technique — la couche de prêt P2P reste à construire (staging `compute`).
+(`polygoned`, allocateur CPU/RAM/GPU + policy GlowUp) est le socle technique.
+Le MVP de prêt P2P est maintenant implémenté : découverte LAN, requêtes signées,
+exécution shell sandboxée/systemd, WASM/wasmi et réputation locale. Les reçus
+d'exécution portables, la réputation réseau et l'orchestration multi-pairs restent
+à construire (voir `STAGING.md`, service `compute`).
 
 ## 7. Ce qu'on NE fait PAS
 

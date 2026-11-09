@@ -20,8 +20,8 @@
 
 use anyhow::Result;
 use polygone_core::crypto::{kem, shamir, symmetric};
-use std::collections::{HashMap, VecDeque};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use std::collections::{HashMap, HashSet, VecDeque};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
 use crate::identity::LocalIdentity;
@@ -39,28 +39,136 @@ pub fn peers_path() -> std::path::PathBuf {
 }
 
 /// Load the trust anchor (empty map = first contact, TOFU).
-pub fn load_peers() -> HashMap<String, String> {
-    std::fs::read_to_string(peers_path())
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
-}
-
-/// Persist the trust anchor (best-effort, chmod 600).
-pub fn save_peers(peers: &HashMap<String, String>) {
-    if let Ok(raw) = serde_json::to_string_pretty(peers) {
-        let path = peers_path();
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if std::fs::write(&path, raw).is_ok() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+/// A present but unreadable, malformed, or unsafe file is an error — never an
+/// empty trust store that silently re-enables TOFU.
+fn load_peers_from_path(path: &std::path::Path) -> Result<HashMap<String, String>> {
+    if let Some(parent) = path.parent() {
+        match std::fs::symlink_metadata(parent) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(HashMap::new());
             }
+            Err(error) => return Err(error.into()),
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                anyhow::bail!(
+                    "répertoire de l'ancre de confiance non sûr : {}",
+                    parent.display()
+                );
+            }
+            Ok(_) => crate::identity::ensure_private_directory(parent)?,
         }
     }
+    match std::fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(HashMap::new());
+        }
+        Err(error) => return Err(error.into()),
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            anyhow::bail!(
+                "ancre de confiance non régulière ou lien symbolique refusé : {}",
+                path.display()
+            );
+        }
+        Ok(_) => {}
+    }
+    crate::identity::ensure_private_file(path)?;
+    let raw = std::fs::read_to_string(path)?;
+    serde_json::from_str(&raw).map_err(|error| {
+        anyhow::anyhow!("ancre de confiance invalide ({}): {error}", path.display())
+    })
+}
+
+/// Load the trust anchor (empty map = first contact, TOFU).
+/// A present but unreadable, malformed, or unsafe file is an error — never an
+/// empty trust store that silently re-enables TOFU.
+pub fn load_peers() -> Result<HashMap<String, String>> {
+    load_peers_from_path(&peers_path())
+}
+
+fn save_peers_to_path(path: &std::path::Path, peers: &HashMap<String, String>) -> Result<()> {
+    let raw = serde_json::to_vec_pretty(peers)?;
+    crate::identity::write_private_atomic(path, &raw)
+}
+
+/// Persist the trust anchor atomically with enforced 0600 permissions.
+pub fn save_peers(peers: &HashMap<String, String>) -> Result<()> {
+    save_peers_to_path(&peers_path(), peers)
+}
+
+/// Maximum accepted relay frame. The relay enforces the same cap; the client
+/// repeats it because a relay is not a trusted source of bounded input.
+pub const MAX_WIRE_LINE: usize = 64 * 1024;
+/// Once a relay frame starts, it must finish within this absolute deadline.
+const FRAME_CONTINUATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Read one newline-delimited frame without allowing an untrusted relay to
+/// grow a `String`/`Vec` without bound. An overlong frame fails closed.
+async fn read_line_capped<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    cap: usize,
+    continuation_timeout: std::time::Duration,
+) -> std::io::Result<Option<Vec<u8>>> {
+    let mut line = Vec::with_capacity(256);
+    let mut deadline = None;
+    loop {
+        let available = match deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, reader.fill_buf())
+                .await
+                .map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "relay frame continuation timed out",
+                    )
+                })??,
+            None => reader.fill_buf().await?,
+        };
+        if available.is_empty() {
+            return Ok(if line.is_empty() { None } else { Some(line) });
+        }
+        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+            if line.len().saturating_add(newline) > cap {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "relay frame exceeds maximum line size",
+                ));
+            }
+            line.extend_from_slice(&available[..newline]);
+            reader.consume(newline + 1);
+            return Ok(Some(line));
+        }
+        let len = available.len();
+        if line.len().saturating_add(len) > cap {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "relay frame exceeds maximum line size",
+            ));
+        }
+        line.extend_from_slice(available);
+        reader.consume(len);
+        if deadline.is_none() {
+            deadline = Some(tokio::time::Instant::now() + continuation_timeout);
+        }
+    }
+}
+
+fn encode_net_envelope(env: &NetEnvelope) -> Result<Vec<u8>> {
+    let mut line = serde_json::to_vec(env)?;
+    if line.len() > MAX_WIRE_LINE {
+        anyhow::bail!(
+            "enveloppe trop volumineuse pour le relay ({} octets, maximum {})",
+            line.len(),
+            MAX_WIRE_LINE
+        );
+    }
+    line.push(b'\n');
+    Ok(line)
+}
+
+async fn write_net_envelope<W: tokio::io::AsyncWrite + Unpin>(
+    writer: &mut W,
+    env: &NetEnvelope,
+) -> Result<()> {
+    writer.write_all(&encode_net_envelope(env)?).await?;
+    Ok(())
 }
 
 /// A network envelope, as JSON on the wire.
@@ -110,10 +218,32 @@ pub fn node_id(identity: &LocalIdentity) -> String {
 pub const MAX_TS_SKEW_SECS: u64 = 300;
 /// Max buffered sessions (anti-DoS memory) — fail closed beyond the cap.
 pub const MAX_SESSIONS: usize = 1024;
-/// Incomplete sessions are purged after this long without activity.
-pub const SESSION_TTL_SECS: u64 = 300;
+/// Durée annoncée publiquement (« TTL ≤ 30 s » dans `LEGAL.md`,
+/// `THREAT_MODEL.md` et `docs/threat-commodity.md`). Le code s'y rattache au
+/// lieu de recopier le chiffre : il n'y a donc qu'un seul endroit à changer.
+pub const PUBLISHED_SESSION_TTL_SECS: u64 = 30;
+
+/// Durée de vie d'une session incomplète, mesurée **depuis le dernier fragment
+/// reçu** (pas depuis le premier) : c'est le silence entre deux fragments qui
+/// libère la mémoire, pas la durée totale du transfert.
+///
+/// Elle valait 300 s alors que les trois documents annonçaient 30 s : une
+/// promesse de confidentialité tenue cinq fois moins bien que ce qui est écrit.
+/// `test_session_ttl_matches_the_published_promise` relie le code aux documents
+/// et échoue si l'un bouge sans l'autre.
+pub const SESSION_TTL_SECS: u64 = PUBLISHED_SESSION_TTL_SECS;
+
 /// Cap on the completed-session anti-replay cache.
-pub const MAX_COMPLETED: usize = 4096;
+pub const MAX_COMPLETED: usize = 16_384;
+/// Bound attacker-controlled session map keys before allocating them.
+pub const MAX_WIRE_ID_LEN: usize = 64;
+/// Bound the persistent TOFU trust-anchor map.
+pub const MAX_KNOWN_PEERS: usize = 4096;
+type CompletedSessions = VecDeque<(String, String, u64)>;
+/// Compute requests stay in the replay cache for the full signed timestamp window.
+pub const COMPUTE_REPLAY_TTL_SECS: u64 = 2 * MAX_TS_SKEW_SECS;
+/// Bound memory used by the compute-request replay cache.
+pub const MAX_COMPUTE_REPLAYS: usize = 4096;
 
 /// Canonical bytes signed by the sender and verified by the receiver.
 ///
@@ -236,8 +366,6 @@ pub async fn send_network(
         _ => None,
     };
 
-    let mut stream = connect(relay, identity).await?;
-
     // 1. The KEM ciphertext envelope (carries the signature + encrypted name).
     let kem_env = NetEnvelope {
         kind: "fragment".into(),
@@ -255,9 +383,11 @@ pub async fn send_network(
         name_ct,
         ts: Some(ts),
     };
-    stream
-        .write_all(format!("{}\n", serde_json::to_string(&kem_env)?).as_bytes())
-        .await?;
+    // Pre-encode the complete session before opening a relay connection. A
+    // large file may exceed the NDJSON frame cap; reject it before sending a
+    // KEM envelope so the recipient never receives a dangling partial session.
+    let mut frames = Vec::with_capacity(8);
+    frames.push(encode_net_envelope(&kem_env)?);
 
     // 2. The 7 fragment envelopes.
     for (i, frag) in output.fragments.iter().enumerate() {
@@ -277,11 +407,13 @@ pub async fn send_network(
             name_ct: None,
             ts: None,
         };
-        stream
-            .write_all(format!("{}\n", serde_json::to_string(&env)?).as_bytes())
-            .await?;
+        frames.push(encode_net_envelope(&env)?);
     }
 
+    let mut stream = connect(relay, identity).await?;
+    for frame in frames {
+        stream.write_all(&frame).await?;
+    }
     stream.flush().await?;
     Ok(session)
 }
@@ -392,26 +524,26 @@ async fn borrow_request(
         name_ct: None,
         ts: Some(ts),
     };
-    stream
-        .write_all(format!("{}\n", serde_json::to_string(&req)?).as_bytes())
-        .await?;
+    write_net_envelope(&mut stream, &req).await?;
     stream.flush().await?;
 
     // Listen for the grant reply on the same connection. A grant is only
     // accepted if it answers OUR request: addressed to us, same session,
     // from the ghost we asked — anything else is a forged/poisoned grant.
     let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    let deadline = std::time::Instant::now() + timeout;
-    while std::time::Instant::now() < deadline {
-        line.clear();
-        let n = tokio::time::timeout(timeout, reader.read_line(&mut line))
-            .await
-            .unwrap_or(Ok(0))?;
-        if n == 0 {
-            break;
-        }
-        let env: NetEnvelope = match serde_json::from_str(line.trim()) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let bytes = match tokio::time::timeout_at(
+            deadline,
+            read_line_capped(&mut reader, MAX_WIRE_LINE, FRAME_CONTINUATION_TIMEOUT),
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_) => break,
+        };
+        let Some(bytes) = bytes else { break };
+        let env: NetEnvelope = match serde_json::from_slice(&bytes) {
             Ok(e) => e,
             Err(_) => continue,
         };
@@ -459,11 +591,8 @@ fn verify_grant(
     if !verifier.verify(&canonical, &sig) {
         return false;
     }
-    // TOFU: learn the ghost's key on the first verified grant.
-    if !known_peers.contains_key(ghost_node) {
-        known_peers.insert(ghost_node.to_string(), signer);
-    }
-    true
+    // TOFU: learn the ghost's key on first verified grant, bounded in memory.
+    bind_peer_key(known_peers, ghost_node, signer)
 }
 
 /// A receiver-side session buffer.
@@ -492,54 +621,58 @@ pub enum Received {
     File { name: String, bytes: Vec<u8> },
 }
 
-/// Show a freshly learned peer (TOFU) so the user can verify the
-/// fingerprint out-of-band before trusting it.
-fn announce_new_peer(known_peers: &HashMap<String, String>, before: usize) {
-    if known_peers.len() <= before {
-        return;
-    }
-    for (node, pk_hex) in known_peers {
-        // Only the new ones: trust is learned, not re-announced.
-        if known_peers.len() == before + 1 {
-            let fp: String = pk_hex.chars().take(16).collect();
-            println!(
-                "  ⬡ NOUVEAU PAIR APPRIS : {node} → {fp}… — vérifiez cette empreinte avec l'expéditeur (hors-ligne) avant de lui faire confiance."
-            );
-            return;
-        }
+/// Show the exact freshly learned peer (TOFU) so the user can verify its
+/// fingerprint out-of-band. Never pick an arbitrary entry from the HashMap.
+fn key_fingerprint(public_key_hex: &str) -> Option<String> {
+    let public_key = polygone_core::sign::PublicKey::from_hex(public_key_hex).ok()?;
+    Some(blake3::hash(public_key.as_bytes()).to_hex().to_string())
+}
+
+fn peer_fingerprint(known_peers: &HashMap<String, String>, node: &str) -> Option<String> {
+    key_fingerprint(known_peers.get(node)?)
+}
+
+fn announce_new_peer(known_peers: &HashMap<String, String>, node: &str) {
+    if let Some(fp) = peer_fingerprint(known_peers, node) {
+        println!(
+            "  ⬡ NOUVEAU PAIR APPRIS : {node} → BLAKE3-256 {fp} — vérifiez les 64 caractères avec l'expéditeur (hors-ligne) avant de lui faire confiance."
+        );
     }
 }
 
-/// Build the RES grant reply for a compute request (ghost node). Pure —
-/// testable without sockets. The grant is SIGNED (like messages): a
-/// malicious relay cannot forge a grant for a session it has seen.
-fn grant_for(req: &NetEnvelope, identity: &LocalIdentity) -> NetEnvelope {
+/// Base fields shared by grants and signed refusals.
+fn grant_payload(identity: &LocalIdentity) -> serde_json::Value {
+    serde_json::json!({
+        "node": node_id(identity),
+        "ram_mb": crate::mesh::free_ram_mb().unwrap_or(0),
+        "ok": true,
+    })
+}
+
+/// Build a RES grant only after its final payload is known. The signature
+/// covers the exact bytes sent on the wire, including output/error fields.
+/// Signing failure is fatal: an unsigned grant is never emitted.
+fn grant_for(
+    req: &NetEnvelope,
+    identity: &LocalIdentity,
+    body: serde_json::Value,
+) -> Result<NetEnvelope> {
     let from = node_id(identity);
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let payload = serde_json::json!({
-        "node": node_id(identity),
-        "ram_mb": crate::mesh::free_ram_mb().unwrap_or(0),
-        "ok": true,
-    })
-    .to_string()
-    .into_bytes();
-    let sig = identity
-        .sign_signer()
-        .map(|s| {
-            s.sign(&canonical_bytes(
-                &req.session,
-                &from,
-                &req.from,
-                ts,
-                &[],
-                &payload,
-            ))
-        })
-        .ok();
-    NetEnvelope {
+    let payload = body.to_string().into_bytes();
+    let signer = identity.sign_signer()?;
+    let sig = signer.sign(&canonical_bytes(
+        &req.session,
+        &from,
+        &req.from,
+        ts,
+        &[],
+        &payload,
+    ));
+    Ok(NetEnvelope {
         kind: "fragment".into(),
         from,
         to: req.from.clone(),
@@ -550,11 +683,11 @@ fn grant_for(req: &NetEnvelope, identity: &LocalIdentity) -> NetEnvelope {
         threshold: 0,
         total: 0,
         payload,
-        sig: sig.map(|s| s.as_bytes().to_vec()),
+        sig: Some(sig.as_bytes().to_vec()),
         signer: Some(identity.sign_pk_hex.clone()),
         name_ct: None,
         ts: Some(ts),
-    }
+    })
 }
 
 /// Verify an authenticated RES request (signed like a message).
@@ -586,11 +719,8 @@ pub(crate) fn verify_req(
     if !verifier.verify(&canonical, &sig) {
         return false;
     }
-    // TOFU: learn the binding on the first verified request.
-    if !known_peers.contains_key(&env.from) {
-        known_peers.insert(env.from.clone(), signer);
-    }
-    true
+    // TOFU: learn the binding on the first verified request, bounded in memory.
+    bind_peer_key(known_peers, &env.from, signer)
 }
 
 /// Run the task from a RES request inside the systemd sandbox and return
@@ -598,30 +728,76 @@ pub(crate) fn verify_req(
 /// If the request carries WASM bytes, they run in the wasmi sandbox instead.
 /// Runs off the async event loop (spawn_blocking): a long sandboxed run
 /// must not freeze message reception.
-async fn run_res_task(req: &NetEnvelope) -> Option<String> {
+async fn run_res_task(req: &NetEnvelope) -> Option<Result<String>> {
     let body: serde_json::Value = serde_json::from_slice(&req.payload).ok()?;
     if let Some(wasm_b64) = body.get("wasm").and_then(|w| w.as_str()) {
-        // WASM execution (Phase 8): decode, run in wasmi, return output.
-        let wasm = base64_decode(wasm_b64)?;
+        let Some(wasm) = base64_decode(wasm_b64) else {
+            return Some(Err(anyhow::anyhow!("module WASM base64 invalide")));
+        };
         let payload = wasm.to_vec();
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             crate::exec::run_wasm(&payload, std::time::Duration::from_secs(20))
         })
         .await
-        .ok()?
-        .map_or_else(|e| Some(format!("[erreur wasm] {e}")), Some)
+        .map_err(|error| anyhow::anyhow!("worker WASM interrompu : {error}"))
+        .and_then(|result| result);
+        Some(result)
     } else {
         let task = body.get("task")?.as_str()?.to_string();
         if task.trim().is_empty() {
             return None;
         }
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             crate::exec::run_sandboxed(&task, 256, 50, std::time::Duration::from_secs(30))
         })
         .await
-        .ok()?
-        .map_or_else(|e| Some(format!("[erreur sandbox] {e}")), Some)
+        .map_err(|error| anyhow::anyhow!("worker sandbox interrompu : {error}"))
+        .and_then(|result| result);
+        Some(result)
     }
+}
+
+/// Outcome of inserting an authenticated compute request into the replay cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ComputeReplayDecision {
+    Accepted,
+    Duplicate,
+    Capacity,
+}
+
+/// Remember an authenticated compute request so a captured signed request
+/// cannot trigger the same work twice on this listener. Bounded and expiring.
+/// When the cache is full of live entries it fails closed instead of evicting
+/// a still-valid replay marker (which would make an old request executable).
+fn remember_compute_request(
+    seen: &mut HashSet<(String, String)>,
+    order: &mut VecDeque<(String, String, u64)>,
+    from: &str,
+    session: &str,
+    now_secs: u64,
+    max_entries: usize,
+) -> ComputeReplayDecision {
+    let key = (from.to_string(), session.to_string());
+    let mut expired = Vec::new();
+    order.retain(|(old_from, old_session, seen_at)| {
+        let is_expired = now_secs.saturating_sub(*seen_at) > COMPUTE_REPLAY_TTL_SECS;
+        if is_expired {
+            expired.push((old_from.clone(), old_session.clone()));
+        }
+        !is_expired
+    });
+    for old in expired {
+        seen.remove(&old);
+    }
+    if seen.contains(&key) {
+        return ComputeReplayDecision::Duplicate;
+    }
+    if seen.len() >= max_entries {
+        return ComputeReplayDecision::Capacity;
+    }
+    seen.insert(key.clone());
+    order.push_back((key.0, key.1, now_secs));
+    ComputeReplayDecision::Accepted
 }
 
 /// Minimal base64 decoder (no external dep) for WASM transport.
@@ -646,9 +822,90 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Process one wire line against the session map. Returns `Some` when a
-/// session completes (>= 4/7 fragments) AND the ML-DSA signature verifies
-/// AND the ciphertext decrypts. Pure logic — no sockets.
+fn bind_peer_key(known_peers: &mut HashMap<String, String>, node: &str, signer: String) -> bool {
+    match known_peers.get(node) {
+        Some(existing) => existing == &signer,
+        None if known_peers.len() < MAX_KNOWN_PEERS => {
+            known_peers.insert(node.to_string(), signer);
+            true
+        }
+        None => false,
+    }
+}
+
+fn valid_wire_token(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_WIRE_ID_LEN
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+/// Motif explicite d'abandon d'une trame, rendu par
+/// [`process_line_detailed`] et journalisé par `process_line`.
+///
+/// Un refus muet ne se prouve pas : SEC.3 exige qu'un rejeu capturé soit
+/// refusé **et** que le refus porte un code. Les codes ne partent jamais sur
+/// le fil (aucun oracle pour l'attaquant) : ils existent pour les tests et
+/// les journaux de debug.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    NotForUs,
+    Malformed,
+    InvalidToken,
+    AlreadyCompleted,
+    ReplayCacheFull,
+    TooManySessions,
+    ConflictingIdentity,
+    BadFragmentIndex,
+    DuplicateFragment,
+    TooManyFragments,
+    SenderMismatch,
+    Unsigned,
+    MissingTimestamp,
+    StaleTimestamp,
+    UntrustedKey,
+    BadSignerKey,
+    BadSignature,
+    Undecryptable,
+    TrustCacheFull,
+}
+
+impl Refusal {
+    /// Code stable — c'est lui que les tests citent et que les journaux portent.
+    pub(crate) fn code(self) -> &'static str {
+        match self {
+            Refusal::NotForUs => "ENVELOPE.NOT_FOR_US",
+            Refusal::Malformed => "ENVELOPE.MALFORMED",
+            Refusal::InvalidToken => "ENVELOPE.INVALID_TOKEN",
+            Refusal::AlreadyCompleted => "REPLAY.SESSION_ALREADY_COMPLETED",
+            Refusal::ReplayCacheFull => "REPLAY.CACHE_FULL",
+            Refusal::TooManySessions => "SESSION.CAP_REACHED",
+            Refusal::ConflictingIdentity => "SESSION.CONFLICTING_IDENTITY",
+            Refusal::BadFragmentIndex => "FRAGMENT.INDEX_OUT_OF_RANGE",
+            Refusal::DuplicateFragment => "FRAGMENT.DUPLICATE_INDEX",
+            Refusal::TooManyFragments => "FRAGMENT.TOO_MANY",
+            Refusal::SenderMismatch => "FRAGMENT.SENDER_MISMATCH",
+            Refusal::Unsigned => "AUTH.UNSIGNED",
+            Refusal::MissingTimestamp => "AUTH.MISSING_TIMESTAMP",
+            Refusal::StaleTimestamp => "REPLAY.STALE_TIMESTAMP",
+            Refusal::UntrustedKey => "AUTH.UNTRUSTED_KEY",
+            Refusal::BadSignerKey => "AUTH.INVALID_SIGNER_KEY",
+            Refusal::BadSignature => "AUTH.BAD_SIGNATURE",
+            Refusal::Undecryptable => "CRYPTO.UNDECRYPTABLE",
+            Refusal::TrustCacheFull => "AUTH.TRUST_CACHE_FULL",
+        }
+    }
+}
+
+/// Verdict d'une trame : la session complétée s'il y en a une, et le motif
+/// explicite du refus sinon. Les deux sont `None` tant que la session est
+/// simplement incomplète — ce n'est pas un refus.
+type LineVerdict = (Option<(String, Received)>, Option<Refusal>);
+
+/// Process one wire line against the session map. Returns the completed
+/// session when one exists, plus the explicit refusal code when the line was
+/// rejected. Pure logic — no sockets.
 ///
 /// Fail-closed (attaque → rejet) :
 /// - enveloppe non adressée à nous, session déjà complétée (anti-replay),
@@ -662,45 +919,67 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
 /// `from` est connu et le `signer` ne correspond pas → rejet. Vide =
 /// confiance au premier contact (TOFU) — le binding est appris ici même
 /// après un message vérifié, et l'appelant le persiste.
-fn process_line(
+fn process_line_detailed(
     line: &str,
     identity: &LocalIdentity,
     known_peers: &mut HashMap<String, String>,
     now_secs: u64,
-    completed: &mut VecDeque<(String, u64)>,
+    completed: &mut CompletedSessions,
     sessions: &mut HashMap<String, SessionBuffer>,
-) -> Result<Option<(String, Received)>> {
+) -> Result<LineVerdict> {
     let raw = line.trim();
     if raw.is_empty() {
-        return Ok(None);
+        return Ok((None, None));
     }
     let env: NetEnvelope = match serde_json::from_str(raw) {
         Ok(e) => e,
-        Err(_) => return Ok(None),
+        Err(_) => return Ok((None, Some(Refusal::Malformed))),
     };
     if env.kind != "fragment" {
-        return Ok(None);
+        return Ok((None, Some(Refusal::NotForUs)));
     }
 
     // Only accept envelopes addressed to this node.
     if env.to != node_id(identity) {
-        return Ok(None);
+        return Ok((None, Some(Refusal::NotForUs)));
     }
 
-    // Anti-replay: a session that already completed is never accepted again.
-    if completed.iter().any(|(sid, _)| sid == &env.session) {
-        return Ok(None);
+    // Bound attacker-controlled map keys before allocating or persisting them.
+    if !valid_wire_token(&env.from) || !valid_wire_token(&env.session) {
+        return Ok((None, Some(Refusal::InvalidToken)));
+    }
+
+    // Expire completed-session markers only after the signed timestamp window.
+    // If the bounded anti-replay cache is still full, fail closed rather than
+    // evicting a live marker and making a captured session executable again.
+    if completed.len() >= MAX_COMPLETED {
+        completed.retain(|(_, _, completed_at)| {
+            now_secs.saturating_sub(*completed_at) < MAX_TS_SKEW_SECS
+        });
+    }
+    if completed
+        .iter()
+        .any(|(from, session, _)| from == &env.from && session == &env.session)
+    {
+        return Ok((None, Some(Refusal::AlreadyCompleted)));
+    }
+    if completed.len() >= MAX_COMPLETED {
+        return Ok((None, Some(Refusal::ReplayCacheFull)));
     }
 
     // A session belongs to one sender: key = from + session.
     let skey = format!("{}|{}", env.from, env.session);
 
-    // Fail closed beyond the session cap; purge stale sessions.
-    if sessions.len() >= MAX_SESSIONS && !sessions.contains_key(&skey) {
-        return Ok(None);
+    // Purge before enforcing the cap. Otherwise a full map of expired
+    // sessions would reject every future session forever. Sweep periodically,
+    // and always sweep when full before deciding whether to fail closed.
+    if !sessions.contains_key(&skey)
+        && (sessions.len() >= MAX_SESSIONS || sessions.len().is_multiple_of(256))
+    {
+        sessions.retain(|_, buffer| now_secs.saturating_sub(buffer.touched) < SESSION_TTL_SECS);
     }
-    if sessions.len().is_multiple_of(256) {
-        sessions.retain(|_, b| now_secs.saturating_sub(b.touched) < SESSION_TTL_SECS);
+    if sessions.len() >= MAX_SESSIONS && !sessions.contains_key(&skey) {
+        return Ok((None, Some(Refusal::TooManySessions)));
     }
 
     // A second KEM for the same key must come from the SAME identity.
@@ -712,7 +991,7 @@ fn process_line(
                 // Conflicting second KEM (different signer/from) → session
                 // confusion attack: reject the whole session.
                 if buf.signer.as_ref() != env.signer.as_ref() || buf.from != env.from {
-                    return Ok(None);
+                    return Ok((None, Some(Refusal::ConflictingIdentity)));
                 }
             }
             if let Ok(ct) = kem::KemCiphertext::from_bytes(&env.payload) {
@@ -728,19 +1007,19 @@ fn process_line(
         "frag" => {
             // Valid Shamir share index: 1..=7 (idx is a u8 from the wire).
             if env.idx == 0 || env.idx > 7 {
-                return Ok(None);
+                return Ok((None, Some(Refusal::BadFragmentIndex)));
             }
             // Never buffer more than the total — bounds combinations4.
             if buf.fragments.len() >= 7 {
-                return Ok(None);
+                return Ok((None, Some(Refusal::TooManyFragments)));
             }
             // Fragments must belong to the same sender as the KEM.
             if buf.kem_ct.is_some() && env.from != buf.from {
-                return Ok(None);
+                return Ok((None, Some(Refusal::SenderMismatch)));
             }
             // Duplicate index → drop (a second idx=1 corrupts reconstruction).
             if buf.seen_idx.contains(&env.idx) {
-                return Ok(None);
+                return Ok((None, Some(Refusal::DuplicateFragment)));
             }
             buf.seen_idx.push(env.idx);
             buf.fragments.push(shamir::Fragment {
@@ -752,32 +1031,33 @@ fn process_line(
     }
 
     if buf.kem_ct.is_none() || buf.fragments.len() < 4 {
-        return Ok(None);
+        return Ok((None, None)); // session encore incomplète — pas un refus
     }
 
     // ── Completion: freshness, verify, decrypt. Fail closed on either. ──
     let kem_ct = buf.kem_ct.clone().expect("checked");
     let sig = match (buf.sig.clone(), buf.signer.clone()) {
         (Some(s), Some(pk_hex)) => (s, pk_hex),
-        _ => return Ok(None), // no signature → not from anyone provable
+        _ => return Ok((None, Some(Refusal::Unsigned))), // not from anyone provable
     };
     // Freshness: the signed timestamp must be within ± MAX_TS_SKEW_SECS.
     let ts = match buf.ts {
         Some(t) if t > 0 => t,
-        _ => return Ok(None),
+        _ => return Ok((None, Some(Refusal::MissingTimestamp))),
     };
     if now_secs.abs_diff(ts) > MAX_TS_SKEW_SECS {
-        return Ok(None); // replay or clock skew — refuse
+        // Rejeu capturé et renvoyé hors fenêtre — c'est le second refus de SEC.3.
+        return Ok((None, Some(Refusal::StaleTimestamp)));
     }
     // Trust anchor: if we know this peer's signing key, it must match.
     if let Some(expected_pk) = known_peers.get(&buf.from) {
         if expected_pk != &sig.1 {
-            return Ok(None); // claims to be a known peer, signs as another
+            return Ok((None, Some(Refusal::UntrustedKey))); // signs as another
         }
     }
     let verifier = match polygone_core::sign::PublicKey::from_hex(&sig.1) {
         Ok(pk) => polygone_core::sign::Verifier::from_public(pk),
-        Err(_) => return Ok(None),
+        Err(_) => return Ok((None, Some(Refusal::BadSignerKey))),
     };
 
     let shared = kem::decapsulate(&identity.kem_secret_key()?, &kem_ct)?;
@@ -786,7 +1066,7 @@ fn process_line(
     // Bounded by construction (≤7 fragments), kept as a hard guard: the
     // worst case is C(7,4) = 35 combinations, never C(n+1,5).
     if buf.fragments.len() > 7 {
-        return Ok(None);
+        return Ok((None, Some(Refusal::TooManyFragments)));
     }
     // Shamir reconstruction is deterministic: any 4-of-7 fragments rebuild
     // the same secret. Try the available 4-subsets until the signature
@@ -813,11 +1093,11 @@ fn process_line(
     }
     let ciphertext = match ciphertext {
         Some(c) => c,
-        None => return Ok(None), // no 4-subset verifies → forged/corrupt
+        None => return Ok((None, Some(Refusal::BadSignature))), // forged/corrupt
     };
     let plain = match symmetric::decrypt(&ciphertext, &key) {
         Ok(p) => p,
-        Err(_) => return Ok(None),
+        Err(_) => return Ok((None, Some(Refusal::Undecryptable))),
     };
 
     let session = env.session.clone();
@@ -832,16 +1112,33 @@ fn process_line(
         }
         None => Received::Message(String::from_utf8_lossy(&plain).to_string()),
     };
-    // TOFU: learn the binding from → sign_pk on the first verified contact.
-    if !known_peers.contains_key(&buf.from) {
-        known_peers.insert(buf.from.clone(), sig.1.clone());
+    // TOFU: learn the binding from → sign_pk on first verified contact.
+    // If the trust-anchor cap is full, do not release a message we cannot pin.
+    if !bind_peer_key(known_peers, &buf.from, sig.1.clone()) {
+        return Ok((None, Some(Refusal::TrustCacheFull)));
     }
+    let completed_from = buf.from.clone();
     sessions.remove(&skey);
-    completed.push_back((session.clone(), now_secs));
-    if completed.len() > MAX_COMPLETED {
-        completed.pop_front();
+    completed.push_back((completed_from, session.clone(), now_secs));
+    Ok((Some((session, received)), None))
+}
+
+/// Entrée de production : même traitement, motif de refus journalisé et non
+/// remonté à l'appelant (le récepteur ne renvoie rien à l'émetteur).
+fn process_line(
+    line: &str,
+    identity: &LocalIdentity,
+    known_peers: &mut HashMap<String, String>,
+    now_secs: u64,
+    completed: &mut CompletedSessions,
+    sessions: &mut HashMap<String, SessionBuffer>,
+) -> Result<Option<(String, Received)>> {
+    let (outcome, refusal) =
+        process_line_detailed(line, identity, known_peers, now_secs, completed, sessions)?;
+    if let Some(refusal) = refusal {
+        log::debug!("net : trame abandonnée — {}", refusal.code());
     }
-    Ok(Some((session, received)))
+    Ok(outcome)
 }
 
 /// All 4-element subsets of the buffered fragments (max C(7,4) = 35).
@@ -878,11 +1175,12 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
     let stream = connect(relay, identity).await?;
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
-    let mut line = String::new();
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
-    let mut completed: VecDeque<(String, u64)> = VecDeque::new();
+    let mut completed: CompletedSessions = VecDeque::new();
+    let mut seen_compute_requests: HashSet<(String, String)> = HashSet::new();
+    let mut compute_request_order: VecDeque<(String, String, u64)> = VecDeque::new();
     // The trust anchor, loaded ONCE (persisted, learned, enforced).
-    let mut known_peers = load_peers();
+    let mut known_peers = load_peers()?;
 
     println!(
         "⬡ en écoute via relay {} — node {}",
@@ -894,9 +1192,12 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
             "  ⬡ ancre de confiance : {} pair(s) connu(s) — empreintes à vérifier hors-ligne :",
             known_peers.len()
         );
-        for (node, pk_hex) in known_peers.iter() {
-            let fp: String = pk_hex.chars().take(16).collect();
-            println!("      · {node} → {fp}…");
+        for node in known_peers.keys() {
+            if let Some(fp) = peer_fingerprint(&known_peers, node) {
+                println!("      · {node} → BLAKE3-256 {fp}");
+            } else {
+                println!("      · {node} → clé ML-DSA invalide (ancre ignorée à la vérification)");
+            }
         }
     }
     if compute {
@@ -905,12 +1206,13 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
     println!("  (Ctrl-C pour arrêter)\n");
 
     loop {
-        line.clear();
-        let n = reader.read_line(&mut line).await?;
-        if n == 0 {
+        let Some(bytes) =
+            read_line_capped(&mut reader, MAX_WIRE_LINE, FRAME_CONTINUATION_TIMEOUT).await?
+        else {
             println!("relay déconnecté.");
             return Ok(());
-        }
+        };
+        let line = String::from_utf8_lossy(&bytes);
         // The relay acknowledges the HELLO: a denied slot means another
         // connection owns this node_id — the traffic would go nowhere.
         if line.starts_with("HELLO_DENIED") {
@@ -931,57 +1233,97 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
         // borrower's reputation is recorded for real on failure.
         if let Ok(env) = serde_json::from_str::<NetEnvelope>(line.trim()) {
             if env.typ == "req" && compute && env.to == node_id(identity) {
+                let was_known = known_peers.contains_key(&env.from);
                 let req_ok = verify_req(&env, &mut known_peers, now_secs);
+                if req_ok && !was_known {
+                    announce_new_peer(&known_peers, &env.from);
+                    save_peers(&known_peers)?;
+                }
                 if !req_ok {
-                    // Fail-closed: refuse, and record the failure so the
-                    // reputation gate eventually refuses this borrower.
                     crate::reputation::ReputationTable::load().record(&env.from, false);
-                    let mut grant = grant_for(&env, identity);
-                    let mut body: serde_json::Value =
-                        serde_json::from_slice(&grant.payload).unwrap_or(serde_json::json!({}));
+                    let mut body = grant_payload(identity);
                     body["ok"] = serde_json::Value::Bool(false);
-                    body["refus"] = serde_json::Value::String("requête non authentifiée".into());
-                    grant.payload = body.to_string().into_bytes();
-                    let _ = writer
-                        .write_all(format!("{}\n", serde_json::to_string(&grant)?).as_bytes())
-                        .await;
+                    body["error"] = serde_json::Value::String("requête non authentifiée".into());
+                    let grant = grant_for(&env, identity, body)?;
+                    write_net_envelope(&mut writer, &grant).await?;
                     continue;
                 }
-                let mut grant = grant_for(&env, identity);
+                match remember_compute_request(
+                    &mut seen_compute_requests,
+                    &mut compute_request_order,
+                    &env.from,
+                    &env.session,
+                    now_secs,
+                    MAX_COMPUTE_REPLAYS,
+                ) {
+                    ComputeReplayDecision::Accepted => {}
+                    ComputeReplayDecision::Duplicate => {
+                        log::warn!(
+                            "RES : requête compute rejouée ignorée ({} / {})",
+                            env.from,
+                            env.session
+                        );
+                        continue;
+                    }
+                    ComputeReplayDecision::Capacity => {
+                        log::warn!("RES : cache anti-rejeu plein — requête refusée");
+                        let mut body = grant_payload(identity);
+                        body["ok"] = serde_json::Value::Bool(false);
+                        body["error"] = serde_json::Value::String(
+                            "cache anti-rejeu saturé ; réessayez après expiration".into(),
+                        );
+                        let grant = grant_for(&env, identity, body)?;
+                        write_net_envelope(&mut writer, &grant).await?;
+                        continue;
+                    }
+                }
+
                 // Reputation gate: a borrower known to fail is refused.
                 let table = crate::reputation::ReputationTable::load();
                 if let Some(rep) = table.nodes.get(&env.from) {
                     if rep.fail >= 3 && rep.score() < 30 {
-                        let mut body: serde_json::Value =
-                            serde_json::from_slice(&grant.payload).unwrap_or(serde_json::json!({}));
+                        let mut body = grant_payload(identity);
                         body["ok"] = serde_json::Value::Bool(false);
-                        body["refus"] = serde_json::Value::String("réputation insuffisante".into());
-                        grant.payload = body.to_string().into_bytes();
-                        let _ = writer
-                            .write_all(format!("{}\n", serde_json::to_string(&grant)?).as_bytes())
-                            .await;
+                        body["error"] = serde_json::Value::String("réputation insuffisante".into());
+                        let grant = grant_for(&env, identity, body)?;
+                        write_net_envelope(&mut writer, &grant).await?;
                         continue;
                     }
                 }
-                let mut grant = grant_for(&env, identity);
-                // Execute the task in the sandbox (RES execution layer),
-                // off the event loop. Record success in the reputation.
-                if let Some(output) = run_res_task(&env).await {
-                    let mut body: serde_json::Value =
-                        serde_json::from_slice(&grant.payload).unwrap_or(serde_json::json!({}));
-                    body["output"] = serde_json::Value::String(output);
-                    grant.payload = body.to_string().into_bytes();
-                    crate::reputation::ReputationTable::load().record(&env.from, true);
+
+                let mut body = grant_payload(identity);
+                match run_res_task(&env).await {
+                    Some(Ok(output)) => {
+                        body["output"] = serde_json::Value::String(output);
+                        crate::reputation::ReputationTable::load().record(&env.from, true);
+                    }
+                    Some(Err(error)) => {
+                        body["ok"] = serde_json::Value::Bool(false);
+                        body["error"] = serde_json::Value::String(error.to_string());
+                        crate::reputation::ReputationTable::load().record(&env.from, false);
+                    }
+                    None => {
+                        body["ok"] = serde_json::Value::Bool(false);
+                        body["error"] = serde_json::Value::String(
+                            "requête compute invalide ou tâche absente".into(),
+                        );
+                        crate::reputation::ReputationTable::load().record(&env.from, false);
+                    }
                 }
-                let _ = writer
-                    .write_all(format!("{}\n", serde_json::to_string(&grant)?).as_bytes())
-                    .await;
+                // Sign only after the final output/error has been attached.
+                let grant = grant_for(&env, identity, body)?;
+                write_net_envelope(&mut writer, &grant).await?;
                 println!("⬡ RES : compute accordé à {}", env.from);
                 continue;
             }
         }
 
-        let n_before = known_peers.len();
+        let candidate_sender = serde_json::from_str::<NetEnvelope>(line.trim())
+            .ok()
+            .map(|envelope| envelope.from);
+        let sender_was_known = candidate_sender
+            .as_ref()
+            .is_some_and(|sender| known_peers.contains_key(sender));
         match process_line(
             &line,
             identity,
@@ -992,8 +1334,12 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
         )? {
             Some((session, Received::Message(text))) => {
                 // Persist a newly learned peer (TOFU trust anchor) + show it.
-                announce_new_peer(&known_peers, n_before);
-                save_peers(&known_peers);
+                if !sender_was_known {
+                    if let Some(sender) = candidate_sender.as_deref() {
+                        announce_new_peer(&known_peers, sender);
+                    }
+                }
+                save_peers(&known_peers)?;
                 println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 println!("⬡ message reçu (session {session} · 4/7 fragments)");
                 println!();
@@ -1003,8 +1349,12 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
             }
             Some((session, Received::File { name, bytes })) => {
                 // Persist a newly learned peer (TOFU trust anchor) + show it.
-                announce_new_peer(&known_peers, n_before);
-                save_peers(&known_peers);
+                if !sender_was_known {
+                    if let Some(sender) = candidate_sender.as_deref() {
+                        announce_new_peer(&known_peers, sender);
+                    }
+                }
+                save_peers(&known_peers)?;
                 let dir = received_dir()?;
                 let path = dir.join(sanitize_name(&name));
                 std::fs::write(&path, &bytes)?;
@@ -1183,26 +1533,26 @@ pub async fn hide_establish(
         name_ct: None,
         ts: Some(ts),
     };
-    stream
-        .write_all(format!("{}\n", serde_json::to_string(&req)?).as_bytes())
-        .await?;
+    write_net_envelope(&mut stream, &req).await?;
     stream.flush().await?;
 
     // Wait for the grant on the same connection. A grant is only accepted if
     // it answers OUR request: addressed to us, same session, from the exit
     // node, and its payload decrypts with our session key.
     let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    let deadline = std::time::Instant::now() + timeout;
-    while std::time::Instant::now() < deadline {
-        line.clear();
-        let n = tokio::time::timeout(timeout, reader.read_line(&mut line))
-            .await
-            .unwrap_or(Ok(0))?;
-        if n == 0 {
-            break;
-        }
-        let env: NetEnvelope = match serde_json::from_str(line.trim()) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let bytes = match tokio::time::timeout_at(
+            deadline,
+            read_line_capped(&mut reader, MAX_WIRE_LINE, FRAME_CONTINUATION_TIMEOUT),
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_) => break,
+        };
+        let Some(bytes) = bytes else { break };
+        let env: NetEnvelope = match serde_json::from_slice(&bytes) {
             Ok(e) => e,
             Err(_) => continue,
         };

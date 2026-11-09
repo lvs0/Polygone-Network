@@ -1,9 +1,62 @@
 # DAEMON_STATE — état réel du daemon `polygoned`
 
-> Rapport d'inspection. Aucun code écrit, aucun fichier modifié hormis celui-ci.
-> Toutes les affirmations ci-dessous viennent de la lecture des sources et de
-> commandes réellement exécutées (compilation + suite de tests).
-> Date de l'inspection : 29 septembre 2026.
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-11-02 (mise à jour d'un rapport du 29-09) ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
+> Rapport initial du 29 septembre 2026, conservé comme trace historique.
+> **Ne pas lire les sections historiques ci-dessous comme l'état courant sans
+> tenir compte de la mise à jour du 2 novembre 2026.**
+
+## 0. État courant vérifié — 2 novembre 2026
+
+- `GlowUpEngine::apply()` applique uniquement une priorité `nice`. Aucun quota
+  CPU, aucune limite RAM et aucune affinité CPU ne sont imposés à un consommateur.
+- Le serveur IPC Unix v1 est maintenant démarré par le binaire `polygoned` sur
+  Linux/macOS (hors `--dry-run`). Il publie l'état via `runtime::run_tick`,
+  accepte `status`, `ping`, `alloc` et `release`, et ferme son socket proprement.
+- Le socket est créé avec les permissions `0600`. Le ledger est isolé par chemin
+  explicite dans les tests ; ceux-ci ne mutent plus `POLYGONE_LEDGER_PATH`.
+- `crates/client/src/node.rs` est exposé par la bibliothèque et branché aux
+  commandes `polygone node servir/status`. Le nœud demande un bail avant le bind,
+  sert les blocs avec une limite de transferts auto-imposée, puis rend le bail à
+  Ctrl+C, à la perte du daemon ou au signal de retrait de politique.
+- `GlowUpEngine::new` borne son allocation de démarrage à la RAM mesurée et au
+  plafond configuré ; si la mesure échoue, il démarre à zéro plutôt que
+  d'inventer une capacité.
+- `GlowUpEngine::smooth_transition` compte les cycles consécutifs où la cible
+  RAM descend sous l'allocation actuelle. Après l'hystérésis, `shrinking=true`
+  reste publié pendant toute la contraction, jusqu'à la cible.
+- Pendant cette contraction, les nouvelles allocations sont refusées avec
+  `policy_shrinking`. Les requêtes de statut et de libération restent actives.
+- Sans option d'isolation, un bail reste une licence et le nœud réduit lui-même
+  ses transferts simultanés : aucun quota CPU/RAM OS n'est alors appliqué.
+- Sous Linux, `polygone node servir --isoler` relance le client dans un scope
+  systemd utilisateur dédié sous `app.slice` ; le client vérifie que son chemin
+  cgroup est distinct de `session-*.scope` et que `memory.max` / `cpu.max`
+  correspondent au bail demandé avant de lancer le service. Si le mécanisme n'est
+  pas disponible ou ne correspond pas, aucun nœud n'est démarré.
+- Ce mode est vérifié en E2E sous Linux. macOS n'a pas encore d'équivalent.
+- Linux et macOS rapportent `UserActivity::Unknown` faute de source fiable.
+- Windows reste explicitement non supporté par le daemon à ce stade.
+- Vérifications du 2 novembre : daemon **95 tests** ; workspace complet
+  **333 tests** réussis ; `cargo fmt --all -- --check`, Clippy strict et
+  `git diff --check` réussis. Les tests client couvrent refus, service, perte
+  du daemon, retrait de politique et libération.
+- Test systemd/cgroup réel : `polygone node servir --isoler` s'exécute sous
+  `/user.slice/user-1000.slice/user@1000.service/app.slice/polygone-node-….scope`,
+  avec `MemoryMax=268435456` et `CPUQuota=100000/100000`. La session est restée
+  dans `/user.slice/user-1000.slice/session-19.scope` avec `memory.max=max`,
+  `cpu.max=max 100000` et `pids.max=max`. Après SIGINT, systemd indique
+  `LoadState=not-found`, `ActiveState=inactive` et aucun scope Polygone résiduel.
+- Test de processus complet avec configuration temporaire de pression mémoire :
+  le daemon réel publie `shrinking`, refuse un bail de remplacement, le client
+  réel arrête son service et rend son bail (`retrait_politique`, `released=true`).
+- Test IPC réel : hello, status, allocation, libération, socket `0600` et
+  nettoyage après SIGINT. Test CLI réel : démarrage du nœud, réponse `MISS`,
+  `node status` frais, arrêt et bail rendu. Aucun fichier de configuration
+  personnel ni aucune donnée du HOME réel n'a été modifié par ces tests.
+
+Les sections 1 à 5 sont le rapport détaillé de septembre et doivent être lues
+comme historique lorsque leurs affirmations contredisent ce bloc courant.
 
 ---
 
@@ -94,9 +147,8 @@ Chaque point est adossé à une preuve : nom de fonction ou nom de test réellem
 
 - **Priorité CPU (nice)** : `GlowUpEngine::apply` appelle `set_cpu_priority`, qui invoque
   réellement `setpriority` sous Linux (niveau 0 si plus de 512 Mo alloués, sinon 5).
-- **Limite mémoire** : `set_memory_limit` écrit `memory.max` dans le cgroup v2 courant.
-  Cela ne s'applique **que si cgroups v2 est présent** (détection de
-  `/sys/fs/cgroup/cgroup.controllers`) ; sinon l'échec est ignoré silencieusement.
+- **Limite mémoire** : aucune. `set_memory_limit` a été retiré du trait `Platform` ;
+  `GlowUpEngine::apply()` n'écrit aucun `memory.max` et ne pose aucun quota RAM.
 - **Décroissance propre à l'arrêt** : la boucle remet l'allocation à zéro et envoie un
   signal `shrink` avant de quitter.
 
@@ -124,12 +176,15 @@ Chaque point est adossé à une preuve : nom de fonction ou nom de test réellem
   `test_config_minimal_defaults`, `test_config_current_format_roundtrip`.*
   C'est une décision consignée (`DECISIONS.md` — D8).
 
-### 2.6 Écriture vers le socket
+### 2.6 Serveur IPC local (mise à jour du 2 novembre)
 
-- Le daemon **écrit** des messages de commande (`set_alloc`, `shrink`, `grow`, `status`)
-  vers `~/.polygone/daemon.sock`, et échoue proprement si le socket n'existe pas encore.
-  *Preuve : `socket::send`, `notify_allocation`, `notify_shrink`.*
-  En écriture seulement — voir §3.
+- Le binaire démarre maintenant le serveur Unix v1 sur `socket::socket_path()`
+  hors `--dry-run`. Il sert `status`, `ping`, `alloc_request` et `release`.
+- Les instantanés sont publiés par `runtime::run_tick`, le chemin de publication
+  unique et testé. À l'arrêt, l'état nul est publié avant la fermeture du serveur.
+- Le socket est propriétaire uniquement (`0600`). Le serveur refuse de remplacer
+  une instance vivante ou un fichier qui n'est pas un socket.
+- Ce serveur ne constitue pas encore un consommateur de ressources : voir §3.1.
 
 ### 2.7 Installation de service (code présent)
 
@@ -141,19 +196,40 @@ Chaque point est adossé à une preuve : nom de fonction ou nom de test réellem
 
 ## 3. Ce qui manque
 
-### 3.1 Le socket de décision n'a aucun consommateur
+### 3.1 Le protocole IPC est servi, mais aucun consommateur produit n'est branché
 
-- `ARCHITECTURE.md` §11 le dit noir sur blanc : « **Daemon socket has no consumer —
-  Decision pending (D5)** ». Aucun processus ne lit les décisions d'allocation.
-- Pire : le client côté Petals (`crates/petals/src/daemon.rs`) ne peut pas fonctionner en
-  l'état, pour **trois** raisons cumulées :
-  1. **Chemin différent** : le client vise `/tmp/polygoned.sock` par défaut, le daemon écrit
-     dans `~/.polygone/daemon.sock`.
-  2. **Protocole différent** : le client attend des réponses typées
-     (`allocation_granted`, `released`, `system_resources`) ; le daemon n'émet que des
-     messages descendants (`set_alloc`, `shrink`, `grow`, `status`).
-  3. **Personne n'écoute** : le daemon se connecte en client, il n'ouvre jamais de serveur
-     sur ce chemin.
+- Le binaire `polygoned` démarre désormais le serveur Unix v1 ; le protocole est
+  joignable et le test manuel du 2 novembre a vérifié `hello`, `status`,
+  `alloc_granted`, `released` et le nettoyage à l'arrêt.
+- `crates/client/src/node.rs` contient un consommateur expérimental, mais il
+  n'est pas monté dans `crates/client/src/lib.rs` et le crate client ne dépend
+  pas encore du crate `polygoned`.
+- Il n'existe donc pas encore de parcours produit `polygone node start` qui
+  obtient un bail, sert des blocs et restitue le bail de bout en bout.
+- Le bail demeure une licence que le consommateur s'engage à respecter ; le
+  daemon n'impose pas de quota OS au processus consommateur.
+
+#### Les trois grandeurs, désormais séparées (2026-11-03)
+
+Le défaut tenait dans un seul mot : « capacité ». Un client lisait un chiffre et
+croyait à une garantie. Trois notions distinctes existent maintenant dans le
+type `Capacity` (`daemon/src/socket.rs`) et dans `Reply::AllocGranted.enforced` :
+
+| Grandeur | Sens | Aujourd'hui |
+|---|---|---|
+| `measured` | ce que la machine possède, mesuré au tick | total physique réel |
+| `reservable` | ce qui peut encore être promis (mesuré − plafond de palier − marges − réservations en cours) | ~7 Gio sur une machine de 16 Gio à 50 % |
+| `enforced` | ce que l'OS **impose** au consommateur | **0** — `apply()` ne pose qu'un `nice` |
+
+Conséquences visibles sur le protocole :
+
+- `alloc_granted` porte `enforced: bool`, **calculé** (jamais écrit en dur) :
+  `false` signifie licence, `true` signifie qu'un quota couvre réellement la
+  demande. Aujourd'hui il vaut `false` et c'est la vérité.
+- Le refus distingué : `exceeds_measured` (définitif : la demande dépasse la
+  machine, réessayer ne servira à rien) vs `insufficient_headroom` (temporaire :
+  un pair qui rend son bail le débloque). Les confondre poussait un client à
+  réessayer indéfiniment contre un mur.
 
 ### 3.2 Le CPU n'est jamais réellement alloué
 
@@ -172,8 +248,9 @@ Chaque point est adossé à une preuve : nom de fonction ou nom de test réellem
 
 ### 3.4 La détection d'activité utilisateur est morte
 
-- `LinuxPlatform::user_active` renvoie `false` **en dur** (idem côté macOS).
-  *Preuve : `daemon/src/resources/linux.rs` et `macos.rs`, confirmé par `ARCHITECTURE.md` §7.*
+- Linux et macOS renvoient `UserActivity::Unknown` faute de source de vérité
+  branchée à la session graphique. Ce n'est pas une mesure d'inactivité.
+  *Preuve : `daemon/src/resources/linux.rs` et `macos.rs`.*
 - Conséquence : le frein « utilisateur actif » (division par 2) ne se déclenche **jamais**,
   alors qu'il est décrit comme une protection produit.
 
@@ -228,7 +305,7 @@ Chaque point est adossé à une preuve : nom de fonction ou nom de test réellem
   `0.0.0.0`, il publie l'état du daemon à tout le réseau.
 - L'installateur `install.sh` mentionne le binaire et une unité `polygoned.service`, mais
   le daemon n'appelle jamais `install_service` : le service est **déclaré, pas posé par ce code**.
-- Sans cgroups v2, la limite mémoire échoue en silence (`let _ =` dans `apply`).
+- Aucun quota mémoire n'est actuellement appliqué, avec ou sans cgroups v2.
 
 ---
 
@@ -239,7 +316,7 @@ Dépôt testé : `~/Projects/Polygone-real` (espace de travail contenant `daemon
 | Commande | Résultat |
 |---|---|
 | `cargo check -p polygoned` | ✅ **OK** — `Finished dev profile … in 58.61s`, code de sortie 0, aucune erreur, aucun avertissement bloquant |
-| `cargo test -p polygoned` | ✅ **25 tests passés, 0 échec** (durée 0.09 s) — binaire et doctests : 0 test |
+| `cargo test -p polygoned` | Snapshot historique : 25 tests au 29 septembre. Vérification du 2 novembre : **83 tests passés, 0 échec**. |
 
 Aucune erreur à signaler sous Linux.
 

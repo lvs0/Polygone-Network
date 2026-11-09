@@ -1,5 +1,7 @@
 # SESSION REPORT — 2026-08-08 · Loop architecte (15 itérations)
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-08-08 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > *Session autonome (loop /loop 30m, ultracode). L'architecte a travaillé
 > comme Lévy : exigence produit++, zéro compromis sur la promesse centrale.
 > 19 commits produits, chaque cran vérifié avant commit. Source de vérité

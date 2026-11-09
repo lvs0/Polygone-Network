@@ -3233,16 +3233,21 @@ name = "polygone-client"
 version = "2.0.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap",
  "crossterm",
  "env_logger",
  "hex",
  "log",
  "polygone-core",
+ "polygone-relay",
+ "polygone-serverless",
+ "polygoned",
  "rand 0.8.7",
  "serde",
  "serde_json",
  "tokio",
+ "toml",
  "wasmi",
  "wasmi_wasi",
 ]
@@ -3323,6 +3328,20 @@ dependencies = [
  "env_logger",
  "log",
  "polygone-core",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "polygone-serverless"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "hex",
+ "polygone-core",
+ "rand 0.8.7",
  "serde",
  "serde_json",
  "tokio",

@@ -1,5 +1,7 @@
 # PLAN_CONSOMMATEUR_MAJ — qui consomme le socket, après 2b-9
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-09-30 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > Incrément 2b-10a, 30/09/2026. **Aucun code, un seul fichier écrit.** État de départ : 2b-9
 > (98 tests verts, `clippy -D warnings` et `fmt --check` propres). Ce document **remplace**
 > `docs/PLAN_CONSOMMATEUR.md` sur les seuls points listés au §3 ; tout ce qui n'y est pas

@@ -1,0 +1,393 @@
+{
+  "generated_at": "2026-11-06",
+  "source": "docs/atlas/plan/PLAN-FINITION.md + docs/atlas/plan/epiques/",
+  "rule": "Une tâche n'est 'faite' que si sa preuve a été exécutée et citée. Une tâche bloquée reste bloquée, elle ne se coche pas. La première action de chaque tâche est de reproduire son constat.",
+  "note": "Ce backlog contient les tâches débloquées ou déblocables maintenant. Les 132 spécifications complètes vivent dans docs/atlas/plan/epiques/ ; une tâche est promue ici quand sa porte est franchie. completed garde les tâches fermées avec leur preuve. Les tâches non promues ne sont pas déclarées en cours. Les tâches P0.1, P0.2, P0.3 et P1.1 déjà clôturées dans l’état persistant ont été réconciliées dans completed.",
+  "tasks": [
+    {
+      "id": "BLOCKS.9",
+      "phase": "P2",
+      "priority": 1,
+      "title": "Prouver un transfert de bloc entre deux machines physiques",
+      "detail": "Le test le plus ancien qui manque au projet. Deux hôtes distincts, pare-feu réel, transfert de bloc comparé octet à octet. Ne pas conclure depuis deux processus locaux.",
+      "proof": "journal horodaté avec deux hôtes nommés, hash BLAKE3 identique des deux côtés, latence et débit consignés.",
+      "ref": "docs/atlas/plan/epiques/02-stockage.md#BLOCKS.9",
+      "files": [
+        "crates/client/src/blocks.rs",
+        "scripts/"
+      ]
+    },
+    {
+      "id": "MSG.6",
+      "phase": "P2",
+      "priority": 3,
+      "title": "Mesurer le débit réel, pas le débit espéré",
+      "detail": "Aucune mesure de débit n'est branchée. Instrumenter un envoi et une réception, publier une valeur mesurée.",
+      "proof": "mesure répétée 10 fois, médiane et écart cités, comparaison avec la taille divisée par le temps écoulé.",
+      "ref": "docs/atlas/plan/epiques/01-transport-confidentialite.md#MSG.6",
+      "files": [
+        "crates/client/src/net/"
+      ]
+    },
+    {
+      "id": "INST.9",
+      "phase": "P3",
+      "priority": 5,
+      "title": "Installer sur une VM neuve",
+      "detail": "Parcours complet sur une VM vierge : installation, première exécution, désinstallation, absence de résidu. C'est la preuve de F1 côté installation.",
+      "proof": "transcript de la VM avec les commandes et leurs sorties, plus le diff final de l'arborescence.",
+      "ref": "docs/atlas/plan/epiques/05-livraison.md#INST.9",
+      "files": [
+        "install.sh",
+        "scripts/"
+      ]
+    },
+    {
+      "id": "UI.4",
+      "phase": "P3",
+      "priority": 6,
+      "title": "Livrer les quatre onglets de la maquette",
+      "detail": "Accueil, Favoris, Services, Paramètres : la maquette d'origine. Chaque écran doit afficher un état réel, jamais simulé.",
+      "proof": "capture produite par une commande reproductible (script de session tmux), et test qui vérifie que chaque onglet lit une source de données réelle.",
+      "ref": "docs/atlas/plan/epiques/04-interfaces.md#UI.4",
+      "files": [
+        "crates/client/src/tui.rs"
+      ]
+    },
+    {
+      "id": "CI.3",
+      "phase": "P5",
+      "priority": 2,
+      "title": "Auditer les dépendances en CI",
+      "detail": "Aucun cargo audit ni cargo deny. Ajouter, avec une politique d'échec explicite et une liste d'exceptions datées.",
+      "proof": "job CI qui échoue sur une vulnérabilité connue (test négatif avec une dépendance volontairement vulnérable sur une branche jetable).",
+      "ref": "docs/atlas/plan/epiques/05-livraison.md#CI.3",
+      "files": [
+        ".github/workflows/ci.yml",
+        "deny.toml"
+      ]
+    },
+    {
+      "id": "DAEMON.10",
+      "phase": "P1",
+      "priority": 10,
+      "title": "Rendre --isoler le défaut sous Linux",
+      "detail": "GATE-LÉVY D2 : changer le défaut modifie le comportement au premier lancement. Tant que ce n'est pas tranché, la tâche reste bloquée.",
+      "blocked_by": {
+        "decisions": [
+          "D2"
+        ]
+      },
+      "proof": "session réelle : premier lancement, scope systemd créé, MemoryMax et CPUQuota lus pendant l'exécution, scope déchargé après arrêt.",
+      "ref": "docs/atlas/plan/epiques/03-calcul-ia.md#DAEMON.10",
+      "files": [
+        "daemon/src/",
+        "crates/client/src/main.rs"
+      ]
+    },
+    {
+      "id": "DRIVE.1",
+      "phase": "P4",
+      "priority": 3,
+      "title": "Trancher le sort du module Drive",
+      "detail": "GATE-LÉVY D3 : drive.rs n'est monté nulle part. Décider s'il redevient un module produit, et avec quel service minimal. Les 8 tâches suivantes en dépendent.",
+      "blocked_by": {
+        "decisions": [
+          "D3"
+        ]
+      },
+      "proof": "décision écrite dans VISION.md §8 ; si 'monté', la tâche produit un module déclaré qui compile et un test nommé.",
+      "ref": "docs/atlas/plan/epiques/02-stockage.md#DRIVE.1",
+      "files": [
+        "crates/client/src/drive.rs",
+        "VISION.md"
+      ]
+    },
+    {
+      "id": "RECIP.1",
+      "phase": "P4",
+      "priority": 4,
+      "title": "Unité de réciprocité (pas de cryptomonnaie)",
+      "detail": "Étendre le Ledger avec un solde borné (dette plafonnée, crédit plafonné, zéro intérêt) et le reçu signé des DEUX côtés en ML-DSA-65. Interdits : blockchain, transfert, convertibilité, émission, accès à hope-gateway. NE PAS COMMENCER avant que BLOCKS.9 soit prouvé.",
+      "blocked_by": {
+        "tasks": [
+          "BLOCKS.9"
+        ],
+        "decisions": [
+          "D8"
+        ]
+      },
+      "proof": "cargo test : reçu à double signature accepté, signature unique refusée, solde négatif bloqué au plafond, aucune API de transfert.",
+      "ref": "docs/atlas/plan/DECISION-POLY.md",
+      "files": [
+        "daemon/src/socket.rs",
+        "crates/core/src/"
+      ]
+    }
+  ],
+  "completed": [
+    {
+      "id": "INST.8",
+      "date": "2026-11-06",
+      "proof": "README.md section « Ce que l'installateur vérifie réellement » : origine GitHub Releases, SHA256SUMS obligatoire et refus si absent/ambigu/mal formé/différent, repli compilation Rust, portée exacte du SHA256 (même origine HTTPS ; ne couvre ni release ni compte GitHub compromis ; aucune signature détachée), tableau des destinations cohérent avec INSTALL_DIR/CONFIG_DIR/DATA_DIR/SHARE_DIR, bloc PATH, procédure --uninstall et --purge, identités ~/.polygone hors périmètre. node scripts/check-docs.mjs --tests 436 : documents cohérents.",
+      "commit": "72fc3f8"
+    },
+    {
+      "id": "INST.6",
+      "date": "2026-11-06",
+      "proof": "Décision prise : phrase honnête plutôt que signature. README.md déclare que l'empreinte vient de la même origine HTTPS, qu'elle ne couvre pas une release ou un compte GitHub compromis, qu'aucune signature détachée n'est vérifiée et qu'aucun fichier n'est déclaré signé par une clé Polygone. Aucun fichier ne revendique une release signée ; FV-UX-08 reste à 3 (signature et rollback non implémentés).",
+      "commit": "72fc3f8"
+    },
+    {
+      "id": "INST.3",
+      "date": "2026-11-06",
+      "proof": "scripts/test-installer.sh : instantané de $HOME (chemins/types et tailles de fichiers) avant réinstallation, puis install_binaries + setup_path + unité user + données, puis main --uninstall --purge ; les deux diff sont vides, y compris .bashrc/.profile préexistants et répertoires vides parents. Le service et les données sont absents, le bloc PATH est retiré. bash scripts/test-installer.sh PASS.",
+      "commit": "ad21c92"
+    },
+    {
+      "id": "INST.2",
+      "date": "2026-11-06",
+      "proof": "install.sh --uninstall [--purge] : arrêt et retrait de ~/.config/systemd/user/polygoned.service, des quatre binaires et de l'alias, de SHARE_DIR/web, de CONFIG_DIR/daemon.toml et du bloc PATH balisé (ancienne ligne incluse) ; DATA_DIR conservé sans --purge et supprimé avec, refus de '/' et de $HOME ; fixture HOME : cinq binaires absents, service/web/config absents, donnée présente sans purge puis absente avec, seconde exécution idempotente ; bash scripts/test-installer.sh PASS.",
+      "commit": "c69de8a"
+    },
+    {
+      "id": "INST.1",
+      "date": "2026-11-06",
+      "proof": "setup_path teste le contenu du rc avec les marqueurs # >>> polygone network >>> et # <<< polygone network <<< ; deux appels produisent un seul bloc, un rc absent n'est pas créé ; remove_path_entry retire le bloc et l'ancienne ligne non balisée sans toucher aux autres lignes ; fixture .bashrc/.profile ; bash scripts/test-installer.sh PASS.",
+      "commit": "c69de8a"
+    },
+    {
+      "id": "SEC.5",
+      "date": "2026-11-05",
+      "proof": "crates/client/src/identity.rs : helper write_private_atomic (create_new en 0600, répertoire .polygone 0700, chmod vérifié, sync_all + rename, nettoyage si échec) ; ensure_private_file refuse symlinks/non-fichiers et rétablit 0600 avant lecture. net::load_peers/save_peers propagent les erreurs ; magasin absent = TOFU seulement si absent, fichier corrompu/illisible ou parent symlink = erreur ; tous les appelants CLI/TUI/Hide/réseau propagent. 10 tests : chmod PermissionDenied injecté → erreur, aucun fichier publié/temporaire ; écriture atomique/modes ; répertoire hors .polygone refusé ; fichier existant restreint ; magasin absent/corrompu/atomique/symlink final/symlink parent. cargo test --workspace -j 2 : 432 tests, 0 échec ; cargo clippy --workspace --all-targets -- -D warnings exit 0 ; cargo fmt --all -- --check exit 0 ; hide-smoke réel SOCKS5/grant/aucun clair vert.",
+      "commit": "cb1b5ef"
+    },
+    {
+      "id": "FV-SEC-06",
+      "date": "2026-11-05",
+      "proof": "scripts/identity-cost-audit.py --samples 30 sur target/release/polygone : 30/30 node_id distincts ; génération ML-KEM-1024 + ML-DSA-65 + écriture identity.json ; médiane 2,85 ms, moyenne 2,85 ms, P95 3,07 ms ; 21 641 octets par identité, mode 0600 ; HOME temporaires isolés et supprimés. Rapport reports/identity-cost-audit-2026-11-05.md avec SHA-256 du binaire. SEC.4 prouve séparément le refus d'usurpation de from. Limite explicite : coût local faible, aucune preuve d'identité humaine ni protection Sybil globale ; ne pas revendiquer la résistance Sybil.",
+      "commit": "5d04cd6"
+    },
+    {
+      "id": "DOC.4",
+      "date": "2026-11-05",
+      "proof": "scripts/check-docs.mjs appelle validateDocumentIndex : les 66 Markdown de docs/ doivent chacun avoir une entrée unique, un titre, une date ISO ou « Non indiquée », un statut autorisé (autorité/daté/brouillon/à supprimer), un thème et une justification ; entrées manquantes, doublons et chemins orphelins refusés. node --test scripts/document-index.test.mjs : 6/6 ; portes négatives sur docs/INDEX.md (date vide puis statut inconnu) : check-docs exit 1 avec chemin et cause ; restauration vérifiée par SHA-256 ; check-docs --tests 422 exit 0.",
+      "commit": "5d04cd6"
+    },
+    {
+      "id": "SEC.10",
+      "date": "2026-11-05",
+      "proof": "scripts/relay-metadata-audit.mjs : relais + émetteur + récepteur réels via proxy TCP ; exige >=2 connexions, >=2 HELLO, >=1 fragment ; refuse si marqueur de contenu sur le fil ou dans un journal ; rapport daté reports/relay-metadata-audit-2026-11-05.md (16 fragments, 2 HELLO, 1 session, 21 640–47 566 octets, contenu absent) ; docs/threat-msg.md cite la mesure ; hide-smoke.sh reste vert",
+      "commit": "5d04cd6"
+    },
+    {
+      "id": "KEY.1",
+      "date": "2026-11-05",
+      "proof": "polygone clef-tourner : nouvelle ML-DSA-65 signée par l'ancienne sur polygone-key-rotation-v1, ancienne révoquée, identité KEM/node_id stable, identity.json écrit atomiquement (tmp + rename, 600) ; rotation_keeps_identity_and_signs_the_new_key, revoked_key_cannot_sign_anymore, rotation_survives_process_restart ; FV-SEC-05 passe à 6 ; 422 tests, clippy 0. Limite : révocation locale, non propagée aux pairs",
+      "commit": "07a55f8"
+    },
+    {
+      "id": "RATE.1",
+      "date": "2026-11-05",
+      "proof": "IdentityLimiter dans crates/relay/src/relay.rs : 100 enveloppes/s par identité, compteur partagé entre reconnexions, purge des fenêtres inactives ; dépassement journalisé et enveloppe ignorée sans fermer la connexion ni toucher les autres pairs ; per_identity_limit_denies_only_the_abusive_peer, per_identity_limit_resets_after_window ; FV-SEC-10 passe à 6 ; 419 tests, clippy 0",
+      "commit": "4bd1474"
+    },
+    {
+      "id": "CLI.6",
+      "date": "2026-11-05",
+      "proof": "crates/client/src/refusal.rs : KNOWN_REASONS couvre les 8 constantes REASON_* du daemon ; chaque code porte une cause et une action, le code technique reste affiché ; NodeError::Denied utilise describe() ; every_reason_code_has_an_action échoue si la liste diverge ou si cause/action est vide, unknown_denial_keeps_the_technical_code vérifie le repli ; 417 tests workspace, clippy 0, check-docs 417. Non promue dans les tâches opérationnelles : preuve ajoutée directement, comme GW.2",
+      "commit": "ddbbbc4"
+    },
+    {
+      "id": "SEC.1",
+      "date": "2026-11-05",
+      "proof": "docs/THREAT-MODEL-SERVICES.md : modèle par service (client, relais, gateway, daemon, serverless, petals), actifs, adversaires, entrées, frontières, attaques avec tests cités, risques résiduels et non-protections ; FV-SEC-08 passe à 5, audit externe explicitement absent ; INDEX 65 fichiers. Écart assumé : un fichier de synthèse au lieu d'un fichier par service",
+      "commit": "d9f782f"
+    },
+    {
+      "id": "MESH.1",
+      "date": "2026-11-04",
+      "proof": "announce/discover : un socket par interface autorisée, broadcast dirigé ; loopback, link-local, VPN et conteneurs exclus ; 4 tests dont « allowlist ne ressuscite pas tailscale0 »",
+      "commit": "9198135"
+    },
+    {
+      "id": "SEC.4",
+      "date": "2026-11-04",
+      "proof": "refuse_from_spoofing_through_relay : trame forgée refusée + témoin positif ; cargo test -p polygone-relay 17/17",
+      "commit": "be872a7"
+    },
+    {
+      "id": "DAEMON.1",
+      "date": "2026-11-03",
+      "proof": "bail à échéance + balayage ; test_expired_grant_is_swept_and_frees_its_share",
+      "commit": "315f0eb"
+    },
+    {
+      "id": "DAEMON.3",
+      "date": "2026-11-03",
+      "proof": "Request::Renew + test_dispatch_renew_replies_on_the_wire",
+      "commit": "315f0eb"
+    },
+    {
+      "id": "DAEMON.4",
+      "date": "2026-11-03",
+      "proof": "commentaire de reserved_storage_bytes corrigé (il est sérialisé)",
+      "commit": "315f0eb"
+    },
+    {
+      "id": "DOC.1",
+      "date": "2026-11-03",
+      "proof": "scripts/check-docs.mjs : « documents cohérents avec le code » ; rouge sur un chiffre cassé",
+      "commit": "288d67e"
+    },
+    {
+      "id": "UI.1",
+      "date": "2026-11-03",
+      "proof": "grep Math.random web/dashboard.js → 0 ; valeurs « — » hors ligne",
+      "commit": "f2e0a59"
+    },
+    {
+      "id": "UI.2",
+      "date": "2026-11-03",
+      "proof": "le sondage ne s'arrête plus après le premier succès",
+      "commit": "f2e0a59"
+    },
+    {
+      "id": "UI.5",
+      "date": "2026-11-03",
+      "proof": "libp2p / Five tabs / Sparklines retirés des deux pages publiques",
+      "commit": "f2e0a59"
+    },
+    {
+      "id": "MSG.1",
+      "date": "2026-11-03",
+      "proof": "TTL 300 s → 30 s ; test_session_ttl_matches_the_published_promise lit les 3 documents",
+      "commit": "ac71668"
+    },
+    {
+      "id": "DAEMON.13",
+      "date": "2026-11-03",
+      "proof": "node scripts/crash-recovery.mjs → 9/9 PASS (SIGKILL client puis daemon)",
+      "commit": "d074b7c"
+    },
+    {
+      "id": "AGT.1",
+      "date": "2026-11-03",
+      "proof": "orchestrateur lit blocked_by ; backlog invalide refuse de démarrer",
+      "commit": "5600ed2"
+    },
+    {
+      "id": "AGT.2",
+      "date": "2026-11-03",
+      "proof": "--status partitionne ouvert/bloqué/terminé ; refus en code 3 nommant le bloqueur",
+      "commit": "5600ed2"
+    },
+    {
+      "id": "GWX.1",
+      "date": "2026-11-03",
+      "proof": "npm test → 44/44, 0 échec, consigné dans LIMITS.md",
+      "commit": "83ed22a"
+    },
+    {
+      "id": "GWX.2",
+      "date": "2026-11-03",
+      "proof": "CI Node 22/24 + démarrage réel (/healthz 200) + cron hebdomadaire",
+      "commit": "83ed22a"
+    },
+    {
+      "id": "SEC.3",
+      "date": "2026-11-04",
+      "proof": "replay_through_relay_is_refused_with_an_explicit_code : session déchiffrée à travers le vrai relais, rejeu immédiat refusé (REPLAY.SESSION_ALREADY_COMPLETED), rejeu à +10 min contre un récepteur frais refusé (REPLAY.STALE_TIMESTAMP)",
+      "commit": "c59e7a6"
+    },
+    {
+      "id": "P0.1",
+      "date": "2026-11-03",
+      "proof": "Archive restaurable : listing + extraction, tar exit 0, stderr vide, cmp ×3 et HEAD vérifié ; 6 204 entrées ; 65 modifications du checkout historique comparées sans perte.",
+      "commit": "beda7de"
+    },
+    {
+      "id": "P0.2",
+      "date": "2026-11-03",
+      "proof": "Inventaire des lignées Git : commits locaux et distants comparés, divergences documentées dans docs/RECONCILIATION.md ; aucune fusion destructive.",
+      "commit": "beda7de"
+    },
+    {
+      "id": "P0.3",
+      "date": "2026-11-03",
+      "proof": "Documentation factuellement corrigée : architecture mesurée, compteurs de tests et contrôleur check-docs ajoutés ; chiffres volontairement faux rejetés.",
+      "commit": "9401b56 + 64c4e91"
+    },
+    {
+      "id": "P1.1",
+      "date": "2026-11-03",
+      "proof": "Capacity sépare capacité mesurée, réservable et contrainte ; refus distingués ; cargo test 353/353, fmt et clippy réussis à cette étape.",
+      "commit": "0884449"
+    },
+    {
+      "id": "DOC.2",
+      "date": "2026-11-04",
+      "proof": "docs/INDEX.md couvre les 62 fichiers Markdown récursifs. cargo test -p polygone-client --test doc_index : 1/1 ; test négatif : retrait temporaire de docs/BUDGET.md refusé et chemin nommé. cargo test --workspace -j 2 : 372/372 ; check-docs --tests 372, fmt, clippy, check-atlas et 6 tests agent verts."
+    },
+    {
+      "id": "CLI.1",
+      "date": "2026-11-04",
+      "proof": "polygone doctor lit /proc/self/cgroup, memory.max et cpu.max : sortie réelle contre le daemon du projet (Cgroup session-42, MemoryMax illimitée, exit 0) ; max → « illimitée », fichier illisible → « Non mesurée » ; 7 tests doctor + 7 node_isolation ; 384 tests workspace, clippy 0, check-docs 384",
+      "commit": "7201739"
+    },
+    {
+      "id": "CLI.2",
+      "date": "2026-11-04",
+      "proof": "session réelle : pause --duree 10m exit 0 et pause.json (resumes_at = paused_at + 600) ; reprendre exit 0, bail 0.25 Gio/1 cœur obtenu puis rendu, intention consommée ; refus nommés : aucune pause (1), 9m hors bornes (1), intention antidatée → pause expirée, aucun bail demandé (1) ; 7 tests pause ; 391 tests workspace, clippy 0, check-docs 391",
+      "commit": "b486713"
+    },
+    {
+      "id": "CLI.5",
+      "date": "2026-11-04",
+      "proof": "HOME temporaire : sans --confirmer exit 1 et arborescence identique (5 fichiers) ; avec --confirmer exit 0, 6 chemins supprimés, seul Documents/keep.txt subsiste ; chemin hors racines refusé ; 4 tests uninstall ; 395 tests workspace, clippy 0, check-docs 395",
+      "commit": "2a210ac"
+    },
+    {
+      "id": "DOC.3",
+      "date": "2026-11-04",
+      "proof": "29 documents datés de docs/INDEX.md bandeautés « Instantané daté » avec lien ETAT-REEL/STATE ; grep -L vide sur ces 29 ; check-docs contrôle docs.instantané, porte négative exit 1 puis restauration exit 0 ; contenu historique non réécrit",
+      "commit": "0962e6e"
+    },
+    {
+      "id": "CI.1",
+      "date": "2026-11-04",
+      "proof": "windows-latest retiré du job bloquant (compile_error! dans daemon/src/resources/mod.rs) ; windows-canary continue-on-error: true qui imprime la raison ; node scripts/check-ci-honesty.mjs exit 0, réinjection de windows dans la matrice → exit 1 nommant le job, restauration → 0. Limite : run GitHub Actions non exécuté localement, aucun push autorisé",
+      "commit": "8ef18d3"
+    },
+    {
+      "id": "OPS.2",
+      "date": "2026-11-04",
+      "proof": "RefusalCounters dans le serveur (pas DaemonState), compteur incrémenté au point unique des AllocDenied ; requête refusals_request pour ne pas faire grossir Reply::Status ; test vrai serveur avec les 8 motifs à 1 chacun ; session réelle 100000 Gio → alloc_denied puis polygoned status/doctor affichent exceeds_measured: 1 ; daemon arrêté → non mesurés ; daemon/src/cli.rs enfin compilé (117 tests lib) ; 402 tests workspace, clippy 0, check-docs 402",
+      "commit": "cc56acf"
+    },
+    {
+      "id": "SEC.8",
+      "date": "2026-11-04",
+      "proof": "test no_tracked_secrets lit git ls-files (repli parcours) et refuse identity.json, *.key, .env/.env.* hors gabarits ; 2/2 vert ; .env ajouté par git add -f → échec nommant .env, dé-suivi → vert ; hook .githooks/pre-commit (activation documentée) + étape CI ; 404 tests, clippy 0, check-docs 404. Limite : gitleaks absent de ce poste, audit d'historique non exécuté",
+      "commit": "b0da5b6"
+    },
+    {
+      "id": "CLI.3",
+      "date": "2026-11-04",
+      "proof": "polygone profil sobre|equilibre|genereux écrit tier Custom + 4 seuils (atomique, behavior/safety intacts) ; sans argument affiche le courant ; polygoned status relit 25/30/40 puis 75/70/80 dans un HOME réel ; turbo → exit 1 nommant les choix ; chaque rendu dit qu'aucune limite OS n'existe sans isolation ; 4 tests dont les deux preuves nommées ; 408 tests, clippy 0, check-docs 408. Non promue dans les tâches opérationnelles : preuve ajoutée directement, comme DOC.3",
+      "commit": "7a49150"
+    },
+    {
+      "id": "GW.2",
+      "date": "2026-11-05",
+      "proof": "POST /api/v1/nodes/ping délivre un challenge signé (clé épinglée, ±300 s), usage unique, TTL 30 s ; POST /api/v1/nodes/pong n'écrit latency_ms qu'après vérification du challenge et de la signature, RTT ≤ 60 s ; pong sans ping et rejeu refusés 409 ; médiane = seuls nœuds mesurés ; mesure persistée et visible dans /api/v1/network/status (42) sur vrai socket TCP ; 3 tests + assertion d'intégration ; 415 tests workspace, clippy 0",
+      "commit": "e98bcb1"
+    },
+    {
+      "id": "GW.1",
+      "date": "2026-11-04",
+      "proof": "POST /api/v1/nodes/heartbeat vérifie ML-DSA-65 sur polygone-heartbeat-v1\\n{node_id}\\n{timestamp} avec la clé épinglée à l'appairage ; ±300 s ; écriture atomique de nodes.json sérialisée ; rechargement au démarrage ; refus 403 sans toucher état ni fichier ; 4 tests dont un round-trip sur vrai socket TCP ; 412 tests workspace, clippy 0, check-docs 412",
+      "commit": "6a84c9b"
+    }
+  ]
+}

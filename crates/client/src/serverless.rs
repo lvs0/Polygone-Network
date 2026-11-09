@@ -1,77 +1,101 @@
-//! Polygone Serverless — run functions on the network.
+//! `polygone serverless` — la commande utilisateur de Polygone Serverless.
 //!
-//! Request → Shamir 4-of-7 → ≥4 nodes execute → result reassembled.
+//! Elle s'appuie sur le crate `polygone-serverless`, qui porte la seule
+//! mécanique honnête du service :
+//!
+//! - la charge utile est découpée en **vraies parts Shamir 4-of-7** pour le
+//!   transit (`request::shards`) ;
+//! - le résultat, lui, ne se « reconstitue » pas à partir des parts : il est
+//!   accepté par **quorum**, c'est-à-dire quand `seuil` nœuds distincts
+//!   renvoient le même hash de sortie (`quorum::tally`).
+//!
+//! État : la commande prépare et vérifie la demande localement. **Aucun nœud
+//! n'est contacté** — le transport vers les nœuds fantômes (`ecouter
+//! --compute`) n'est pas branché sur ce chemin. Le dire à l'écran fait partie
+//! du contrat de la maison : on n'affiche pas un résultat qui n'existe pas.
 
-// `NodeId` n'est utilisé QUE par `ServerlessResult`, ci-dessous, qui est une
-// ébauche non câblée (chantier 2b-13, Phase 0) : l'import suit la même feature.
-#[cfg(feature = "experimental")]
-use polygone_core::NodeId;
-use serde::{Deserialize, Serialize};
+use anyhow::Result;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ServerlessRequest {
-    pub id: String,
-    pub payload: Vec<u8>,
-    pub threshold: u8,
-    pub total: u8,
-}
+use polygone_serverless::{reassemble, FunctionKind, ServerlessRequest};
 
-/// Ébauche NON CÂBLÉE : personne ne construit ni ne lit un `ServerlessResult`.
+/// Construit la demande, vérifie la fragmentation, et rend un rapport lisible.
 ///
-/// Le reste du module, lui, EST câblé (`polygone serverless` appelle
-/// `ServerlessRequest::new` et `shards()` dans `main.rs`). On ne peut donc pas
-/// mettre tout le fichier derrière la feature sans retirer une commande qui
-/// existe : seule la partie morte y va, et `experimental` la compile pour qui
-/// veut la finir.
-#[cfg(feature = "experimental")]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ServerlessResult {
-    pub request_id: String,
-    pub result: Vec<u8>,
-    pub nodes: Vec<NodeId>,
+/// Retourne `true` si la vérification locale (4 parts sur 7 → même charge
+/// utile) a réussi.
+pub fn run(commande: &str, payload: &str, seuil: u8, parts: u8) -> Result<bool> {
+    let function = FunctionKind::Shell {
+        command: commande.to_string(),
+    };
+    let mut request = ServerlessRequest::new(function, payload.as_bytes().to_vec());
+    request.threshold = seuil;
+    request.total = parts;
+    request.validate()?;
+
+    let shards = request.shards()?;
+    let hash = request.request_hash();
+
+    println!("⬡ Serverless — demande {}", request.id);
+    println!("  fonction      : shell `{commande}`");
+    println!(
+        "  charge utile  : {} octets · hash {}",
+        payload.len(),
+        hex::encode(&hash[..8])
+    );
+    println!(
+        "  politique     : {seuil}-of-{parts} — Shamir pour le transit, quorum pour le résultat"
+    );
+    println!("  parts :");
+    for shard in &shards {
+        println!(
+            "    · part {}  {} octets  hash {}",
+            shard.index,
+            shard.payload.len(),
+            hex::encode(&shard.content_hash[..8])
+        );
+    }
+
+    // Vérification locale réelle : on ne l'affirme pas, on la calcule.
+    let threshold = usize::from(seuil);
+    let sample = &shards[..threshold.min(shards.len())];
+    let restored = reassemble(sample, seuil)?;
+    let ok = restored == payload.as_bytes();
+    println!(
+        "  vérification  : {} parts sur {} → {} ",
+        threshold.min(shards.len()),
+        shards.len(),
+        if ok {
+            "charge utile identique"
+        } else {
+            "ÉCHEC — les parts ne se reconstituent pas"
+        }
+    );
+
+    println!();
+    println!("  Aucun nœud n'a été contacté : le transport vers les nœuds fantômes");
+    println!("  n'est pas branché (état « partiel » dans STAGING.md). La demande");
+    println!("  et sa politique sont prêtes ; l'envoi reste à câbler.");
+
+    Ok(ok)
 }
 
-impl ServerlessRequest {
-    pub fn new(payload: Vec<u8>) -> Self {
-        let id = uuid_short();
-        Self {
-            id,
-            payload,
-            threshold: 4,
-            total: 7,
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_and_reassemble_roundtrip() {
+        let ok = run("echo", "salut", 4, 7).expect("la demande doit être valide");
+        assert!(ok, "4 parts sur 7 doivent reconstituer la charge utile");
     }
 
-    pub fn shards(&self) -> Vec<Vec<u8>> {
-        let mut out = Vec::with_capacity(7);
-        for i in 0..7 {
-            let mut shard = Vec::new();
-            shard.push(self.id.as_bytes()[0]);
-            shard.push(i as u8);
-            shard.extend_from_slice(&self.payload);
-            out.push(shard);
-        }
-        out
+    #[test]
+    fn rejects_policy_below_two() {
+        // Un seuil de 1 ne protège rien : le crate doit refuser.
+        assert!(run("echo", "salut", 1, 7).is_err());
     }
-}
 
-#[cfg(feature = "experimental")]
-impl ServerlessResult {
-    pub fn new(request_id: String, result: Vec<u8>, nodes: Vec<NodeId>) -> Self {
-        Self {
-            request_id,
-            result,
-            nodes,
-        }
+    #[test]
+    fn rejects_more_parts_than_protocol_allows() {
+        assert!(run("echo", "salut", 4, 9).is_err());
     }
-}
-
-fn uuid_short() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let mut s = String::new();
-    for _ in 0..8 {
-        s.push(char::from(b'A' + rng.gen_range(0..26)));
-    }
-    s
 }

@@ -17,12 +17,12 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
 use std::io::{self, BufReader, BufWriter, Read, Write};
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -104,21 +104,34 @@ pub const MAX_LINE_BYTES: usize = 64 * 1024;
 /// Cette liste est vérifiée par `test_known_request_types_covers_every_variant` :
 /// un variant ajouté au type mais oublié ici serait refusé en `unknown_type`,
 /// des deux côtés du fil.
-pub const KNOWN_REQUEST_TYPES: [&str; 4] = ["status_request", "ping", "alloc_request", "release"];
+pub const KNOWN_REQUEST_TYPES: [&str; 6] = [
+    "status_request",
+    "ping",
+    "alloc_request",
+    "release",
+    // `renew` existe parce que les baux expirent : sans renouvellement, un
+    // consommateur légitime perdrait sa réservation au bout de `lease_secs()`.
+    "renew",
+    // Compteurs de refus (OPS.2) : requête séparée pour ne pas faire grossir
+    // `Reply::Status`, déjà au plafond de taille porté par `NodeError`.
+    "refusals_request",
+];
 
 /// Types de réponses que le client sait lire (noms sérialisés des variants de
 /// `Reply`) — le pendant de `KNOWN_REQUEST_TYPES` pour la direction inverse.
 ///
 /// Vérifiée par `test_known_reply_types_covers_every_variant` : sans ce test, la
 /// liste dériverait du type au premier variant ajouté, en silence.
-pub const KNOWN_REPLY_TYPES: [&str; 7] = [
+pub const KNOWN_REPLY_TYPES: [&str; 9] = [
     "hello",
     "status_response",
     "alloc_granted",
     "alloc_denied",
     "released",
+    "renewed",
     "pong",
     "error",
+    "refusals_response",
 ];
 
 /// Codes d'erreur publiés sur le fil (champ `code` d'un `Reply::Error`).
@@ -133,6 +146,60 @@ pub const REASON_INSUFFICIENT_HEADROOM: &str = "insufficient_headroom";
 pub const REASON_INSUFFICIENT_CPU: &str = "insufficient_cpu";
 pub const REASON_INSUFFICIENT_VRAM: &str = "insufficient_vram";
 pub const REASON_INSUFFICIENT_STORAGE: &str = "insufficient_storage";
+pub const REASON_POLICY_SHRINKING: &str = "policy_shrinking";
+/// La demande dépasse ce que la **machine possède**, pas seulement ce qui reste
+/// réservable. Distinct de `insufficient_headroom` : le premier est un refus
+/// définitif (aucune libération ne le rendra possible), le second est un refus
+/// temporaire qui se débloque quand un pair rend son bail.
+///
+/// Un client qui reçoit `insufficient_headroom` doit réessayer ; un client qui
+/// reçoit `exceeds_measured` doit réduire sa demande, sans quoi il réessaiera
+/// indéfiniment contre un mur.
+pub const REASON_EXCEEDS_MEASURED: &str = "exceeds_measured";
+
+/// `renew` sur un identifiant que le ledger ne connaît pas, ou dont le bail est
+/// déjà échu. Distinct de `insufficient_headroom` : aucune libération ne rendra
+/// ce bail, il faut en redemander un.
+pub const REASON_UNKNOWN_ALLOCATION: &str = "unknown_allocation";
+
+/// Compteurs de refus d'allocation, par motif (OPS.2).
+///
+/// Ils vivent dans le **serveur**, jamais dans `DaemonState` : celui-ci a un
+/// écrivain unique (`publish_shared`) et y ajouter un compteur mutable romprait
+/// cet invariant. Ils sont locaux au processus, non exportés et perdus à
+/// l'arrêt — c'est cohérent avec l'absence de télémétrie : on répond à « pourquoi
+/// mes nœuds sont refusés ? » sans rien envoyer nulle part.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RefusalCounters {
+    counts: BTreeMap<String, u64>,
+}
+
+impl RefusalCounters {
+    /// Incrémente le compteur du motif. Un motif inconnu n'est pas avalé : il
+    /// apparaît dans l'instantané, ce qui rend visible un refus ajouté sans
+    /// passer par les constantes.
+    pub fn record(&mut self, reason: &str) {
+        *self.counts.entry(reason.to_string()).or_insert(0) += 1;
+    }
+
+    /// Copie triée (BTreeMap) pour publication dans `Status`.
+    pub fn snapshot(&self) -> BTreeMap<String, u64> {
+        self.counts.clone()
+    }
+
+    /// Nombre total de refus comptés.
+    pub fn total(&self) -> u64 {
+        self.counts.values().sum()
+    }
+
+    /// Motif le plus fréquent, s'il y en a un — pour un résumé d'une ligne.
+    pub fn top(&self) -> Option<(&str, u64)> {
+        self.counts
+            .iter()
+            .max_by_key(|(_, count)| **count)
+            .map(|(reason, count)| (reason.as_str(), *count))
+    }
+}
 
 /// Pourquoi une ligne n'a pas pu être décodée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,6 +270,26 @@ pub enum Request {
         id: Option<String>,
         allocation_id: String,
     },
+    /// Prolonge un bail avant son échéance.
+    ///
+    /// Un bail qui n'est jamais renouvelé expire : c'est voulu (un processus
+    /// tué ne doit pas bloquer la marge). Ce variant est la contrepartie pour
+    /// les consommateurs vivants — sans lui, le correctif d'expiration
+    /// évincerait le travail légitime au bout d'un bail.
+    #[serde(rename = "renew")]
+    Renew {
+        id: Option<String>,
+        allocation_id: String,
+    },
+    /// Compteurs de refus d'allocation depuis le démarrage (OPS.2).
+    ///
+    /// Requête séparée, et non un champ de `status_request` : `Reply::Status`
+    /// est déjà au plafond de taille de `Reply` (portée par `NodeError`), et
+    /// quelques octets de plus déclenchent `clippy::result_large_err` chez le
+    /// client. Un daemon antérieur répond `unknown_type` : le client le dit
+    /// « non mesuré », il n'invente pas zéro.
+    #[serde(rename = "refusals_request")]
+    Refusals { id: Option<String> },
 }
 
 /// Message daemon → client.
@@ -238,6 +325,13 @@ pub enum Reply {
         gpu_free_vram_mb: u32,
         shrinking: bool,
         uptime_secs: u64,
+        /// Capacité RAM calculée par le ledger au moment de cette réponse.
+        /// Optionnelle pour accepter les réponses des daemons v1 antérieurs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ram_capacity: Option<Box<Capacity>>,
+        /// Capacité de stockage annoncée par le daemon ; absente si non mesurée.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        storage_capacity: Option<Box<Capacity>>,
     },
     /// Allocation accordée — une **licence, pas une contrainte**.
     ///
@@ -267,12 +361,28 @@ pub enum Reply {
         storage_gb: Option<f32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         expires_at: Option<i64>,
+        /// `true` seulement si l'OS contraint réellement ce qui vient d'être
+        /// accordé. `false` = licence que le client doit s'auto-imposer.
+        ///
+        /// `#[serde(default)]` : un daemon antérieur qui n'envoie pas ce champ
+        /// produit `false`, ce qui est le repli le plus sûr — on ne prétend
+        /// jamais une garantie qu'on n'a pas reçue.
+        #[serde(default)]
+        enforced: bool,
     },
     #[serde(rename = "alloc_denied")]
     AllocDenied {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         reason: String,
+    },
+    #[serde(rename = "renewed")]
+    Renewed {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        allocation_id: String,
+        /// Nouvelle échéance, en secondes Unix.
+        expires_at: i64,
     },
     #[serde(rename = "released")]
     Released {
@@ -291,6 +401,14 @@ pub enum Reply {
         id: Option<String>,
         code: String,
         message: String,
+    },
+    /// Répartition des refus d'allocation par motif (OPS.2).
+    #[serde(rename = "refusals_response")]
+    Refusals {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// Motifs triés par nom ; vide = aucun refus depuis le démarrage.
+        counts: BTreeMap<String, u64>,
     },
 }
 
@@ -326,6 +444,15 @@ pub struct DaemonState {
     /// le sens v1 : un état sans ce champ (ou 0) signifie qu'aucune capacité
     /// de stockage n'est annoncée — toute demande de stockage sera refusée.
     pub total_storage_bytes: u64,
+    /// RAM réellement **contrainte** par l'OS sur les consommateurs.
+    ///
+    /// Vaut `0` aujourd'hui, et c'est la vérité : `GlowUpEngine::apply` ne pose
+    /// qu'une priorité `nice` ; ni plafond mémoire ni quota CPU de cgroup ne
+    /// sont écrits par le daemon (garde structurel : `runtime::tests`). Ce champ existe pour que le jour où une isolation est écrite
+    /// il devienne non nul **par mesure**, et jamais par déclaration.
+    pub enforced_ram_bytes: u64,
+    /// Idem pour le stockage : `0` signifie qu'aucun quota disque n'est imposé.
+    pub enforced_storage_bytes: u64,
 }
 
 impl DaemonState {
@@ -354,6 +481,10 @@ impl DaemonState {
             daemon_version: env!("CARGO_PKG_VERSION").to_string(),
             platform: "unknown".to_string(),
             total_storage_bytes: 0,
+            // Rien n'est contraint dans un état de test inerte : si un test
+            // veut simuler une isolation, il le fait explicitement.
+            enforced_ram_bytes: 0,
+            enforced_storage_bytes: 0,
         }
     }
 
@@ -459,6 +590,38 @@ pub fn decode_reply(line: &str) -> Result<Reply, DecodeError> {
     serde_json::from_value(value).map_err(|_| DecodeError::MalformedJson)
 }
 
+/// Ce que le daemon peut dire d'une ressource, en trois grandeurs distinctes.
+///
+/// Le défaut historique du projet tient dans la confusion de ces trois mots :
+/// un client lisait un chiffre et croyait à une garantie. Les séparer rend le
+/// mensonge structurellement impossible à écrire.
+///
+/// - `measured` : ce que la machine possède réellement, mesuré au tick.
+/// - `reservable` : ce qui peut **encore** être promis — mesuré, moins le
+///   plafond du palier et les marges, moins les réservations en cours.
+/// - `enforced` : ce que le système d'exploitation **impose** effectivement au
+///   consommateur. Zéro signifie « rien n'est contraint » : une allocation
+///   accordée est alors une **licence**, que le client peut dépasser.
+///
+/// Invariant, testé : `reservable <= measured`. Un `enforced` qui dépasserait
+/// `reservable` serait une contrainte sur une ressource qui n'a pas été promise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Capacity {
+    pub measured: u64,
+    pub reservable: u64,
+    /// Ce que l'OS applique réellement. `0` = licence, pas garantie.
+    pub enforced: u64,
+}
+
+impl Capacity {
+    /// Vrai seulement si l'intégralité de la capacité annoncée est contrainte
+    /// par l'OS. Un `reservable > 0` avec `enforced == 0` doit être présenté à
+    /// l'utilisateur comme un engagement, jamais comme un quota appliqué.
+    pub fn is_enforced(&self) -> bool {
+        self.enforced > 0 && self.enforced >= self.reservable
+    }
+}
+
 /// Réservations d'allocation en cours, une par `allocation_id`.
 ///
 /// **Ce ledger vit dans le serveur, jamais dans `DaemonState`.** `publish_shared`
@@ -470,10 +633,111 @@ pub fn decode_reply(line: &str) -> Result<Reply, DecodeError> {
 /// Sans ledger, `dispatch_alloc` décidait contre `ram_headroom_bytes()` — qui ne
 /// reflète que le dernier tick publié : deux clients demandant la même RAM
 /// recevaient chacun `alloc_granted` (`docs/PLAN_CONSOMMATEUR.md` §3, écart 10).
+/// Durée par défaut d'un bail, en secondes.
+///
+/// Quinze minutes : assez long pour qu'un consommateur réel ne perde pas son
+/// bail au milieu d'un calcul (le renouvellement explicite viendra avec
+/// `Request::Renew`), assez court pour qu'un processus tué ne bloque pas la
+/// marge indéfiniment. Sans cette durée, `expires_at` restait `None` et une
+/// réservation ne mourait qu'avec la connexion qui l'avait obtenue — jamais
+/// avec le processus.
+pub const DEFAULT_LEASE_SECS: u64 = 900;
+
+/// Surcharge de la durée de bail, en secondes. Utile aux tests et aux
+/// déploiements qui veulent des baux plus courts.
+pub const ENV_LEASE_SECS: &str = "POLYGONE_LEASE_SECS";
+
+/// Durée de bail effective. Une valeur absente, vide, nulle ou illisible
+/// retombe sur `DEFAULT_LEASE_SECS` : un bail infini serait un retour au défaut
+/// qu'on corrige ici.
+pub fn lease_secs() -> u64 {
+    std::env::var(ENV_LEASE_SECS)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_LEASE_SECS)
+}
+
+/// Horloge murale en secondes Unix. Une horloge antérieure à l'époque rend 0 :
+/// le bail sera long, jamais immédiatement échu.
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Une réservation du ledger.
+///
+/// **Forme `Legacy`** : les ledgers écrits avant l'expiration stockaient un
+/// triplet `[cores, ram_bytes, storage_bytes]`. Ils doivent rester lisibles —
+/// refuser de démarrer sur un fichier d'ancien format perdrait toutes les
+/// réservations en cours, ce qui est pire que le défaut qu'on corrige.
+///
+/// **Forme `Current`** : la même chose plus `expires_at`. Le champ est un objet
+/// JSON nommé, donc un ancien daemon qui relit un ledger récent échoue au lieu
+/// de mal interpréter un tableau — l'échec est préférable au silence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Grant {
+    Legacy((u32, u64, u64)),
+    Current {
+        cores: u32,
+        ram_bytes: u64,
+        storage_bytes: u64,
+        expires_at: Option<i64>,
+    },
+}
+
+impl Grant {
+    fn current(cores: u32, ram_bytes: u64, storage_bytes: u64, expires_at: Option<i64>) -> Grant {
+        Grant::Current {
+            cores,
+            ram_bytes,
+            storage_bytes,
+            expires_at,
+        }
+    }
+
+    pub fn cores(&self) -> u32 {
+        match self {
+            Grant::Legacy((c, _, _)) => *c,
+            Grant::Current { cores, .. } => *cores,
+        }
+    }
+
+    pub fn ram_bytes(&self) -> u64 {
+        match self {
+            Grant::Legacy((_, r, _)) => *r,
+            Grant::Current { ram_bytes, .. } => *ram_bytes,
+        }
+    }
+
+    pub fn storage_bytes(&self) -> u64 {
+        match self {
+            Grant::Legacy((_, _, s)) => *s,
+            Grant::Current { storage_bytes, .. } => *storage_bytes,
+        }
+    }
+
+    /// `None` pour un bail d'ancien format : il n'expire pas tant que
+    /// `Ledger::adopt_legacy_grants` ne lui a pas donné une échéance.
+    pub fn expires_at(&self) -> Option<i64> {
+        match self {
+            Grant::Legacy(_) => None,
+            Grant::Current { expires_at, .. } => *expires_at,
+        }
+    }
+
+    fn is_expired(&self, now: i64) -> bool {
+        matches!(self.expires_at(), Some(at) if at <= now)
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Ledger {
-    /// `allocation_id` → (cœurs réservés, octets de RAM réservés, octets de stockage réservés).
-    grants: HashMap<String, (u32, u64, u64)>,
+    /// `allocation_id` → réservation (cœurs, RAM, stockage, échéance).
+    grants: HashMap<String, Grant>,
     /// Octets réservés, tenus à jour à chaque mutation : la décision reste O(1)
     /// au lieu de sommer le map à chaque requête.
     reserved_ram_bytes: u64,
@@ -482,34 +746,56 @@ pub struct Ledger {
     reserved_cpu_cores: u32,
     /// Octets de stockage réservés — agrégat O(1) comme RAM et CPU.
     ///
-    /// **Avertissement persistance** : ce compteur vit en mémoire. Un
-    /// redémarrage du daemon l'oublie, ce qui est correct pour RAM et CPU
-    /// mais FAUX pour le stockage durable (`docs/ARCHITECTURE_RESEAU.md` §5).
-    /// La persistance fera l'objet d'un incrément séparé ; d'ici là, le
-    /// comptage en mémoire empêche la sur-allocation PENDANT la durée de vie
-    /// du processus, mais pas ENTRE deux lancements.
+    /// **Persistance** : ce compteur est sérialisé avec le reste du ledger, donc
+    /// il **survit** à un redémarrage. La version précédente de ce commentaire
+    /// affirmait le contraire (« vit en mémoire, un redémarrage l'oublie ») et
+    /// c'était faux : `test_ledger_persistence_preserves_counters` relit 5 Gio
+    /// identiques après un cycle écriture/lecture. Un commentaire qui contredit
+    /// son propre test est un mensonge de plus, pas une note.
     reserved_storage_bytes: u64,
     /// Départage : deux demandes identiques produisent le même `allocation_id`
     /// déterministe ; sans suffixe, la seconde écraserait la première dans le map
     /// et la réservation du premier client disparaîtrait en silence.
     disambiguator: u64,
+    /// Chemin propre à cette instance. Il n'est jamais sérialisé : le fichier
+    /// décrit les réservations, pas la configuration locale du processus.
+    #[serde(skip)]
+    path: Option<PathBuf>,
 }
 
 impl Ledger {
-    /// Sérialise le ledger sur disque.
+    /// Construit un ledger dont la persistance est isolée sur `path`.
+    #[cfg(test)]
+    fn at_path(path: impl Into<PathBuf>) -> Ledger {
+        Ledger {
+            path: Some(path.into()),
+            ..Ledger::default()
+        }
+    }
+
+    /// Sérialise le ledger sur son chemin explicite, ou sur le chemin par défaut
+    /// du daemon pour une instance de production.
     pub fn persist(&self) -> io::Result<()> {
-        let path = ledger_path();
+        let path = self.path.clone().unwrap_or_else(ledger_path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let file = File::create(&path)?;
         let writer = BufWriter::new(file);
         serde_json::to_writer_pretty(writer, &self)?;
         Ok(())
     }
 
-    /// Charge le ledger depuis le disque, ou renvoie un ledger vierge si le fichier
-    /// n'existe pas ou est illisible.
+    /// Charge le ledger depuis le chemin par défaut du daemon.
     pub fn load() -> Ledger {
-        let path = ledger_path();
-        match File::open(&path) {
+        Self::load_from(ledger_path())
+    }
+
+    /// Charge un ledger depuis un chemin explicite. Le chemin reste attaché à
+    /// l'instance afin que les mutations ultérieures écrivent au même endroit.
+    fn load_from(path: impl AsRef<Path>) -> Ledger {
+        let path = path.as_ref().to_path_buf();
+        let mut ledger = match File::open(&path) {
             Ok(file) => {
                 let reader = BufReader::new(file);
                 // Un ledger illisible vaut un ledger vierge : mieux vaut
@@ -518,7 +804,9 @@ impl Ledger {
                 serde_json::from_reader::<_, Ledger>(reader).unwrap_or_default()
             }
             Err(_) => Ledger::default(),
-        }
+        };
+        ledger.path = Some(path);
+        ledger
     }
     /// RAM encore réservable **après** les réservations en cours.
     pub fn free_ram_bytes(&self, state: &DaemonState) -> u64 {
@@ -539,6 +827,31 @@ impl Ledger {
             .saturating_sub(self.reserved_storage_bytes)
     }
 
+    /// Les trois grandeurs de la RAM, dans un seul objet.
+    ///
+    /// `measured` est le total physique publié par le tick ; `reservable` est
+    /// ce qui reste après plafond de palier, marges et réservations ; `enforced`
+    /// vient de l'état, qui vaut 0 tant que le daemon n'impose aucun plafond
+    /// mémoire de cgroup (c'est le cas aujourd'hui : `apply` ne pose qu'un `nice`).
+    pub fn ram_capacity(&self, state: &DaemonState) -> Capacity {
+        Capacity {
+            measured: state.total_ram_bytes,
+            reservable: self.free_ram_bytes(state),
+            enforced: state.enforced_ram_bytes,
+        }
+    }
+
+    /// Idem pour le stockage. `measured` = ce que le daemon s'autorise à servir
+    /// (le total annoncé, engagement ferme — voir `storage_headroom_bytes`),
+    /// jamais le disque entier de la machine.
+    pub fn storage_capacity(&self, state: &DaemonState) -> Capacity {
+        Capacity {
+            measured: state.total_storage_bytes,
+            reservable: self.free_storage_bytes(state),
+            enforced: state.enforced_storage_bytes,
+        }
+    }
+
     /// Réserve `ram_bytes`, `cpu_cores` et `storage_bytes` sous `allocation_id`,
     /// en garantissant l'unicité de l'identifiant s'il est déjà pris. Rend
     /// l'identifiant réellement accordé — celui à renvoyer au client, sinon sa
@@ -549,6 +862,7 @@ impl Ledger {
         cpu_cores: u32,
         ram_bytes: u64,
         storage_bytes: u64,
+        expires_at: Option<i64>,
     ) -> String {
         let mut allocation_id = allocation_id;
         if self.grants.contains_key(&allocation_id) {
@@ -556,8 +870,10 @@ impl Ledger {
             allocation_id = format!("{allocation_id}-{}", self.disambiguator);
         }
 
-        self.grants
-            .insert(allocation_id.clone(), (cpu_cores, ram_bytes, storage_bytes));
+        self.grants.insert(
+            allocation_id.clone(),
+            Grant::current(cpu_cores, ram_bytes, storage_bytes, expires_at),
+        );
         self.reserved_ram_bytes = self.reserved_ram_bytes.saturating_add(ram_bytes);
         self.reserved_cpu_cores = self.reserved_cpu_cores.saturating_add(cpu_cores);
         self.reserved_storage_bytes = self.reserved_storage_bytes.saturating_add(storage_bytes);
@@ -568,11 +884,82 @@ impl Ledger {
     /// rien et n'est pas une erreur — un client qui se déconnecte après avoir
     /// déjà libéré, ou qui n'a jamais rien obtenu, ne doit pas provoquer d'échec.
     fn release(&mut self, allocation_id: &str) {
-        if let Some((cores, ram_bytes, storage_bytes)) = self.grants.remove(allocation_id) {
-            self.reserved_ram_bytes = self.reserved_ram_bytes.saturating_sub(ram_bytes);
-            self.reserved_cpu_cores = self.reserved_cpu_cores.saturating_sub(cores);
-            self.reserved_storage_bytes = self.reserved_storage_bytes.saturating_sub(storage_bytes);
+        if let Some(grant) = self.grants.remove(allocation_id) {
+            self.reserved_ram_bytes = self.reserved_ram_bytes.saturating_sub(grant.ram_bytes());
+            self.reserved_cpu_cores = self.reserved_cpu_cores.saturating_sub(grant.cores());
+            self.reserved_storage_bytes = self
+                .reserved_storage_bytes
+                .saturating_sub(grant.storage_bytes());
         }
+    }
+
+    /// Prolonge un bail encore vivant et rend sa nouvelle échéance.
+    ///
+    /// `None` signifie « inconnu ou déjà échu » : on ne ressuscite **jamais** un
+    /// bail que le balayage a rendu au pool. Sinon deux clients pourraient se
+    /// partager la même réservation, l'un ayant renouvelé ce que l'autre venait
+    /// de libérer.
+    pub fn renew(&mut self, allocation_id: &str, now: i64, lease: u64) -> Option<i64> {
+        let grant = self.grants.get(allocation_id)?;
+        if grant.expires_at().is_none() || grant.is_expired(now) {
+            return None;
+        }
+        let (cores, ram_bytes, storage_bytes) =
+            (grant.cores(), grant.ram_bytes(), grant.storage_bytes());
+        let deadline = now.saturating_add(lease as i64);
+        self.grants.insert(
+            allocation_id.to_string(),
+            Grant::current(cores, ram_bytes, storage_bytes, Some(deadline)),
+        );
+        Some(deadline)
+    }
+
+    /// Retire les baux échus et rend leurs identifiants, dans l'ordre.
+    ///
+    /// C'est la seule chose qui empêche un processus tué de garder sa marge
+    /// pour toujours. Un bail sans échéance (`None`, format historique) n'est
+    /// jamais retiré ici : c'est `adopt_legacy_grants` qui lui en donne une.
+    pub fn sweep_expired(&mut self, now: i64) -> Vec<String> {
+        let expired: Vec<String> = self
+            .grants
+            .iter()
+            .filter(|(_, grant)| grant.is_expired(now))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &expired {
+            self.release(id);
+        }
+        expired
+    }
+
+    /// Donne une échéance aux baux hérités d'un ledger d'ancien format.
+    ///
+    /// Sans cela, un bail écrit par un daemon antérieur resterait éternel après
+    /// la mise à jour : le défaut survivrait exactement à la version qui le
+    /// corrige. La grâce est d'une durée de bail à partir du démarrage.
+    pub fn adopt_legacy_grants(&mut self, now: i64, lease: u64) -> usize {
+        let deadline = now.saturating_add(lease as i64);
+        let mut adopted = 0;
+        for grant in self.grants.values_mut() {
+            if grant.expires_at().is_none() {
+                let cores = grant.cores();
+                let ram = grant.ram_bytes();
+                let storage = grant.storage_bytes();
+                *grant = Grant::current(cores, ram, storage, Some(deadline));
+                adopted += 1;
+            }
+        }
+        adopted
+    }
+
+    /// Nombre de réservations en cours.
+    pub fn len(&self) -> usize {
+        self.grants.len()
+    }
+
+    /// `true` si aucune réservation n'est en cours.
+    pub fn is_empty(&self) -> bool {
+        self.grants.is_empty()
     }
 }
 
@@ -624,6 +1011,15 @@ pub fn dispatch(request: Request, state: &DaemonState, ledger: &mut Ledger) -> R
             gpu_free_vram_mb: state.gpu_free_vram_mb,
             shrinking: state.shrinking,
             uptime_secs: state.uptime_secs,
+            ram_capacity: Some(Box::new(ledger.ram_capacity(state))),
+            storage_capacity: Some(Box::new(ledger.storage_capacity(state))),
+        },
+        // `dispatch` est pur : il ne voit jamais les compteurs du serveur. Le
+        // serveur répond lui-même à cette requête (voir `handle_client`) ; un
+        // appel direct obtient une carte vide plutôt qu'un mensonge chiffré.
+        Request::Refusals { id } => Reply::Refusals {
+            id,
+            counts: BTreeMap::new(),
         },
         Request::Ping { id } => Reply::Pong { id },
         Request::Release { id, allocation_id } => {
@@ -635,6 +1031,28 @@ pub fn dispatch(request: Request, state: &DaemonState, ledger: &mut Ledger) -> R
                 eprintln!("Erreur lors de la persistance du ledger : {}", e);
             }
             Reply::Released { id, allocation_id }
+        }
+        Request::Renew { id, allocation_id } => {
+            let now = now_unix();
+            // Balayer d'abord : renouveler un bail échu le ressusciterait alors
+            // que ses agrégats ont déjà été rendus au pool.
+            ledger.sweep_expired(now);
+            match ledger.renew(&allocation_id, now, lease_secs()) {
+                Some(expires_at) => {
+                    if let Err(e) = ledger.persist() {
+                        eprintln!("Erreur lors de la persistance du ledger : {}", e);
+                    }
+                    Reply::Renewed {
+                        id,
+                        allocation_id,
+                        expires_at,
+                    }
+                }
+                None => Reply::AllocDenied {
+                    id,
+                    reason: REASON_UNKNOWN_ALLOCATION.to_string(),
+                },
+            }
         }
         Request::Alloc {
             id,
@@ -695,6 +1113,22 @@ fn dispatch_alloc(
     }
 
     let requested_ram_bytes = (ram_gb as f64 * 1024.0 * 1024.0 * 1024.0) as u64;
+    // Un bail échu n'est plus une réservation : on balaie AVANT de décider,
+    // sinon un processus tué depuis des heures bloquerait encore la marge et
+    // le refus serait faux ("pas assez de RAM" alors que la RAM est libre).
+    let now = now_unix();
+    let expired = ledger.sweep_expired(now);
+    if !expired.is_empty() {
+        eprintln!(
+            "ledger : {} bail(s) échu(s) libéré(s) : {}",
+            expired.len(),
+            expired.join(", ")
+        );
+        if let Err(e) = ledger.persist() {
+            eprintln!("Erreur lors de la persistance du ledger : {}", e);
+        }
+    }
+
     // Décision contre la MARGE MOINS LES RÉSERVATIONS, pas contre la marge :
     // c'est ce qui empêche deux clients d'obtenir la même RAM.
     // Un `ram_gb` minuscule (`1e-12`) passe le contrôle ci-dessus mais arrondit à
@@ -705,6 +1139,28 @@ fn dispatch_alloc(
         return Reply::AllocDenied {
             id,
             reason: REASON_INVALID_REQUEST.to_string(),
+        };
+    }
+
+    // En période de retrait, ne pas remplacer les consommateurs qui viennent
+    // de rendre leur bail : cela créerait un cycle de stop/restart sans jamais
+    // réduire les engagements. Les demandes de statut et de libération restent
+    // autorisées via `dispatch`.
+    if state.shrinking {
+        return Reply::AllocDenied {
+            id,
+            reason: REASON_POLICY_SHRINKING.to_string(),
+        };
+    }
+
+    // Trois refus distincts, dans cet ordre : la demande dépasse la machine
+    // (définitif), puis dépasse ce qui reste réservable (temporaire), puis la
+    // politique de retrait. Confondre les deux premiers poussait un client à
+    // réessayer indéfiniment une demande que rien ne pourrait satisfaire.
+    if requested_ram_bytes > state.total_ram_bytes {
+        return Reply::AllocDenied {
+            id,
+            reason: REASON_EXCEEDS_MEASURED.to_string(),
         };
     }
 
@@ -756,11 +1212,13 @@ fn dispatch_alloc(
     // La réservation est prise ICI, dans le même souffle que la décision :
     // décider puis réserver en deux temps laisserait une fenêtre où deux
     // requêtes concurrentes lisent la même marge libre.
+    let expires_at = now.saturating_add(lease_secs() as i64);
     let allocation_id = ledger.reserve(
         make_allocation_id(state, client.as_deref(), cpu_cores, ram_gb),
         cpu_cores,
         requested_ram_bytes,
         requested_storage_bytes,
+        Some(expires_at),
     );
     // Persistance du ledger après chaque réservation.
     if let Err(e) = ledger.persist() {
@@ -783,7 +1241,15 @@ fn dispatch_alloc(
         ram_gb,
         gpu_vram_gb,
         storage_gb: granted_storage_gb,
-        expires_at: None,
+        // Annoncé au client pour qu'il sache quand renouveler. C'est une
+        // échéance réelle depuis l'expiration des baux, plus une valeur
+        // décorative : le balayage la fait respecter.
+        expires_at: Some(expires_at),
+        // Calculé, jamais écrit en dur : vrai seulement si l'OS contraint au
+        // moins ce qui vient d'être accordé. Aujourd'hui `enforced_ram_bytes`
+        // vaut 0, donc ce champ vaut `false` — et le client doit lire
+        // l'allocation comme une licence, pas comme un quota appliqué.
+        enforced: ledger.ram_capacity(state).enforced >= requested_ram_bytes,
     }
 }
 
@@ -904,7 +1370,17 @@ pub fn bind_listener(path: &Path) -> io::Result<UnixListener> {
         fs::remove_file(path)?;
     }
 
-    UnixListener::bind(path)
+    let listener = UnixListener::bind(path)?;
+    // Le socket transporte des demandes de réservation de ressources. Il doit
+    // rester accessible uniquement à son propriétaire, même si l'umask du
+    // processus est permissif. En cas d'échec du chmod, ne pas exposer le
+    // serveur avec des permissions inconnues : fermer et nettoyer.
+    if let Err(error) = fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
+        drop(listener);
+        let _ = fs::remove_file(path);
+        return Err(error);
+    }
+    Ok(listener)
 }
 
 /// Vrai si une instance écoute réellement derrière ce fichier.
@@ -1084,6 +1560,14 @@ fn lock_ledger(ledger: &Mutex<Ledger>) -> MutexGuard<'_, Ledger> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Même politique que `lock_ledger` : un panic d'un client ne doit pas rendre
+/// les compteurs inutilisables pour les autres.
+fn lock_refusals(refusals: &Mutex<RefusalCounters>) -> MutexGuard<'_, RefusalCounters> {
+    refusals
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Garde RAII des réservations d'UNE connexion.
 ///
 /// Libère **toutes** les allocations accordées sur cette connexion quand elle se
@@ -1221,6 +1705,19 @@ pub fn serve_with_timeout(
     shutdown: Arc<AtomicBool>,
     idle_timeout: Duration,
 ) {
+    serve_with_timeout_at(listener, state, shutdown, idle_timeout, ledger_path());
+}
+
+/// Démarre le serveur avec un chemin de persistance explicite. Utile pour
+/// héberger plusieurs instances isolées (tests, intégration, environnements
+/// dédiés) sans modifier une variable d'environnement globale.
+pub fn serve_with_timeout_at(
+    listener: UnixListener,
+    state: Arc<RwLock<DaemonState>>,
+    shutdown: Arc<AtomicBool>,
+    idle_timeout: Duration,
+    persistence_path: PathBuf,
+) {
     if let Err(e) = listener.set_nonblocking(true) {
         log::error!("socket: listener non bloquant impossible : {}", e);
         return;
@@ -1230,7 +1727,29 @@ pub fn serve_with_timeout(
     // Le ledger des réservations vit ICI, au niveau du serveur : il est partagé
     // par toutes les connexions (c'est tout l'intérêt) et n'entre jamais dans
     // `DaemonState`, dont `publish_shared` reste le seul écrivain.
-    let ledger = Arc::new(Mutex::new(Ledger::load()));
+    let ledger = Arc::new(Mutex::new(Ledger::load_from(persistence_path)));
+    // Même contrainte que le ledger : un seul point d'écriture, partagé par les
+    // connexions, jamais dans `DaemonState`.
+    let refusals = Arc::new(Mutex::new(RefusalCounters::default()));
+    // Au démarrage : donner une échéance aux baux d'ancien format, puis retirer
+    // ceux déjà échus. Sans la première étape, un bail hérité d'une version
+    // antérieure resterait éternel — le défaut survivrait à son correctif.
+    {
+        let mut guard = lock_ledger(&ledger);
+        let now = now_unix();
+        let adopted = guard.adopt_legacy_grants(now, lease_secs());
+        let expired = guard.sweep_expired(now);
+        if adopted > 0 || !expired.is_empty() {
+            log::info!(
+                "socket: ledger — {} bail(aux) hérité(s) mis sous échéance, {} échu(s) libéré(s)",
+                adopted,
+                expired.len()
+            );
+            if let Err(e) = guard.persist() {
+                log::error!("socket: persistance du ledger après balayage : {}", e);
+            }
+        }
+    }
     log::info!(
         "socket: serveur en écoute (plafond {} connexions, inactivité {} s)",
         MAX_CONNECTIONS,
@@ -1257,12 +1776,13 @@ pub fn serve_with_timeout(
 
                 let state = Arc::clone(&state);
                 let ledger = Arc::clone(&ledger);
+                let refusals = Arc::clone(&refusals);
                 thread::spawn(move || {
                     // Le garde vit dans ce thread : le compteur est rendu même
                     // si `handle_client` panique (le déroulement lâche `_guard`).
                     let _guard = guard;
                     let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
-                        handle_client(stream, state, ledger, idle_timeout)
+                        handle_client(stream, state, ledger, refusals, idle_timeout)
                     }));
                     if let Err(payload) = outcome {
                         log::error!(
@@ -1308,6 +1828,7 @@ pub fn handle_client(
     mut stream: UnixStream,
     state: Arc<RwLock<DaemonState>>,
     ledger: Arc<Mutex<Ledger>>,
+    refusals: Arc<Mutex<RefusalCounters>>,
     idle_timeout: Duration,
 ) {
     // Posé avant la salutation : une connexion non bornée dans le temps occupe
@@ -1364,8 +1885,27 @@ pub fn handle_client(
                     // Verrou relâché AVANT l'écriture réseau : on lit, on clone,
                     // on lâche le garde, puis on dispatche. Le verrou n'est
                     // jamais tenu pendant une E/S.
-                    let snapshot = read_shared(&state);
-                    let reply = bookings.dispatch(request, &snapshot);
+                    // Les compteurs vivent dans le serveur : cette requête est
+                    // la seule à ne pas passer par `dispatch`.
+                    let reply = match request {
+                        Request::Refusals { id } => Reply::Refusals {
+                            id,
+                            counts: lock_refusals(&refusals).snapshot(),
+                        },
+                        other => {
+                            let snapshot = read_shared(&state);
+                            let reply = bookings.dispatch(other, &snapshot);
+                            // Un seul point de comptage : toute réponse
+                            // `AllocDenied` passe ici, y compris `renew` d'un
+                            // bail inconnu. Compter dans chaque branche de
+                            // `dispatch` aurait laissé la prochaine branche
+                            // ajoutée silencieusement hors du compteur.
+                            if let Reply::AllocDenied { reason, .. } = &reply {
+                                lock_refusals(&refusals).record(reason);
+                            }
+                            reply
+                        }
+                    };
                     if write_reply(&mut stream, &reply).is_err() {
                         return;
                     }
@@ -1437,6 +1977,7 @@ fn write_reply(stream: &mut UnixStream, reply: &Reply) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufRead;
 
     /// État servant de référence : 16 Gio, palier 50 % → 8 Gio autorisés,
     /// 1 Gio déjà alloué → 7 Gio de marge, 3 cœurs disponibles.
@@ -1497,21 +2038,17 @@ mod tests {
         // entre tests parallèles qui partagent le même ledger_path() global.
         let dir = tempfile::tempdir().expect("dossier temporaire");
         let ledger_file = dir.path().join("ledger_persistence.json");
-        std::env::set_var(ENV_LEDGER_PATH, &ledger_file);
-
         // Crée un ledger, réserve des ressources, persiste, puis recharge.
-        let mut ledger = Ledger::default();
-        let alloc_id = ledger.reserve("test-alloc".to_string(), 2, 1024 * 1024 * 1024, 0);
+        let mut ledger = Ledger::at_path(&ledger_file);
+        let alloc_id = ledger.reserve("test-alloc".to_string(), 2, 1024 * 1024 * 1024, 0, None);
         // Vérifie la présence dans le ledger en mémoire.
         assert!(ledger.grants.contains_key(&alloc_id));
         // Persiste sur disque.
         ledger.persist().expect("Échec de la persistance du ledger");
         // Recharge un nouveau ledger depuis le disque.
-        let loaded = Ledger::load();
+        let loaded = Ledger::load_from(&ledger_file);
         // Le même identifiant doit être présent avec les mêmes valeurs.
         assert_eq!(loaded.grants.get(&alloc_id), ledger.grants.get(&alloc_id));
-
-        std::env::remove_var(ENV_LEDGER_PATH);
     }
 
     #[test]
@@ -1538,8 +2075,55 @@ mod tests {
             line.contains("\"type\":\"status_response\""),
             "type présent : {line}"
         );
+        assert!(
+            line.contains("\"ram_capacity\""),
+            "capacité RAM publiée : {line}"
+        );
+        assert!(
+            line.contains("\"storage_capacity\""),
+            "capacité stockage publiée : {line}"
+        );
         // Le champ `id` absent ne doit pas apparaître (skip_serializing_if).
         assert!(!line.contains("\"id\""), "id omis quand absent : {line}");
+    }
+
+    #[test]
+    fn test_dispatch_status_reports_ledger_capacity() {
+        let state = state();
+        let reply = dispatch(Request::Status { id: None }, &state, &mut Ledger::default());
+        match reply {
+            Reply::Status {
+                ram_capacity: Some(capacity),
+                storage_capacity: Some(storage),
+                ..
+            } => {
+                assert_eq!(capacity.measured, 16 * 1024 * 1024 * 1024);
+                assert_eq!(capacity.reservable, 7 * 1024 * 1024 * 1024);
+                assert_eq!(capacity.enforced, 0);
+                assert_eq!(
+                    storage.measured, 0,
+                    "le daemon n'annonce pas encore de stockage"
+                );
+                assert_eq!(storage.reservable, 0);
+            }
+            other => panic!("capacités attendues dans Status, reçu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_decode_legacy_status_without_capacity() {
+        let line = r#"{"v":1,"type":"status_response","tier":"balanced","seq":1,"max_cpu_percent":50,"max_ram_percent":50,"max_bandwidth_percent":60,"max_gpu_percent":40,"ram_bytes":1024,"ram_mb":0,"bandwidth_mbps":10,"cpu_cores":2,"gpu_free_vram_mb":0,"shrinking":false,"uptime_secs":1}"#;
+        match decode_reply(line).expect("ancienne réponse v1 toujours décodable") {
+            Reply::Status {
+                ram_capacity,
+                storage_capacity,
+                ..
+            } => {
+                assert!(ram_capacity.is_none());
+                assert!(storage_capacity.is_none());
+            }
+            other => panic!("Status attendu, reçu {other:?}"),
+        }
     }
 
     #[test]
@@ -1600,6 +2184,169 @@ mod tests {
         }
     }
 
+    // ---- P1.1 : mesuré / réservable / contraint ----------------------------
+
+    /// Une demande qui dépasse la **machine** ne doit pas être confondue avec
+    /// une demande qui dépasse le **reste réservable**. Le premier refus est
+    /// définitif ; le second se débloque quand un pair rend son bail.
+    #[test]
+    fn test_alloc_over_measured_is_not_headroom() {
+        // `state()` : 16 Gio mesurés, plafond de palier à 50 %, donc 7 Gio
+        // réservables. Une demande de 20 Gio dépasse la machine elle-même.
+        let reply = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 20.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &state(),
+            &mut Ledger::default(),
+        );
+        match reply {
+            Reply::AllocDenied { reason, .. } => assert_eq!(
+                reason, REASON_EXCEEDS_MEASURED,
+                "dépasser la machine n'est pas un manque de marge"
+            ),
+            other => panic!("attendu AllocDenied, obtenu {:?}", other),
+        }
+    }
+
+    /// Entre les deux : sous la capacité mesurée, au-dessus du réservable.
+    /// C'est le refus temporaire, et il doit porter son propre motif.
+    #[test]
+    fn test_alloc_over_reservable_reports_headroom() {
+        let reply = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 10.0, // < 16 Gio mesurés, > 7 Gio réservables
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &state(),
+            &mut Ledger::default(),
+        );
+        match reply {
+            Reply::AllocDenied { reason, .. } => assert_eq!(
+                reason, REASON_INSUFFICIENT_HEADROOM,
+                "sous la machine mais au-dessus du réservable"
+            ),
+            other => panic!("attendu AllocDenied, obtenu {:?}", other),
+        }
+    }
+
+    /// L'allocation réellement accordée porte son degré de contrainte.
+    /// Tant que le daemon n'impose aucun plafond mémoire, c'est une licence.
+    #[test]
+    fn test_granted_says_licence_when_nothing_enforced() {
+        let reply = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &state(),
+            &mut Ledger::default(),
+        );
+        match reply {
+            Reply::AllocGranted { enforced, .. } => assert!(
+                !enforced,
+                "rien n'est contraint par l'OS : accorder ne doit pas promettre un quota"
+            ),
+            other => panic!("attendu AllocGranted, obtenu {:?}", other),
+        }
+    }
+
+    /// Et si l'état dit qu'une contrainte existe, le champ la reflète — la
+    /// valeur est calculée, jamais écrite en dur.
+    #[test]
+    fn test_granted_reports_enforcement_when_state_says_so() {
+        let mut st = state();
+        st.enforced_ram_bytes = 2 * 1024 * 1024 * 1024;
+        let reply = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut Ledger::default(),
+        );
+        match reply {
+            Reply::AllocGranted { enforced, .. } => {
+                assert!(enforced, "2 Gio contraints couvrent une demande de 1 Gio")
+            }
+            other => panic!("attendu AllocGranted, obtenu {:?}", other),
+        }
+    }
+
+    /// Invariant : on ne promet jamais plus que ce que la machine possède, et
+    /// le degré de contrainte ne peut pas dépasser ce qui a été promis.
+    #[test]
+    fn test_capacity_invariant() {
+        let st = state();
+        let ledger = Ledger::default();
+        let ram = ledger.ram_capacity(&st);
+        assert_eq!(ram.measured, st.total_ram_bytes);
+        assert!(
+            ram.reservable <= ram.measured,
+            "réservable {} > mesuré {}",
+            ram.reservable,
+            ram.measured
+        );
+        assert_eq!(ram.enforced, 0, "aucune contrainte OS dans état inerte");
+        assert!(
+            !ram.is_enforced(),
+            "0 contraint ne doit jamais être présenté comme appliqué"
+        );
+
+        // Le stockage non annoncé (0) ne peut rien réserver : c'est le repli sûr.
+        let storage = ledger.storage_capacity(&st);
+        assert_eq!(storage.measured, 0);
+        assert_eq!(storage.reservable, 0);
+    }
+
+    #[test]
+    fn test_dispatch_alloc_denied_during_policy_shrink() {
+        let shrinking = DaemonState {
+            shrinking: true,
+            ..state()
+        };
+        let mut ledger = Ledger::default();
+        let free_before = ledger.free_ram_bytes(&shrinking);
+        let reply = dispatch(
+            Request::Alloc {
+                id: Some("during-shrink".to_string()),
+                client: Some("node".to_string()),
+                cpu_cores: 1,
+                ram_gb: 0.25,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &shrinking,
+            &mut ledger,
+        );
+        assert_eq!(
+            reply,
+            Reply::AllocDenied {
+                id: Some("during-shrink".to_string()),
+                reason: REASON_POLICY_SHRINKING.to_string(),
+            }
+        );
+        assert_eq!(ledger.free_ram_bytes(&shrinking), free_before);
+        assert_eq!(ledger.free_cpu_cores(&shrinking), shrinking.cpu_cores);
+    }
+
     #[test]
     fn test_dispatch_alloc_denied_insufficient() {
         // Palier 50 % de 16 Gio = 8 Gio autorisés, déjà 8 Gio alloués → 0 de marge.
@@ -1655,14 +2402,14 @@ mod tests {
         let state = state();
         let mut ledger = Ledger::default();
 
-        let first = ledger.reserve("alloc-a".to_string(), 1, 5 * 1024u64 * 1024 * 1024, 0);
+        let first = ledger.reserve("alloc-a".to_string(), 1, 5 * 1024u64 * 1024 * 1024, 0, None);
         assert_eq!(first, "alloc-a", "un id libre est rendu tel quel");
         assert_eq!(ledger.free_ram_bytes(&state), 2 * 1024u64 * 1024 * 1024);
         assert_eq!(ledger.free_cpu_cores(&state), 2);
 
         // Même identifiant redemandé : il est départagé, et les DEUX réservations
         // comptent — c'est le bug que le ledger existe pour empêcher.
-        let second = ledger.reserve("alloc-a".to_string(), 1, 1, 0);
+        let second = ledger.reserve("alloc-a".to_string(), 1, 1, 0, None);
         assert_ne!(
             second, "alloc-a",
             "un id déjà pris ne doit pas écraser l'autre"
@@ -1700,11 +2447,23 @@ mod tests {
         );
 
         // Une réservation entame la marge du montant exact.
-        let a = ledger.reserve("alloc-s1".to_string(), 1, 0, 4 * 1024u64 * 1024 * 1024);
+        let a = ledger.reserve(
+            "alloc-s1".to_string(),
+            1,
+            0,
+            4 * 1024u64 * 1024 * 1024,
+            None,
+        );
         assert_eq!(ledger.free_storage_bytes(&state), 6 * 1024u64 * 1024 * 1024);
 
         // Les réservations s'agrègent : deux clients, deux débits.
-        let b = ledger.reserve("alloc-s2".to_string(), 1, 0, 2 * 1024u64 * 1024 * 1024);
+        let b = ledger.reserve(
+            "alloc-s2".to_string(),
+            1,
+            0,
+            2 * 1024u64 * 1024 * 1024,
+            None,
+        );
         assert_eq!(ledger.free_storage_bytes(&state), 4 * 1024u64 * 1024 * 1024);
 
         // Libérer un id inconnu ne rend rien (idempotence).
@@ -1836,15 +2595,14 @@ mod tests {
     fn test_ledger_persistence_preserves_counters() {
         let dir = tempfile::tempdir().expect("dossier temporaire");
         let ledger_file = dir.path().join("ledger_counters.json");
-        std::env::set_var(ENV_LEDGER_PATH, &ledger_file);
-
         // Reserve some resources and persist.
-        let mut ledger = Ledger::default();
+        let mut ledger = Ledger::at_path(&ledger_file);
         let alloc_id = ledger.reserve(
             "test-alloc2".to_string(),
             2,
             2 * 1024 * 1024 * 1024,
             5 * 1024 * 1024 * 1024,
+            None,
         );
         // Ensure counters are set.
         assert_eq!(ledger.reserved_cpu_cores, 2);
@@ -1853,15 +2611,13 @@ mod tests {
         // Persist to disk.
         ledger.persist().expect("persist failed");
         // Load anew.
-        let loaded = Ledger::load();
+        let loaded = Ledger::load_from(&ledger_file);
         // Verify counters restored.
         assert_eq!(loaded.reserved_cpu_cores, 2);
         assert_eq!(loaded.reserved_ram_bytes, 2 * 1024 * 1024 * 1024);
         assert_eq!(loaded.reserved_storage_bytes, 5 * 1024 * 1024 * 1024);
         // Verify grant entry matches.
         assert_eq!(loaded.grants.get(&alloc_id), ledger.grants.get(&alloc_id));
-
-        std::env::remove_var(ENV_LEDGER_PATH);
     }
 
     /// Prouve qu'un redémarrage simulé (drop du Ledger + reconstruction depuis
@@ -1874,14 +2630,18 @@ mod tests {
     fn test_ledger_restart_conserves_reserved_bytes() {
         let dir = tempfile::tempdir().expect("dossier temporaire");
         let ledger_file = dir.path().join("ledger_restart.json");
-        std::env::set_var(ENV_LEDGER_PATH, &ledger_file);
-
         let state = state(); // 7 Gio de marge, 3 cœurs
 
         // --- "Premier processus" : réserve 5 Gio et persiste. ---
         let allocation_id = {
-            let mut ledger = Ledger::default();
-            let id = ledger.reserve("restart-alloc".to_string(), 1, 5 * 1024u64 * 1024 * 1024, 0);
+            let mut ledger = Ledger::at_path(&ledger_file);
+            let id = ledger.reserve(
+                "restart-alloc".to_string(),
+                1,
+                5 * 1024u64 * 1024 * 1024,
+                0,
+                None,
+            );
             assert_eq!(
                 ledger.free_ram_bytes(&state),
                 2 * 1024u64 * 1024 * 1024,
@@ -1893,7 +2653,7 @@ mod tests {
         };
 
         // --- "Second processus" : recharge depuis le fichier. ---
-        let reloaded = Ledger::load();
+        let reloaded = Ledger::load_from(&ledger_file);
         assert!(
             reloaded.grants.contains_key(&allocation_id),
             "après rechargement, la réservation doit être présente"
@@ -1907,9 +2667,125 @@ mod tests {
             reloaded.reserved_cpu_cores, 1,
             "le cœur réservé doit survivre au redémarrage"
         );
+    }
+    /// OPS.2 : chaque motif de refus est provoqué sur un VRAI serveur, puis la
+    /// répartition est relue depuis `status_response` — le chemin que la CLI
+    /// affiche, pas un compteur interne inspecté en douce.
+    #[test]
+    fn refusals_are_counted_by_reason_through_the_server() {
+        let dir = tempfile::tempdir().expect("dossier temporaire");
+        let path = dir.path().join("refusals.sock");
+        let listener = bind_listener(&path).expect("bind sur un socket temporaire");
+        let ledger_file = dir.path().join("ledger.json");
+        let state = Arc::new(RwLock::new(DaemonState::new("balanced")));
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let serve_state = Arc::clone(&state);
+        let serve_shutdown = Arc::clone(&shutdown);
+        let handle = thread::spawn(move || {
+            serve_with_timeout_at(
+                listener,
+                serve_state,
+                serve_shutdown,
+                Duration::from_secs(5),
+                ledger_file,
+            )
+        });
 
-        // Nettoyage : retire la variable pour ne pas polluer les autres tests.
-        std::env::remove_var(ENV_LEDGER_PATH);
+        let mut stream = UnixStream::connect(&path).expect("connexion au serveur de test");
+        {
+            let mut reader = BufReader::new(stream.try_clone().expect("clone du flux"));
+            let mut hello = String::new();
+            reader.read_line(&mut hello).expect("salutation");
+            assert!(hello.contains("hello"), "salutation reçue : {hello}");
+        }
+
+        let alloc = |ram_gb: f32,
+                     cpu_cores: u32,
+                     gpu_vram_gb: Option<f32>,
+                     storage_gb: Option<f32>| Request::Alloc {
+            id: None,
+            client: None,
+            cpu_cores,
+            ram_gb,
+            gpu_vram_gb,
+            storage_gb,
+        };
+
+        let requests = [
+            (alloc(0.0, 1, None, None), REASON_INVALID_REQUEST),
+            (alloc(1000.0, 1, None, None), REASON_EXCEEDS_MEASURED),
+            (alloc(7.5, 1, None, None), REASON_INSUFFICIENT_HEADROOM),
+            (alloc(0.1, 99, None, None), REASON_INSUFFICIENT_CPU),
+            (alloc(0.1, 1, Some(1.0), None), REASON_INSUFFICIENT_VRAM),
+            (alloc(0.1, 1, None, Some(1.0)), REASON_INSUFFICIENT_STORAGE),
+            (
+                Request::Renew {
+                    id: None,
+                    allocation_id: "bail-inconnu".to_string(),
+                },
+                REASON_UNKNOWN_ALLOCATION,
+            ),
+        ];
+
+        for (request, expected) in requests {
+            match ask(&mut stream, &request) {
+                Reply::AllocDenied { reason, .. } => assert_eq!(
+                    reason, expected,
+                    "le motif attendu pour {request:?} doit être nommé"
+                ),
+                other => panic!("refus attendu pour {request:?}, reçu {other:?}"),
+            }
+        }
+
+        // `policy_shrinking` exige un état en retrait : on le pose APRÈS le
+        // démarrage, comme le ferait la boucle du daemon.
+        state.write().expect("verrou d'état").shrinking = true;
+        match ask(&mut stream, &alloc(0.1, 1, None, None)) {
+            Reply::AllocDenied { reason, .. } => {
+                assert_eq!(reason, REASON_POLICY_SHRINKING)
+            }
+            other => panic!("refus de politique attendu, reçu {other:?}"),
+        }
+        state.write().expect("verrou d'état").shrinking = false;
+
+        match ask(&mut stream, &Request::Refusals { id: None }) {
+            Reply::Refusals { counts, .. } => {
+                for reason in [
+                    REASON_INVALID_REQUEST,
+                    REASON_EXCEEDS_MEASURED,
+                    REASON_INSUFFICIENT_HEADROOM,
+                    REASON_INSUFFICIENT_CPU,
+                    REASON_INSUFFICIENT_VRAM,
+                    REASON_INSUFFICIENT_STORAGE,
+                    REASON_UNKNOWN_ALLOCATION,
+                    REASON_POLICY_SHRINKING,
+                ] {
+                    assert_eq!(
+                        counts.get(reason),
+                        Some(&1),
+                        "motif {reason} attendu une fois dans {counts:?}"
+                    );
+                }
+                assert_eq!(counts.len(), 8, "aucun motif inventé : {counts:?}");
+                assert_eq!(counts.values().sum::<u64>(), 8);
+            }
+            other => panic!("Refusals attendu, reçu {other:?}"),
+        }
+
+        shutdown.store(true, Ordering::SeqCst);
+        handle.join().expect("arrêt du serveur");
+    }
+
+    /// Envoie une requête sur un flux déjà salué et rend la réponse décodée.
+    fn ask(stream: &mut UnixStream, request: &Request) -> Reply {
+        stream
+            .write_all(encode_line(request).as_bytes())
+            .expect("écriture de la requête");
+        stream.flush().expect("vidage du flux");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone du flux"));
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("lecture de la réponse");
+        decode_reply(&line).expect("réponse décodable")
     }
 
     /// Tous les variants de `Reply`. Existe pour que la liste blanche et le type
@@ -1937,6 +2813,16 @@ mod tests {
                 gpu_free_vram_mb: 0,
                 shrinking: false,
                 uptime_secs: 1,
+                ram_capacity: Some(Box::new(Capacity {
+                    measured: 16 * 1024 * 1024 * 1024,
+                    reservable: 7 * 1024 * 1024 * 1024,
+                    enforced: 0,
+                })),
+                storage_capacity: Some(Box::new(Capacity {
+                    measured: 0,
+                    reservable: 0,
+                    enforced: 0,
+                })),
             },
             Reply::AllocGranted {
                 id: None,
@@ -1946,6 +2832,7 @@ mod tests {
                 gpu_vram_gb: None,
                 storage_gb: None,
                 expires_at: None,
+                enforced: false,
             },
             Reply::AllocDenied {
                 id: None,
@@ -1960,6 +2847,10 @@ mod tests {
                 id: None,
                 code: ERR_UNKNOWN_TYPE.to_string(),
                 message: "type de message inconnu".to_string(),
+            },
+            Reply::Refusals {
+                id: None,
+                counts: BTreeMap::from([(REASON_INSUFFICIENT_CPU.to_string(), 2)]),
             },
         ]
     }
@@ -1978,6 +2869,10 @@ mod tests {
                 storage_gb: None,
             },
             Request::Release {
+                id: None,
+                allocation_id: "alloc-1".to_string(),
+            },
+            Request::Renew {
                 id: None,
                 allocation_id: "alloc-1".to_string(),
             },
@@ -2199,13 +3094,10 @@ mod server_tests {
         let path = dir.path().join("daemon.sock");
         let listener = bind_listener(&path).expect("bind sur un socket temporaire");
 
-        // Le ledger est isolé comme le socket : chaque serveur de test écrit dans
-        // SON dossier temporaire. Sans ça, un test hérite des réservations laissées
-        // par un test précédent et le premier `alloc` est refusé à tort.
-        // `set_var` est process-global : les tests qui démarrent un serveur ne
-        // doivent donc pas s'exécuter en parallèle sur des ledgers distincts.
+        // Chaque serveur possède son propre chemin de persistance. Ne pas
+        // utiliser `set_var` ici : l'environnement est global au processus et
+        // les tests Rust s'exécutent en parallèle.
         let ledger_file = dir.path().join("ledger.json");
-        std::env::set_var(ENV_LEDGER_PATH, &ledger_file);
 
         // L'état vit derrière un `RwLock` : la boucle du daemon le réécrit à
         // chaque tick, le serveur le relit à chaque requête.
@@ -2219,7 +3111,13 @@ mod server_tests {
         let serve_state = Arc::clone(&state);
         let serve_shutdown = Arc::clone(&shutdown);
         let handle = thread::spawn(move || {
-            serve_with_timeout(listener, serve_state, serve_shutdown, idle_timeout)
+            serve_with_timeout_at(
+                listener,
+                serve_state,
+                serve_shutdown,
+                idle_timeout,
+                ledger_file,
+            )
         });
 
         (state, path, shutdown, handle, dir)
@@ -2406,6 +3304,23 @@ mod server_tests {
         assert_eq!(reply_b["id"], "B");
 
         stop_server(&shutdown, handle);
+    }
+
+    #[test]
+    fn test_bind_listener_is_owner_only() {
+        let dir = tempfile::tempdir().expect("dossier temporaire");
+        let path = dir.path().join("private.sock");
+        let listener = bind_listener(&path).expect("bind privé");
+        let mode = fs::metadata(&path)
+            .expect("metadata socket")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "le socket IPC doit être réservé à son propriétaire"
+        );
+        drop(listener);
     }
 
     #[test]
@@ -2976,5 +3891,268 @@ mod server_tests {
         );
 
         stop_server(&shutdown, handle);
+    }
+
+    // ── Expiration des baux (DAEMON.1) ───────────────────────────────────
+    //
+    // Avant ce correctif, `expires_at` valait toujours `None` : un processus tué
+    // sans rendre son bail gardait sa marge pour toujours, et le daemon
+    // refusait ensuite des demandes que la machine pouvait satisfaire.
+
+    #[test]
+    fn test_expired_grant_is_swept_and_frees_its_share() {
+        let mut ledger = Ledger::default();
+        let id = ledger.reserve(
+            "bail-echu".to_string(),
+            1,
+            2 * 1024 * 1024 * 1024,
+            0,
+            Some(1_000),
+        );
+        assert_eq!(ledger.reserved_ram_bytes, 2 * 1024 * 1024 * 1024);
+        assert_eq!(ledger.reserved_cpu_cores, 1);
+
+        // Une seconde avant l'échéance : rien ne bouge.
+        assert!(ledger.sweep_expired(999).is_empty());
+        assert_eq!(ledger.reserved_ram_bytes, 2 * 1024 * 1024 * 1024);
+
+        // À l'échéance exacte : le bail tombe, les agrégats aussi.
+        assert_eq!(ledger.sweep_expired(1_000), vec![id.clone()]);
+        assert_eq!(ledger.reserved_ram_bytes, 0);
+        assert_eq!(ledger.reserved_cpu_cores, 0);
+        assert_eq!(ledger.len(), 0);
+        assert!(!ledger.grants.contains_key(&id));
+    }
+
+    #[test]
+    fn test_legacy_grant_gets_a_deadline_at_startup() {
+        // Un ledger écrit avant ce correctif n'a pas d'échéance. Sans adoption,
+        // le défaut survivrait exactement à la version qui le corrige.
+        let mut ledger = Ledger::default();
+        let id = ledger.reserve("herite".to_string(), 2, 1024 * 1024 * 1024, 0, None);
+        assert_eq!(ledger.grants[&id].expires_at(), None);
+
+        assert_eq!(ledger.adopt_legacy_grants(5_000, 60), 1);
+        assert_eq!(ledger.grants[&id].expires_at(), Some(5_060));
+        assert!(ledger.sweep_expired(5_059).is_empty());
+        assert_eq!(ledger.sweep_expired(5_060), vec![id]);
+    }
+
+    #[test]
+    fn test_legacy_ledger_file_is_still_readable() {
+        // Format historique : un triplet par réservation. Refuser ce fichier
+        // perdrait les baux en cours au moment de la mise à jour.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("ledger-legacy.json");
+        std::fs::write(
+            &path,
+            r#"{
+              "grants": { "ancien": [2, 1073741824, 0] },
+              "reserved_ram_bytes": 1073741824,
+              "reserved_cpu_cores": 2,
+              "reserved_storage_bytes": 0,
+              "disambiguator": 0
+            }"#,
+        )
+        .expect("écriture du ledger historique");
+
+        let loaded = Ledger::load_from(&path);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded.grants["ancien"].ram_bytes(), 1_073_741_824);
+        assert_eq!(loaded.grants["ancien"].cores(), 2);
+        assert_eq!(loaded.grants["ancien"].expires_at(), None);
+    }
+
+    #[test]
+    fn test_alloc_reply_announces_a_real_expiry() {
+        let st = DaemonState::new("balanced");
+        let mut ledger = Ledger::default();
+        let reply = dispatch(
+            Request::Alloc {
+                id: Some("expiry".to_string()),
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 0.25,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+
+        match reply {
+            Reply::AllocGranted {
+                allocation_id,
+                expires_at,
+                ..
+            } => {
+                let at = expires_at.expect("une allocation doit annoncer son échéance");
+                assert!(
+                    at > now_unix(),
+                    "l'échéance doit être dans le futur, obtenu {at} vs {}",
+                    now_unix()
+                );
+                assert_eq!(ledger.grants[&allocation_id].expires_at(), Some(at));
+            }
+            other => panic!("allocation refusée alors que la marge est libre : {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_expiry_lets_a_new_client_take_the_freed_margin() {
+        // Le refus doit être temporaire, pas définitif : après l'échéance, la
+        // même demande doit passer. C'est la propriété produit de ce correctif.
+        let st = DaemonState {
+            // Palier 50 % de 16 Gio = 8 Gio autorisés, 7 Gio déjà alloués :
+            // une demande de 1 Gio passe exactement, la suivante est refusée.
+            ram_bytes: 7 * 1024 * 1024 * 1024,
+            ..DaemonState::new("balanced")
+        };
+        let mut ledger = Ledger::default();
+        let first = dispatch(
+            Request::Alloc {
+                id: None,
+                client: Some("mort".to_string()),
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+        assert!(matches!(first, Reply::AllocGranted { .. }));
+
+        let blocked = dispatch(
+            Request::Alloc {
+                id: None,
+                client: Some("vivant".to_string()),
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+        assert_eq!(
+            blocked,
+            Reply::AllocDenied {
+                id: None,
+                reason: REASON_INSUFFICIENT_HEADROOM.to_string(),
+            },
+            "sans échéance respectée, le second client est refusé"
+        );
+
+        // L'horloge a avancé au-delà du bail : le balayage rend la marge.
+        let horizon = now_unix() + lease_secs() as i64 + 1;
+        assert_eq!(ledger.sweep_expired(horizon).len(), 1);
+
+        let after = dispatch(
+            Request::Alloc {
+                id: None,
+                client: Some("vivant".to_string()),
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+        assert!(
+            matches!(after, Reply::AllocGranted { .. }),
+            "après l'échéance, la marge libérée doit être réaccordable : {after:?}"
+        );
+    }
+
+    // ── Renouvellement du bail (DAEMON.3) ────────────────────────────────
+
+    #[test]
+    fn test_renew_pushes_the_deadline() {
+        let mut ledger = Ledger::default();
+        let id = ledger.reserve("vivant".to_string(), 1, 1024 * 1024 * 1024, 0, Some(1_000));
+
+        // Renouvelé 100 s avant l'échéance, pour 200 s : la nouvelle échéance
+        // (1 100) dépasse l'ancienne (1 000), donc le bail survit à l'instant
+        // où il serait mort sans renouvellement.
+        assert_eq!(ledger.renew(&id, 900, 200), Some(1_100));
+        assert_eq!(ledger.grants[&id].expires_at(), Some(1_100));
+
+        assert!(ledger.sweep_expired(1_000).is_empty());
+        assert_eq!(ledger.sweep_expired(1_100), vec![id]);
+    }
+
+    #[test]
+    fn test_renew_refuses_an_unknown_or_expired_lease() {
+        let mut ledger = Ledger::default();
+        assert_eq!(
+            ledger.renew("jamais-accorde", 1_000, 60),
+            None,
+            "un identifiant inconnu ne doit pas créer de réservation"
+        );
+        assert_eq!(ledger.len(), 0);
+
+        // Bail échu : le renouvellement ne le ressuscite pas, sinon les agrégats
+        // rendus au pool seraient comptés deux fois.
+        let id = ledger.reserve("mort".to_string(), 1, 1024 * 1024 * 1024, 0, Some(1_000));
+        assert_eq!(ledger.sweep_expired(1_000).len(), 1);
+        assert_eq!(ledger.renew(&id, 1_000, 60), None);
+        assert_eq!(ledger.reserved_ram_bytes, 0);
+    }
+
+    #[test]
+    fn test_dispatch_renew_replies_on_the_wire() {
+        let st = DaemonState::new("balanced");
+        let mut ledger = Ledger::default();
+        let granted = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 0.25,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &st,
+            &mut ledger,
+        );
+        let allocation_id = match granted {
+            Reply::AllocGranted { allocation_id, .. } => allocation_id,
+            other => panic!("allocation refusée : {other:?}"),
+        };
+
+        let renewed = dispatch(
+            Request::Renew {
+                id: Some("r1".to_string()),
+                allocation_id: allocation_id.clone(),
+            },
+            &st,
+            &mut ledger,
+        );
+        match renewed {
+            Reply::Renewed { expires_at, .. } => {
+                assert!(expires_at > now_unix(), "l'échéance renouvelée est future")
+            }
+            other => panic!("renouvellement refusé : {other:?}"),
+        }
+
+        // Le protocole refuse explicitement un bail inconnu, au lieu de répondre
+        // « renewed » sur quelque chose qui n'existe pas.
+        let refused = dispatch(
+            Request::Renew {
+                id: None,
+                allocation_id: "fantome".to_string(),
+            },
+            &st,
+            &mut ledger,
+        );
+        assert_eq!(
+            refused,
+            Reply::AllocDenied {
+                id: None,
+                reason: REASON_UNKNOWN_ALLOCATION.to_string(),
+            }
+        );
     }
 }

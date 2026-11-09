@@ -1,5 +1,7 @@
 # PLAN_CONSOMMATEUR — qui consomme, et qui applique l'allocation
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-09-29 ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > Incrément 2b-5c, 29/09/2026. **Aucun code** : un seul fichier créé. Sorties citées
 > brutes. État de départ : 2b-5b (71 tests verts) — `apply()` ne pose plus que son
 > `nice` : le daemon mesure, décide et publie, et rien ne consomme.

@@ -35,8 +35,9 @@ pub fn runtime_state(
     // ⚠️ PLAFOND, PAS UNE DISPONIBILITÉ.
     //
     // Le moteur n'alloue **aucun** CPU aujourd'hui : `GlowUpEngine::apply` ne
-    // pose qu'un `nice` et une limite mémoire, et `set_cpu_affinity` n'a aucun
-    // appelant. Il n'existe donc aucune « disponibilité CPU » à publier. On
+    // pose qu'une priorité `nice` ; il n'applique ni quota CPU ni limite mémoire,
+    // et `set_cpu_affinity` n'a aucun appelant. Il n'existe donc aucune
+    // « disponibilité CPU » à publier. On
     // publie le total physique, seule grandeur honnête et vérifiable, et on le
     // dit ici pour que personne ne lise ce champ comme « cœurs libres ».
     let cpu_cores = snap.cpu.per_core.len() as u32;
@@ -85,6 +86,13 @@ pub fn runtime_state(
         // fiable de quota disque n'est branchée. Toute demande de stockage
         // sera refusée (0 = rien d'allouable).
         total_storage_bytes: 0,
+        // Rien n'est contraint par l'OS, et c'est mesuré, pas supposé :
+        // `GlowUpEngine::apply` ne pose qu'une priorité `nice` ; aucun
+        // plafond mémoire de cgroup, aucun quota CPU, aucune affinité écrits par le
+        // daemon. Publier autre chose que 0 ici serait la revendication que
+        // tout le projet combat.
+        enforced_ram_bytes: 0,
+        enforced_storage_bytes: 0,
     }
 }
 
@@ -126,6 +134,12 @@ pub struct TickOutcome {
 ///
 /// `seq` est fourni par l'appelant, qui seul sait combien de publications ont
 /// déjà eu lieu.
+/// Publie un instantané final sans créer un second chemin d'écriture hors
+/// de ce module. Toute publication du daemon passe par la même frontière.
+pub fn publish_runtime_state(shared: &RwLock<DaemonState>, snapshot: DaemonState) {
+    publish_shared(shared, snapshot);
+}
+
 pub fn run_tick(
     engine: &mut GlowUpEngine,
     shared: &RwLock<DaemonState>,
@@ -148,7 +162,7 @@ pub fn run_tick(
 
     // Le verrou n'est pris que pour ce `store`, et `apply()` est déjà terminé :
     // jamais de verrou tenu pendant un appel système, ni pendant une E/S.
-    publish_shared(shared, runtime_state(engine, &snap, started_at_secs, seq));
+    publish_runtime_state(shared, runtime_state(engine, &snap, started_at_secs, seq));
 
     Ok(TickOutcome {
         allocation: alloc,

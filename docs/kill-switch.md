@@ -1,5 +1,7 @@
 # kill-switch.md — Mode Duress
 
+> **Instantané daté — ne pas lire comme l'état courant.** Rédigé le 2026-08-06 (version 1.0) ; il ne décrit pas l'état vérifié aujourd'hui, qui se lit dans [`ETAT-REEL.md`](../ETAT-REEL.md) et [`STATE.md`](../STATE.md).
+
 > *Document public. Pas de détail d'implémentation.*
 > *Référence : `LEGAL.md` §5 — associé à `Conseil des Sages 2026-06-29` (Mitnick).*
 > *Version : 1.0 (2026-08-06) — ajout du runbook opérateur.*

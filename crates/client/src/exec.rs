@@ -106,6 +106,22 @@ pub fn run_wasm(wasm: &[u8], timeout: Duration) -> Result<String> {
 /// `mem_mb` caps memory, `cpu_pct` caps CPU, `timeout` caps wall time.
 /// On timeout the **transient unit** is stopped (not just systemd-run),
 /// so no orphaned process survives.
+/// Protect the local identity directory when it is outside systemd's
+/// already-private temporary directories. PrivateTmp=yes hides /tmp and
+/// /var/tmp; adding InaccessiblePaths below either root would fail because
+/// systemd cannot bind-mount a host path into its private tmp namespace.
+fn inaccessible_path(poly_path: &std::path::Path) -> Option<String> {
+    let path = poly_path.canonicalize().ok()?;
+    let private_tmp = [
+        std::path::Path::new("/tmp"),
+        std::path::Path::new("/var/tmp"),
+    ];
+    if private_tmp.iter().any(|root| path.starts_with(root)) {
+        return None;
+    }
+    Some(format!("--property=InaccessiblePaths={}", path.display()))
+}
+
 pub fn run_sandboxed(
     command: &str,
     mem_mb: u32,
@@ -139,7 +155,7 @@ pub fn run_sandboxed(
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".polygone");
-    let inaccessible = format!("--property=InaccessiblePaths={}", poly_path.display());
+    let inaccessible = inaccessible_path(&poly_path);
 
     let mut cmd = Command::new("systemd-run");
     cmd.args(["--user", "--wait", "--pipe", "-q"])
@@ -161,11 +177,11 @@ pub fn run_sandboxed(
             "--property=PrivateDevices=yes",
             "--property=RestrictAddressFamilies=AF_UNIX",
             "--property=SystemCallFilter=@system-service",
-        ])
-        .arg(&inaccessible)
-        .arg("/bin/sh")
-        .arg("-c")
-        .arg(command);
+        ]);
+    if let Some(inaccessible) = inaccessible {
+        cmd.arg(inaccessible);
+    }
+    cmd.arg("/bin/sh").arg("-c").arg(command);
 
     // Timeout: systemd-run --wait blocks; stop the transient unit on excess.
     let output = match run_with_timeout(&mut cmd, timeout, Some(&unit)) {
@@ -175,6 +191,23 @@ pub fn run_sandboxed(
             return Err(anyhow::anyhow!("exécution sandboxée impossible : {e}"));
         }
     };
+
+    if !output.status.success() {
+        let code = output
+            .status
+            .code()
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "signal".to_string());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "commande sandboxée terminée en échec (code {code}){}",
+            if stderr.trim().is_empty() {
+                String::new()
+            } else {
+                format!(": {}", stderr.trim())
+            }
+        );
+    }
 
     let mut out = String::from_utf8_lossy(&output.stdout).to_string();
     let err = String::from_utf8_lossy(&output.stderr).to_string();
@@ -385,6 +418,55 @@ mod tests {
             Duration::from_secs(5),
         );
         assert!(out.is_err(), "invalid wasm must error");
+    }
+
+    #[test]
+    fn private_tmp_home_does_not_add_a_conflicting_inaccessible_mount() {
+        let home = std::env::temp_dir().join(format!(
+            "polygone-private-tmp-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let poly = home.join(".polygone");
+        std::fs::create_dir_all(&poly).unwrap();
+        assert!(inaccessible_path(&poly).is_none());
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn identity_path_outside_private_tmp_is_explicitly_inaccessible() {
+        let executable = std::env::current_exe().unwrap();
+        let in_private_tmp = [
+            std::path::Path::new("/tmp"),
+            std::path::Path::new("/var/tmp"),
+        ]
+        .iter()
+        .any(|root| executable.starts_with(root));
+        let arg = inaccessible_path(&executable);
+        assert_eq!(arg.is_none(), in_private_tmp);
+        if let Some(arg) = arg {
+            assert!(arg.starts_with("--property=InaccessiblePaths="));
+        }
+    }
+
+    #[test]
+    fn sandbox_nonzero_exit_is_a_failure() {
+        if !systemd_run_available() {
+            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+            return;
+        }
+        let result = run_sandboxed(
+            "echo expected-error >&2; exit 23",
+            64,
+            50,
+            Duration::from_secs(10),
+        );
+        let error = result.expect_err("un code de sortie non nul ne doit pas être une réussite");
+        assert!(error.to_string().contains("code 23"), "{error}");
+        assert!(error.to_string().contains("expected-error"), "{error}");
     }
 
     #[test]
