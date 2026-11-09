@@ -3,9 +3,14 @@
 //! Protocol (newline-delimited JSON):
 //!
 //! ```text
-//!   client → relay : HELLO <node_id>
-//!   relay   → peer  : HELLO_OK\n        (registration accepted — the slot is yours)
-//!   relay   → peer  : HELLO_DENIED\n    (another connection already owns this node_id)
+//!   client → relay : AUTH_INIT <version> <node_id> <sign_pk> <kem_pk>
+//!   relay   → peer  : CHALLENGE <kem_ct>
+//!   client → relay : AUTH_RESP <signature> <token>
+//!   relay   → peer  : AUTH_OK\n          (identity proven — the slot is yours)
+//!   relay   → peer  : AUTH_DENIED <why>\n  (proof failed or slot already owned)
+//!
+//! Legacy `HELLO <node_id>` remains available only with
+//! `--allow-insecure-hello`; it is refused by default.
 //!   client → relay : {"kind":"fragment","from":...,"to":...,"session":...,
 //!                     "seq":...,"payload":[...]}\n
 //!   relay   → peer  : (the same fragment line, forwarded verbatim)
@@ -16,10 +21,10 @@
 //! It never stores fragments. It forgets a peer the moment it disconnects.
 //!
 //! Hardening (Phase 1, 2026-08-07):
-//! - **`from` must equal the HELLO identity** — a connection cannot emit
-//!   envelopes under another node's name (anti-spoofing at routing level).
-//! - **Registration is acknowledged** (`HELLO_OK` / `HELLO_DENIED`) — a
-//!   duplicate `HELLO` for a live node_id is refused and the claimant is
+//! - **`from` must equal the authenticated identity** — a connection cannot
+//!   emit envelopes under another node's name (anti-spoofing at routing level).
+//! - **Registration is acknowledged** (`AUTH_OK` / `AUTH_DENIED`) — a
+//!   duplicate registration for a live node_id is refused and the claimant is
 //!   told, so routing can never be silently stolen (no last-writer-wins).
 //! - **Line size cap** (64 KiB) and a **per-connection rate limit** —
 //!   a misbehaving client cannot exhaust relay memory or CPU.
@@ -27,6 +32,8 @@
 //!   serialized behind a single global lock.
 
 use anyhow::Result;
+use polygone_core::crypto::kem;
+use polygone_core::sign;
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
@@ -58,6 +65,13 @@ const FRAME_CONTINUATION_TIMEOUT: std::time::Duration = std::time::Duration::fro
 const DESTINATION_WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// Bound attacker-controlled routing keys even before registration.
 const MAX_NODE_ID_LEN: usize = 64;
+/// Wire version of the authentication handshake. Bumped only on an
+/// incompatible change: a peer asking for another version is refused
+/// explicitly (`AUTH_DENIED unsupported_version`) instead of being misparsed.
+pub const AUTH_PROTOCOL_VERSION: &str = "v1";
+
+#[cfg(test)]
+mod auth_tests;
 /// Number of routing-table shards (parallelism for forwarding).
 const SHARDS: usize = 16;
 
@@ -235,35 +249,188 @@ fn valid_node_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-/// Read and validate a HELLO under a bounded deadline. Non-HELLO lines are
-/// tolerated for compatibility, but cannot keep an unauthenticated socket
-/// alive indefinitely.
-async fn read_hello(
+/// The authenticated identity a connection proved during the handshake.
+#[derive(Debug, Clone)]
+enum RegisteredPeer {
+    /// `AUTH_INIT` + KEM proof + ML-DSA signature over the transcript.
+    Auth(String),
+    /// Legacy `HELLO` — only reachable when explicitly enabled.
+    Legacy(String),
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+async fn deny(writer: &mut OwnedWriteHalf, reason: &str) {
+    let _ = writer
+        .write_all(format!("AUTH_DENIED {reason}\n").as_bytes())
+        .await;
+}
+
+/// Read one handshake line under the absolute handshake deadline.
+async fn handshake_line(
     reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
-    timeout: std::time::Duration,
-) -> Result<Option<String>> {
-    let deadline = tokio::time::Instant::now() + timeout;
+    deadline: tokio::time::Instant,
+) -> Result<Option<Vec<u8>>> {
+    match tokio::time::timeout_at(
+        deadline,
+        read_line_capped(reader, MAX_LINE, FRAME_CONTINUATION_TIMEOUT),
+    )
+    .await
+    {
+        Ok(Ok(Some(Some(bytes)))) => Ok(Some(bytes)),
+        Ok(Ok(Some(None))) => anyhow::bail!("oversized handshake line"),
+        Ok(Ok(None)) | Err(_) => Ok(None),
+        Ok(Err(error)) => Err(error.into()),
+    }
+}
+
+/// Authenticate one connection before it may register a routing slot.
+///
+/// `AUTH_INIT v1 <node_id> <sign_pk_hex> <kem_pk_hex>` →
+/// `CHALLENGE <kem_ct_hex>` →
+/// `AUTH_RESP <signature_hex> <token_hex>` → `AUTH_OK`.
+///
+/// The node id must equal `BLAKE3(sign_pk)`. The client proves possession of
+/// the KEM secret by decapsulating the fresh ciphertext and returning
+/// `KDF(shared_secret)`, and possession of the signing key by signing the
+/// transcript that binds the node id, both public keys and the ciphertext.
+/// A relay therefore registers only a peer that owns both halves of the
+/// identity it claims.
+async fn perform_handshake(
+    reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
+    writer: &mut OwnedWriteHalf,
+    allow_insecure_hello: bool,
+    peer_addr: SocketAddr,
+) -> Result<Option<RegisteredPeer>> {
+    let deadline = tokio::time::Instant::now() + HANDSHAKE_TIMEOUT;
     loop {
-        let result = match tokio::time::timeout_at(
-            deadline,
-            read_line_capped(reader, MAX_LINE, FRAME_CONTINUATION_TIMEOUT),
-        )
-        .await
-        {
-            Ok(result) => result?,
-            Err(_) => return Ok(None),
-        };
-        let line = match result {
-            Some(Some(bytes)) => String::from_utf8_lossy(&bytes).to_string(),
-            Some(None) => anyhow::bail!("oversized HELLO"),
+        let raw = match handshake_line(reader, deadline).await? {
+            Some(raw) => raw,
             None => return Ok(None),
         };
-        if let Some(rest) = line.trim().strip_prefix("HELLO ") {
+        let line = String::from_utf8_lossy(&raw);
+        let line = line.trim();
+
+        if let Some(rest) = line.strip_prefix("AUTH_INIT ") {
+            let mut parts = rest.split_whitespace();
+            let (Some(version), Some(node_id), Some(sign_pk_hex), Some(kem_pk_hex)) =
+                (parts.next(), parts.next(), parts.next(), parts.next())
+            else {
+                deny(writer, "malformed").await;
+                return Ok(None);
+            };
+            if version != AUTH_PROTOCOL_VERSION {
+                log::warn!(
+                    "relay: {} asked for unsupported auth version '{}'",
+                    peer_addr,
+                    version
+                );
+                deny(writer, "unsupported_version").await;
+                return Ok(None);
+            }
+            if parts.next().is_some() {
+                deny(writer, "malformed").await;
+                return Ok(None);
+            }
+            if node_id.len() != 32
+                || !valid_node_id(node_id)
+                || sign::node_id_from_sign_pk_hex(sign_pk_hex).as_deref() != Some(node_id)
+            {
+                log::warn!(
+                    "relay: {} presented a node_id not derived from its sign_pk",
+                    peer_addr
+                );
+                deny(writer, "identity_mismatch").await;
+                return Ok(None);
+            }
+            let kem_pk = match kem::KemPublicKey::from_hex(kem_pk_hex) {
+                Ok(pk) => pk,
+                Err(_) => {
+                    deny(writer, "bad_kem_key").await;
+                    return Ok(None);
+                }
+            };
+
+            let (ct, shared_secret) = kem::encapsulate(&kem_pk)?;
+            let ct_hex = ct.to_hex();
+            if writer
+                .write_all(format!("CHALLENGE {ct_hex}\n").as_bytes())
+                .await
+                .is_err()
+            {
+                return Ok(None);
+            }
+            let expected_token = sign::relay_auth_token(&shared_secret.0);
+
+            let raw = match handshake_line(reader, deadline).await? {
+                Some(raw) => raw,
+                None => return Ok(None),
+            };
+            let resp = String::from_utf8_lossy(&raw);
+            let mut parts = resp.split_whitespace();
+            if parts.next() != Some("AUTH_RESP") {
+                deny(writer, "malformed").await;
+                return Ok(None);
+            }
+            let (Some(signature_hex), Some(token)) = (parts.next(), parts.next()) else {
+                deny(writer, "malformed").await;
+                return Ok(None);
+            };
+            if parts.next().is_some() {
+                deny(writer, "malformed").await;
+                return Ok(None);
+            }
+
+            if !constant_time_eq(token.as_bytes(), expected_token.as_bytes()) {
+                log::warn!("relay: {} failed the KEM proof", peer_addr);
+                deny(writer, "invalid_token").await;
+                return Ok(None);
+            }
+
+            let public_key = match sign::PublicKey::from_hex(sign_pk_hex) {
+                Ok(pk) => pk,
+                Err(_) => {
+                    deny(writer, "bad_sign_key").await;
+                    return Ok(None);
+                }
+            };
+            let signature_bytes = match sign::decode_hex(signature_hex) {
+                Some(bytes) if bytes.len() == sign::SIGNATURE_SIZE => bytes,
+                _ => {
+                    deny(writer, "bad_signature").await;
+                    return Ok(None);
+                }
+            };
+            let transcript = sign::relay_auth_transcript(node_id, sign_pk_hex, kem_pk_hex, &ct_hex);
+            let signature = sign::Signature::from_bytes(&signature_bytes);
+            if !sign::Verifier::from_public(public_key).verify(&transcript, &signature) {
+                log::warn!("relay: {} failed the signing-key proof", peer_addr);
+                deny(writer, "bad_signature").await;
+                return Ok(None);
+            }
+
+            return Ok(Some(RegisteredPeer::Auth(node_id.to_string())));
+        }
+
+        if let Some(rest) = line.strip_prefix("HELLO ") {
+            if !allow_insecure_hello {
+                let _ = writer.write_all(b"HELLO_DENIED auth_required\n").await;
+                return Ok(None);
+            }
             let node_id = rest.trim();
             if !valid_node_id(node_id) {
                 anyhow::bail!("invalid node_id in HELLO");
             }
-            return Ok(Some(node_id.to_string()));
+            return Ok(Some(RegisteredPeer::Legacy(node_id.to_string())));
         }
     }
 }
@@ -295,18 +462,24 @@ async fn handle_client(
     peer_addr: SocketAddr,
     peers: Peers,
     identities: Arc<Mutex<IdentityLimiter>>,
+    allow_insecure_hello: bool,
 ) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
 
-    // ── Handshake: bounded, validated, and required before registration ───
-    let hello = match read_hello(&mut reader, HANDSHAKE_TIMEOUT).await {
-        Ok(Some(node_id)) => node_id,
-        Ok(None) => return Ok(()),
-        Err(error) => {
-            log::warn!("relay: invalid HELLO from {}: {}", peer_addr, error);
-            return Ok(());
-        }
+    // ── Handshake: authenticated before any routing slot is granted ────────
+    let registered =
+        match perform_handshake(&mut reader, &mut writer, allow_insecure_hello, peer_addr).await {
+            Ok(Some(peer)) => peer,
+            Ok(None) => return Ok(()),
+            Err(error) => {
+                log::warn!("relay: handshake error from {}: {}", peer_addr, error);
+                return Ok(());
+            }
+        };
+    let (hello, is_auth) = match registered {
+        RegisteredPeer::Auth(node_id) => (node_id, true),
+        RegisteredPeer::Legacy(node_id) => (node_id, false),
     };
 
     // ── Registration: the slot, decided and acknowledged ───────────────────
@@ -323,10 +496,18 @@ async fn handle_client(
                 hello,
                 peer_addr
             );
-            let _ = writer.write_all(b"HELLO_DENIED\n").await;
+            let _ = if is_auth {
+                writer.write_all(b"AUTH_DENIED duplicate\n").await
+            } else {
+                writer.write_all(b"HELLO_DENIED\n").await
+            };
             return Ok(());
         }
-        let _ = writer.write_all(b"HELLO_OK\n").await;
+        let _ = if is_auth {
+            writer.write_all(b"AUTH_OK\n").await
+        } else {
+            writer.write_all(b"HELLO_OK\n").await
+        };
         let route_writer = Arc::new(Mutex::new(writer));
         table.insert(hello.clone(), route_writer.clone());
         route_writer
@@ -453,14 +634,38 @@ async fn handle_client(
 
 /// Start the relay TCP server on the given port.
 pub async fn run(port: u16) -> Result<()> {
+    run_with_options(port, false).await
+}
+
+/// Start the relay with an explicit legacy-HELLO policy.
+///
+/// `allow_insecure_hello` exists for interoperability tests and operators who
+/// deliberately accept unauthenticated registrations. It is off by default.
+pub async fn run_with_options(port: u16, allow_insecure_hello: bool) -> Result<()> {
     let addr = format!("0.0.0.0:{}", port);
     let listener = TcpListener::bind(&addr).await?;
-    log::info!("relay: listening on {}", addr);
-    run_listener(listener).await
+    log::info!(
+        "relay: listening on {} (legacy HELLO: {})",
+        addr,
+        if allow_insecure_hello {
+            "allowed"
+        } else {
+            "refused"
+        }
+    );
+    run_listener_with_options(listener, allow_insecure_hello).await
 }
 
 /// Serve on an already-bound listener (used by tests with port 0).
 pub async fn run_listener(listener: TcpListener) -> Result<()> {
+    run_listener_with_options(listener, false).await
+}
+
+/// Serve on a listener with an explicit legacy-HELLO policy.
+pub async fn run_listener_with_options(
+    listener: TcpListener,
+    allow_insecure_hello: bool,
+) -> Result<()> {
     let mut shards = Vec::with_capacity(SHARDS);
     for _ in 0..SHARDS {
         shards.push(RwLock::new(HashMap::new()));
@@ -488,7 +693,10 @@ pub async fn run_listener(listener: TcpListener) -> Result<()> {
                 let conns = conns.clone();
                 tokio::spawn(async move {
                     let _guard = ConnGuard(conns);
-                    if let Err(e) = handle_client(stream, peer_addr, peers, identities).await {
+                    if let Err(e) =
+                        handle_client(stream, peer_addr, peers, identities, allow_insecure_hello)
+                            .await
+                    {
                         log::error!("relay: client error {}: {}", peer_addr, e);
                     }
                 });
@@ -608,9 +816,9 @@ mod tests {
         let client = TcpStream::connect(addr);
         let (_client_stream, accepted) = tokio::join!(client, listener.accept());
         let (server, _) = accepted.unwrap();
-        let (read, _write) = server.into_split();
+        let (read, mut write) = server.into_split();
         let mut reader = BufReader::new(read);
-        let result = read_hello(&mut reader, Duration::from_millis(20))
+        let result = perform_handshake(&mut reader, &mut write, true, addr)
             .await
             .unwrap();
         assert!(result.is_none());
@@ -623,19 +831,21 @@ mod tests {
         let (client, accepted) = tokio::join!(TcpStream::connect(addr), listener.accept());
         let mut client = client.unwrap();
         let (server, _) = accepted.unwrap();
-        let (read, _write) = server.into_split();
+        let (read, mut write) = server.into_split();
         let mut reader = BufReader::new(read);
         client.write_all(b"HELLO invalid id\n").await.unwrap();
-        let result = read_hello(&mut reader, Duration::from_secs(1)).await;
+        let result = perform_handshake(&mut reader, &mut write, true, addr).await;
         assert!(result.is_err());
     }
 
-    /// Spawn a relay on a random port, return the bound address.
-    async fn spawn_relay() -> std::net::SocketAddr {
+    /// Spawn a relay that still accepts legacy unauthenticated `HELLO`.
+    /// These tests exercise the forwarding table; the authentication proof
+    /// has its own tests in `auth_tests`.
+    async fn spawn_legacy_relay() -> std::net::SocketAddr {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = run_listener(listener).await;
+            let _ = run_listener_with_options(listener, true).await;
         });
         tokio::time::sleep(Duration::from_millis(50)).await;
         addr
@@ -701,7 +911,7 @@ mod tests {
 
     #[tokio::test]
     async fn rate_limited_connection_releases_its_node_id_slot() {
-        let addr = spawn_relay().await;
+        let addr = spawn_legacy_relay().await;
         let mut first = TcpStream::connect(addr).await.unwrap();
         hello(&mut first, "alice").await;
         let envelope = r#"{"kind":"fragment","from":"alice","to":"offline","session":"rate-limit","seq":1,"payload":[]}"#;
@@ -720,7 +930,7 @@ mod tests {
 
     #[tokio::test]
     async fn routes_fragments_to_registered_peer() {
-        let addr = spawn_relay().await;
+        let addr = spawn_legacy_relay().await;
 
         // Bob registers (and provably owns his slot: HELLO_OK).
         let mut bob = TcpStream::connect(addr).await.unwrap();
@@ -756,7 +966,7 @@ mod tests {
 
     #[tokio::test]
     async fn drops_fragments_for_offline_peer_without_error() {
-        let addr = spawn_relay().await;
+        let addr = spawn_legacy_relay().await;
 
         let mut alice = TcpStream::connect(addr).await.unwrap();
         hello(&mut alice, "alice").await;
@@ -779,7 +989,7 @@ mod tests {
 
     #[tokio::test]
     async fn ignores_non_fragment_envelopes() {
-        let addr = spawn_relay().await;
+        let addr = spawn_legacy_relay().await;
 
         let mut bob = TcpStream::connect(addr).await.unwrap();
         hello(&mut bob, "bob").await;
@@ -812,7 +1022,7 @@ mod tests {
     /// that had simply stopped routing would pass the spoofing assertion.
     #[tokio::test]
     async fn refuse_from_spoofing_through_relay() {
-        let addr = spawn_relay().await;
+        let addr = spawn_legacy_relay().await;
 
         let mut bob = TcpStream::connect(addr).await.unwrap();
         hello(&mut bob, "bob").await;
@@ -859,7 +1069,7 @@ mod tests {
 
     #[tokio::test]
     async fn fragment_is_forwarded_only_to_its_intended_recipient() {
-        let addr = spawn_relay().await;
+        let addr = spawn_legacy_relay().await;
 
         let mut bob = TcpStream::connect(addr).await.unwrap();
         hello(&mut bob, "bob").await;
@@ -897,7 +1107,7 @@ mod tests {
 
     #[tokio::test]
     async fn fragment_for_disconnected_recipient_is_dropped() {
-        let addr = spawn_relay().await;
+        let addr = spawn_legacy_relay().await;
 
         let mut alice = TcpStream::connect(addr).await.unwrap();
         hello(&mut alice, "alice").await;
@@ -930,7 +1140,7 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_lines_are_dropped_not_forwarded() {
-        let addr = spawn_relay().await;
+        let addr = spawn_legacy_relay().await;
 
         let mut bob = TcpStream::connect(addr).await.unwrap();
         hello(&mut bob, "bob").await;
@@ -965,7 +1175,7 @@ mod tests {
     // (HELLO_DENIED) — pas de last-writer-wins, pas de vol silencieux.
     #[tokio::test]
     async fn duplicate_hello_does_not_steal_routing() {
-        let addr = spawn_relay().await;
+        let addr = spawn_legacy_relay().await;
 
         // La vraie victime s'enregistre — l'ack prouve que son slot est pris.
         let mut victim = TcpStream::connect(addr).await.unwrap();

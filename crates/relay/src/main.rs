@@ -4,11 +4,17 @@
 //! forwards them, and forgets them immediately. It never inspects, logs,
 //! or stores the payload of any envelope.
 //!
-//! ## Security property (the promise)
+//! ## What the relay actually sees
 //!
-//! - Relay sees: `[envelope received from peer A]` → `[forwarded to peer B]`
-//! - Relay never sees: sender identity, receiver identity, content, metadata
-//!   that proves a conversation happened.
+//! - **Sees**: the routing node ids (`from`, `to`) — authentication and routing
+//!   require them — the session id, envelope sizes, and connection timing.
+//! - **Never sees**: the payload (KEM ciphertext + Shamir shares are opaque
+//!   bytes), the plaintext, or any private key.
+//!
+//! An earlier version of this header claimed the relay never sees sender or
+//! receiver identity. That was false: it routes on node ids and authenticates
+//! them (`AUTH_INIT`, `crates/relay/src/relay.rs`). A security claim that the
+//! code contradicts is a defect, so it is corrected here rather than kept.
 //!
 //! ## How it works (v2 — stub)
 //!
@@ -50,7 +56,10 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    rt.block_on(relay::run(args.port))
+    rt.block_on(relay::run_with_options(
+        args.port,
+        args.allow_insecure_hello,
+    ))
 }
 
 /// Make the Commands struct constructible before parsing — for early exit.
@@ -66,6 +75,10 @@ struct Args {
 
     #[arg(long, help = "Print only errors and warnings")]
     quiet: bool,
+
+    /// Accept the legacy unauthenticated `HELLO` handshake (insecure).
+    #[arg(long, default_value_t = false)]
+    allow_insecure_hello: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,

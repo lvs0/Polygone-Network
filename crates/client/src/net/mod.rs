@@ -3,9 +3,10 @@
 //! ```text
 //! Alice (sender)                        Bob (receiver)
 //!   │                                    │
-//!   │  HELLO <node_id>                   │  HELLO <node_id>
+//!   │  AUTH_INIT <id> <sign> <kem>       │  AUTH_INIT <id> <sign> <kem>
 //!   ├──────────────────────► relay ◄─────┤
-//!   │  HELLO_OK / HELLO_DENIED           │  (registration acknowledged)
+//!   │  CHALLENGE / AUTH_RESP             │  (KEM + ML-DSA proof)
+//!   │  AUTH_OK / AUTH_DENIED             │  (identity proven, slot granted)
 //!   │  fragment envelopes (7 + kem_ct)   │
 //!   │───────────────────────►────────────┤  forward verbatim
 //!   │                                    │  buffer by session → ≥4/7 → decrypt
@@ -209,9 +210,16 @@ pub(crate) struct NetEnvelope {
     pub(crate) ts: Option<u64>,
 }
 
-/// The node id of an identity: first 16 hex chars of the KEM public key.
+/// The node id of an identity: 128 bits derived from the ML-DSA-65 key.
+///
+/// `node_id = hex(BLAKE3-256("polygone node id v1" || sign_pk)[..16])`
+///
+/// Naming a node after the key that signs its envelopes lets a receiver check
+/// `from == node_id(signer)` without trusting the relay. The KEM key is proven
+/// separately by the relay handshake.
 pub fn node_id(identity: &LocalIdentity) -> String {
-    identity.kem_pk_hex.chars().take(16).collect()
+    polygone_core::sign::node_id_from_sign_pk_hex(&identity.sign_pk_hex)
+        .expect("local identity holds a valid ML-DSA-65 public key")
 }
 
 /// Max accepted skew between the sender's timestamp and our clock (anti-replay).
@@ -286,35 +294,114 @@ pub(crate) fn session_id() -> String {
     hex::encode(b)
 }
 
-/// Connect to the relay and register our node id.
+/// Read one newline-terminated handshake line, bounded, byte by byte.
 ///
-/// The relay acknowledges the registration with `HELLO_OK` (the slot is
-/// ours) or `HELLO_DENIED` (another connection already owns this node_id).
-/// We WAIT for the ack: a denied registration must never silently send its
-/// fragments into a slot it does not own. The ack is read byte-by-byte so
-/// nothing beyond the line is buffered — the same connection carries the
-/// actual traffic right after.
-async fn connect(relay: &str, identity: &LocalIdentity) -> Result<TcpStream> {
-    let mut stream = TcpStream::connect(relay).await?;
-    let id = node_id(identity);
-    stream.write_all(format!("HELLO {id}\n").as_bytes()).await?;
-    let mut ack = Vec::with_capacity(16);
+/// The read is deliberately unbuffered: the same socket carries the traffic
+/// immediately after the handshake, and a buffered reader could swallow it.
+async fn read_handshake_line<R: tokio::io::AsyncRead + Unpin>(
+    reader: &mut R,
+    max_len: usize,
+) -> Result<String> {
+    let mut buf = Vec::with_capacity(64);
     let mut byte = [0u8; 1];
     loop {
-        stream.read_exact(&mut byte).await?;
+        reader.read_exact(&mut byte).await?;
         if byte[0] == b'\n' {
             break;
         }
-        ack.push(byte[0]);
-        if ack.len() > 32 {
-            anyhow::bail!("relay: réponse HELLO illisible");
+        buf.push(byte[0]);
+        if buf.len() > max_len {
+            anyhow::bail!("ligne de handshake trop longue");
         }
     }
-    let ack = String::from_utf8_lossy(&ack);
-    if ack.trim() != "HELLO_OK" {
-        anyhow::bail!(
-            "relay a refusé l'enregistrement de {id}: {ack} — un autre nœud utilise déjà cet identifiant ?"
-        );
+    String::from_utf8(buf).map_err(Into::into)
+}
+
+/// Connect to the relay and prove the identity we claim.
+///
+/// `AUTH_INIT` carries the protocol version, the node id and both public keys. The relay answers
+/// with a fresh KEM ciphertext; only the holder of the matching KEM secret can
+/// derive the token. We also sign the transcript with our ML-DSA key, so the
+/// relay knows the node id (derived from that key) and the KEM key belong to
+/// the same live peer. A denied registration never sends a fragment into a
+/// slot it does not own.
+/// Wire version of the relay authentication handshake. Must match
+/// `polygone_relay::relay::AUTH_PROTOCOL_VERSION`; the relay refuses anything
+/// else with `AUTH_DENIED unsupported_version`. Kept as a local constant
+/// because the relay crate is a dev-dependency of this one.
+pub const AUTH_PROTOCOL_VERSION: &str = "v1";
+
+/// Bound the whole relay handshake. A relay that accepts the TCP connection
+/// and then says nothing must fail with an explicit error instead of leaving
+/// the CLI suspended indefinitely (mission P0, Phase 2: errors and deadlines).
+pub const RELAY_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+async fn connect(relay: &str, identity: &LocalIdentity) -> Result<TcpStream> {
+    connect_with_timeout(relay, identity, RELAY_HANDSHAKE_TIMEOUT).await
+}
+
+/// Same as [`connect`], with an explicit deadline (tests use a short one).
+async fn connect_with_timeout(
+    relay: &str,
+    identity: &LocalIdentity,
+    limit: std::time::Duration,
+) -> Result<TcpStream> {
+    match tokio::time::timeout(limit, connect_inner(relay, identity)).await {
+        Ok(result) => result,
+        Err(_) => anyhow::bail!(
+            "relais {relay} muet : aucune réponse au handshake après {} ms — relais arrêté, port filtré ou surchargé",
+            limit.as_millis()
+        ),
+    }
+}
+
+async fn connect_inner(relay: &str, identity: &LocalIdentity) -> Result<TcpStream> {
+    let mut stream = TcpStream::connect(relay).await?;
+    let id = node_id(identity);
+
+    stream
+        .write_all(
+            format!(
+                "AUTH_INIT {AUTH_PROTOCOL_VERSION} {id} {} {}\n",
+                identity.sign_pk_hex, identity.kem_pk_hex
+            )
+            .as_bytes(),
+        )
+        .await?;
+
+    let challenge = read_handshake_line(&mut stream, 8192).await?;
+    let challenge = challenge.trim();
+    if challenge.starts_with("AUTH_DENIED") || challenge.starts_with("HELLO_DENIED") {
+        anyhow::bail!("relay a refusé l'enregistrement de {id}: {challenge}");
+    }
+    let ct_hex = challenge
+        .strip_prefix("CHALLENGE ")
+        .ok_or_else(|| anyhow::anyhow!("relay: réponse inattendue au handshake: {challenge}"))?;
+    let ct = kem::KemCiphertext::from_hex(ct_hex)?;
+    let shared_secret = kem::decapsulate(&identity.kem_secret_key()?, &ct)?;
+    let token = blake3::derive_key(polygone_core::sign::RELAY_AUTH_CONTEXT, &shared_secret.0);
+    let transcript = polygone_core::sign::relay_auth_transcript(
+        &id,
+        &identity.sign_pk_hex,
+        &identity.kem_pk_hex,
+        ct_hex,
+    );
+    let signature = identity.sign_signer()?.sign(&transcript);
+
+    stream
+        .write_all(
+            format!(
+                "AUTH_RESP {} {}\n",
+                hex::encode(signature.as_bytes()),
+                hex::encode(token)
+            )
+            .as_bytes(),
+        )
+        .await?;
+
+    let ack = read_handshake_line(&mut stream, 64).await?;
+    if ack.trim() != "AUTH_OK" {
+        anyhow::bail!("relay: échec d'authentification pour {id}: {ack}");
     }
     Ok(stream)
 }
@@ -577,6 +664,11 @@ fn verify_grant(
         (Some(s), Some(pk_hex), Some(t)) if t > 0 => (s.clone(), pk_hex.clone(), t),
         _ => return false,
     };
+    // The identity must be the one derived from the signing key. Without
+    // this, a relay could answer our request under any node id it chooses.
+    if polygone_core::sign::node_id_from_sign_pk_hex(&signer).as_deref() != Some(ghost_node) {
+        return false;
+    }
     if let Some(expected_pk) = known_peers.get(ghost_node) {
         if expected_pk != &signer {
             return false; // claims to be a known ghost, signs as another
@@ -704,6 +796,10 @@ pub(crate) fn verify_req(
     };
     if now_secs.abs_diff(ts) > MAX_TS_SKEW_SECS {
         return false; // replay or stale clock
+    }
+    if polygone_core::sign::node_id_from_sign_pk_hex(&signer).as_deref() != Some(env.from.as_str())
+    {
+        return false; // the sender does not own the identity it claims
     }
     if let Some(expected_pk) = known_peers.get(&env.from) {
         if expected_pk != &signer {
@@ -865,6 +961,7 @@ pub(crate) enum Refusal {
     MissingTimestamp,
     StaleTimestamp,
     UntrustedKey,
+    IdentityMismatch,
     BadSignerKey,
     BadSignature,
     Undecryptable,
@@ -890,6 +987,7 @@ impl Refusal {
             Refusal::MissingTimestamp => "AUTH.MISSING_TIMESTAMP",
             Refusal::StaleTimestamp => "REPLAY.STALE_TIMESTAMP",
             Refusal::UntrustedKey => "AUTH.UNTRUSTED_KEY",
+            Refusal::IdentityMismatch => "AUTH.IDENTITY_MISMATCH",
             Refusal::BadSignerKey => "AUTH.INVALID_SIGNER_KEY",
             Refusal::BadSignature => "AUTH.BAD_SIGNATURE",
             Refusal::Undecryptable => "CRYPTO.UNDECRYPTABLE",
@@ -1048,6 +1146,12 @@ fn process_line_detailed(
     if now_secs.abs_diff(ts) > MAX_TS_SKEW_SECS {
         // Rejeu capturé et renvoyé hors fenêtre — c'est le second refus de SEC.3.
         return Ok((None, Some(Refusal::StaleTimestamp)));
+    }
+    // The routing identity must be the one derived from the signing key.
+    // This is the receiver-side closure on S1: even a hostile relay cannot
+    // claim `from = alice` with a key it generated itself.
+    if polygone_core::sign::node_id_from_sign_pk_hex(&sig.1).as_deref() != Some(buf.from.as_str()) {
+        return Ok((None, Some(Refusal::IdentityMismatch)));
     }
     // Trust anchor: if we know this peer's signing key, it must match.
     if let Some(expected_pk) = known_peers.get(&buf.from) {
@@ -1213,9 +1317,9 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
             return Ok(());
         };
         let line = String::from_utf8_lossy(&bytes);
-        // The relay acknowledges the HELLO: a denied slot means another
+        // The relay acknowledges the handshake: a denied slot means another
         // connection owns this node_id — the traffic would go nowhere.
-        if line.starts_with("HELLO_DENIED") {
+        if line.starts_with("AUTH_DENIED") || line.starts_with("HELLO_DENIED") {
             println!(
                 "✖ ce node_id est déjà connecté au relay (slot pris par une autre connexion)."
             );
@@ -1590,6 +1694,9 @@ pub fn hide_decrypt_chunk(payload: &[u8], key: &symmetric::SessionKey) -> Result
 pub fn hide_encrypt_chunk(chunk: &[u8], key: &symmetric::SessionKey) -> Result<Vec<u8>> {
     Ok(symmetric::encrypt(chunk, key)?)
 }
+
+#[cfg(test)]
+mod s1_tests;
 
 #[cfg(test)]
 mod tests;

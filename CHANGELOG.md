@@ -1,5 +1,37 @@
 # CHANGELOG — Polygone
 
+## [Unreleased] — 2026-11-09 — Premier réseau authentifié (P0)
+
+### Relais — handshake versionné et borné
+- `AUTH_INIT` porte désormais une version de protocole explicite (`v1`).
+  Une version inconnue est refusée par `AUTH_DENIED unsupported_version`,
+  jamais interprétée au mieux : une évolution incompatible ne peut pas être
+  confondue avec un message valide.
+- Le client borne le handshake (10 s) et échoue avec une erreur nommant
+  l'adresse et la durée au lieu de rester suspendu sur un relais muet.
+- Reprise après coupure brutale vérifiée : le slot de routage est libéré et
+  une nouvelle connexion de la même identité est acceptée, puis une troisième
+  est refusée tant que la seconde vit.
+
+### Preuves réseau
+- `scripts/p0-two-process.sh` : relais + deux pairs, trois processus OS réels,
+  identités distinctes, livraison authentifiée, rejet d'un `HELLO` non prouvé.
+  Exécuté par la CI.
+- `scripts/p0-two-host.sh` : deux hôtes L3 distincts (namespaces réseau + veth,
+  sous-réseaux séparés, aucun loopback), relais sur un troisième. À lancer avec
+  `sudo` ; non exécuté par la CI.
+
+### Documentation et décisions
+- `docs/PROTOCOL-RELAY-AUTH.md` : protocole réel, chaque propriété reliée au
+  test qui la prouve, limites déclarées.
+- `docs/P0-DEUX-MACHINES.md` : procédure de validation physique et tableau de
+  preuve à remplir — non exécutée, une seule machine disponible.
+- `docs/adr/0001-authentification-du-relais.md` : décision consignée.
+- Déclaration corrigée : le relais **voit** les `node_id` de routage ; l'en-tête
+  affirmait le contraire. `polygone id` ne dérive plus de la clé KEM.
+- Cible `[[bench]] inference_bench` retirée : elle pointait un fichier absent
+  et faisait échouer `cargo fmt --all` et `clippy --all-targets`.
+
 ## [Unreleased] — 2026-11-02 — IPC du daemon et retraits de bail vérifiables
 
 ### Gateway — appairage MVP

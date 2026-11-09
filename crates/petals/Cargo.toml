@@ -11,10 +11,10 @@ description = "Petals — local AI inference engine for agentic workloads on CPU
 name = "polygone_petals"
 path = "src/lib.rs"
 
-[[bench]]
-name = "inference_bench"
-path = "benches/inference_bench.rs"
-harness = false
+# Le bench `inference_bench` était déclaré ici sans que le fichier existe sur
+# cette lignée : `cargo fmt --all`, `clippy --all-targets` et tout build de
+# cibles échouaient sur une cible introuvable. Déclaration retirée (P0,
+# 2026-11-09) ; le benchmark reste à réécrire s'il est voulu.
 
 [dependencies]
 polygone-core = { path = "../core" }

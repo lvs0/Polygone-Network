@@ -81,6 +81,14 @@ jobs:
         run: node scripts/check-ci-honesty.mjs
       - name: No tracked secret paths (SEC.8)
         run: cargo test -p polygone-client --test no_tracked_secrets
+      # P0 : le parcours réseau réel (relais + deux pairs, identités
+      # distinctes) est vérifié à chaque CI, pas seulement à la main.
+      - name: P0 — parcours réel relais + deux pairs
+        run: bash scripts/p0-two-process.sh
+        shell: bash
+        env:
+          POLYGONE_BIN_DIR: target/release
+          POLYGONE_SKIP_BUILD: "1"
       - name: Product smoke tests
         run: |
           chmod +x scripts/*.sh

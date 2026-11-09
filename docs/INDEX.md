@@ -4,8 +4,11 @@
 > `.md` sous `docs/`, y compris cet index et les documents Atlas importés.
 > Le périmètre trouvé avant création était de 61 fichiers ; cet index inclus,
 > puis les documents de pilotage ajoutés depuis (`FOUNDER_VISION.md`,
-> `EXECUTION_STATUS.md`, `THREAT-MODEL-SERVICES.md`, `threat-msg.md`), le total
-> attendu est **66 fichiers Markdown**.
+> `EXECUTION_STATUS.md`, `THREAT-MODEL-SERVICES.md`, `threat-msg.md`), et les
+> deux documents P0 du 2026-11-09 (`PROTOCOL-RELAY-AUTH.md`,
+> `P0-DEUX-MACHINES.md`, `MISSION-P0-RAPPORT-2026-11-09.md`,
+> `adr/0001-authentification-du-relais.md`), le total attendu est **70 fichiers
+> Markdown**.
 >
 > **Règle de date :** une date de contenu ou de nom de fichier est indiquée
 > lorsqu'elle est explicite. Pour les documents Atlas sans date de rédaction
@@ -38,6 +41,9 @@
 | `docs/FOUNDER_VISION.md` | Registre exhaustif des exigences du fondateur | 2026-11-04 | autorité | Vision et exigences | Fait foi pour la liste des exigences et leur état 1–7 ; dérivé du corpus et des documents de vision, sans remplacer `VISION.md` pour le périmètre. |
 | `docs/HERMES-FICHE-REPRISE-2026-08-12.md` | Fiche de reprise Hermes | 2026-08-12 | brouillon | Reprise / feuille de route | L'en-tête dit « Draft de travail » et précise que la fiche n'engage pas le projet sans confirmation ; `VISION.md` racine prime. |
 | `docs/HIDE-SPEC.md` | Spécification Hide | 2026-08-09 | brouillon | Proxy Hide / SOCKS5 | Spécification de réintroduction ; le périmètre livré doit être confronté à `ETAT-REEL.md` et au code avant toute promesse produit. |
+| `docs/P0-DEUX-MACHINES.md` | Validation P0 sur deux machines physiques | 2026-11-09 | brouillon | Réseau / preuve physique | Procédure de test prête mais **non exécutée** (une seule machine disponible) ; elle se termine par un tableau de preuves à remplir et ne vaut pas validation tant qu'il est vide. |
+| `docs/adr/0001-authentification-du-relais.md` | ADR-0001 — Authentification du relais | 2026-11-09 | autorité | Sécurité / décision d'architecture | Décision acceptée et implémentée : identité dérivée de la clé de signature, preuve de possession KEM + ML-DSA, slot non volable, alternatives écartées et conséquences négatives (graphe visible, rotation = changement d'identité) déclarées. |
+| `docs/MISSION-P0-RAPPORT-2026-11-09.md` | Mission P0 — rapport de preuves | 2026-11-09 | daté | Réseau / preuves d'exécution | Instantané d'une exécution : 450 tests verts, parcours réel à trois processus, et liste explicite de ce qui n'a pas été vérifié (deux machines physiques, NAT, version de protocole). |
 | `docs/P0-RAPPORT.md` | Rapport de preuves P0 | 2026-11-03 | daté | Archive / inventaire historique | Copie d'un rapport d'exécution daté ; il précise lui-même ce que l'archive prouve et ce qu'elle ne prouve pas. |
 | `docs/PLAN_BLOC_HASH.md` | Plan du magasin de blocs adressés par hash | Non indiquée | brouillon | Stockage distribué | Le texte est un plan de preuve à deux machines, pas la preuve que le transfert inter-hôtes fonctionne ; voir tâche `BLOCKS.9`. |
 | `docs/PLAN_CONSOMMATEUR.md` | Plan du consommateur d'allocation | 2026-09-29 | daté | Daemon / allocation | L'en-tête précise qu'il s'agit d'un incrément sans code ; `PLAN_CONSOMMATEUR_MAJ.md` le remplace sur les points qu'il énumère. |
@@ -47,6 +53,7 @@
 | `docs/PLAN_PRIORITES_2B5.md` | Plan de priorisation 2b-5 | 2026-09-29 (date des mesures citées) | daté | Cgroups / allocation | Le document se déclare plan sans code et s'appuie sur des mesures datées d'un binaire précis ; il ne décrit pas seul l'implémentation actuelle. |
 | `docs/PLAN_REPRISE-2026-10-03.md` | Plan de reprise et état extrait | 2026-10-03 | daté | Reprise des dépôts | L'en-tête borne les observations à cette journée et affirme qu'aucun code n'a été modifié. |
 | `docs/PLAN_SOCKET.md` | Plan du protocole socket daemon | Non indiquée | brouillon | Daemon / IPC | L'en-tête dit « plan seul, aucun code écrit » ; le contrat réel est à vérifier dans `daemon/src/socket.rs`. |
+| `docs/PROTOCOL-RELAY-AUTH.md` | Protocole d'authentification du relais | 2026-11-09 | autorité | Sécurité / handshake relais | Fait foi pour le handshake `AUTH_INIT`/`CHALLENGE`/`AUTH_RESP`/`AUTH_OK` et la dérivation `node_id = BLAKE3(sign_pk)` ; chaque propriété renvoie au test qui la prouve, et les limites (pas de version de protocole, rotation = changement d'identité) sont déclarées. |
 | `docs/PREMIER-SOIR.md` | Protocole Premier Soir | 2026-08-08 (modèle v1 ; carnet daté du 2026-09-02) | brouillon | Parcours utilisateur | Le document présente un protocole et un modèle à remplir ; il ne constitue pas à lui seul une preuve d'un test utilisateur indépendant. |
 | `docs/RAPPORT-FINAL-COMPLET-2026-08-12.md` | Rapport final de mission | 2026-08-12 (nom du fichier) | daté | Historique de mission | Rapport de clôture historique ; ses formulations de mission accomplie ne remplacent pas les preuves actuelles du code. |
 | `docs/RAPPORT-IDEES-MINEES-2026-08-12.md` | Rapport d'idées extraites | 2026-08-12 (nom du fichier) | daté | Historique / idées | Rapport rétrospectif daté ; aucune idée listée n'est réputée livrée sans appelant et preuve actuels. |
