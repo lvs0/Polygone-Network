@@ -34,7 +34,10 @@ async fn start_auth(
     let node_id = sign::node_id_from_sign_pk_hex(&sign_pk_hex).expect("node id");
     let kem_pk_hex = kem_pk.to_hex();
     stream
-        .write_all(format!("AUTH_INIT {node_id} {sign_pk_hex} {kem_pk_hex}\n").as_bytes())
+        .write_all(
+            format!("AUTH_INIT {AUTH_PROTOCOL_VERSION} {node_id} {sign_pk_hex} {kem_pk_hex}\n")
+                .as_bytes(),
+        )
         .await
         .unwrap();
     let challenge = read_line(stream).await;
@@ -95,6 +98,35 @@ async fn strict_relay_refuses_legacy_hello() {
     assert!(
         ack.starts_with("HELLO_DENIED"),
         "legacy HELLO was accepted: {ack}"
+    );
+}
+
+/// P0: the handshake is versioned. An unknown version is a clear refusal, not
+/// a best-effort parse of fields whose meaning may have changed.
+#[tokio::test]
+async fn an_unsupported_auth_version_is_refused_explicitly() {
+    let addr = spawn_strict_relay().await;
+    let (kem_pk, _kem_sk) = kem::generate_keypair().unwrap();
+    let sign_kp = sign::generate_keypair().unwrap();
+    let node_id =
+        sign::node_id_from_sign_pk_hex(&sign_kp.verifier.public_key().to_hex()).expect("node id");
+
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    client
+        .write_all(
+            format!(
+                "AUTH_INIT v2 {node_id} {} {}\n",
+                sign_kp.verifier.public_key().to_hex(),
+                kem_pk.to_hex()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let ack = read_line(&mut client).await;
+    assert!(
+        ack.starts_with("AUTH_DENIED unsupported_version"),
+        "an unknown auth version was not refused explicitly: {ack}"
     );
 }
 
@@ -189,7 +221,7 @@ async fn a_node_id_not_derived_from_the_signing_key_is_refused() {
     client
         .write_all(
             format!(
-                "AUTH_INIT {fake_id} {} {}\n",
+                "AUTH_INIT {AUTH_PROTOCOL_VERSION} {fake_id} {} {}\n",
                 sign_kp.verifier.public_key().to_hex(),
                 kem_pk.to_hex()
             )

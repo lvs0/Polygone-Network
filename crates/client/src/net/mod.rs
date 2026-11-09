@@ -319,12 +319,18 @@ async fn read_handshake_line<R: tokio::io::AsyncRead + Unpin>(
 
 /// Connect to the relay and prove the identity we claim.
 ///
-/// `AUTH_INIT` carries the node id and both public keys. The relay answers
+/// `AUTH_INIT` carries the protocol version, the node id and both public keys. The relay answers
 /// with a fresh KEM ciphertext; only the holder of the matching KEM secret can
 /// derive the token. We also sign the transcript with our ML-DSA key, so the
 /// relay knows the node id (derived from that key) and the KEM key belong to
 /// the same live peer. A denied registration never sends a fragment into a
 /// slot it does not own.
+/// Wire version of the relay authentication handshake. Must match
+/// `polygone_relay::relay::AUTH_PROTOCOL_VERSION`; the relay refuses anything
+/// else with `AUTH_DENIED unsupported_version`. Kept as a local constant
+/// because the relay crate is a dev-dependency of this one.
+pub const AUTH_PROTOCOL_VERSION: &str = "v1";
+
 /// Bound the whole relay handshake. A relay that accepts the TCP connection
 /// and then says nothing must fail with an explicit error instead of leaving
 /// the CLI suspended indefinitely (mission P0, Phase 2: errors and deadlines).
@@ -356,7 +362,7 @@ async fn connect_inner(relay: &str, identity: &LocalIdentity) -> Result<TcpStrea
     stream
         .write_all(
             format!(
-                "AUTH_INIT {id} {} {}\n",
+                "AUTH_INIT {AUTH_PROTOCOL_VERSION} {id} {} {}\n",
                 identity.sign_pk_hex, identity.kem_pk_hex
             )
             .as_bytes(),

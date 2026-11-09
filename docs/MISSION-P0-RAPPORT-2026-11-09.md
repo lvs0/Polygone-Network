@@ -9,8 +9,10 @@
 
 Deux nœuds aux identités distinctes échangent un message authentifié à travers
 le relais, dans **trois processus OS séparés** (relais + émetteur + récepteur),
-avec refus explicite d'une identité non prouvée. Le saut « deux machines » reste
-à faire, avec sa procédure écrite.
+avec refus explicite d'une identité non prouvée. Le même parcours est prouvé
+entre **deux hôtes L3 distincts** (namespaces réseau + veth, sous-réseaux
+séparés, aucun loopback), relais sur un troisième. Le saut restant est le
+matériel : deux machines physiques, avec sa procédure écrite.
 
 ## 2. Ce qui a été corrigé (Phase 2)
 
@@ -60,13 +62,39 @@ Ce que cela ne prouve pas : le comportement sur deux machines (voir §5).
 |---|---|
 | `cargo fmt --all --check` | exit 0 |
 | `cargo clippy --workspace --all-targets -- -D warnings` | exit 0, aucune régression |
-| `cargo test --workspace` | **450 passés / 0 échec** |
-| `cargo test -p polygone-relay auth_tests` | 8 passés / 0 échec |
+| `cargo test --workspace` | **451 passés / 0 échec** |
+| `cargo test -p polygone-relay` | 28 passés / 0 échec |
+| `cargo test -p polygone-client --test doc_index` | exit 0 |
 | `./scripts/p0-two-process.sh` | PASS |
+| `sudo env POLYGONE_SKIP_BUILD=1 ./scripts/p0-two-host.sh` | PASS |
 
-Les 450 tests incluent les deux tests ajoutés ici (`silent_relay`,
-`an_abruptly_disconnected_peer_can_reconnect…`) ; les 448 autres étaient déjà
-verts avant cette mission.
+Les 451 tests incluent les trois tests ajoutés ici (`silent_relay`,
+`an_abruptly_disconnected_peer_can_reconnect…`,
+`an_unsupported_auth_version_is_refused_explicitly`) ; les 448 autres étaient
+déjà verts avant cette mission.
+
+### 3.3 Deux hôtes L3 distincts (`scripts/p0-two-host.sh`)
+
+```text
+A  10.200.1.2
+R  10.200.1.1 / 10.200.2.1
+B  10.200.2.2
+== 2. isolation : A ne joint pas B en direct ==
+aucune route de A vers 10.200.2.2 : le trafic doit passer par R
+A = 062bc7395c3e31ebaa3a66ea5432cea0 (10.200.1.2)
+B = bbd42970161304b823a206086f62cb2d (10.200.2.2)
+message envoyé via relay 10.200.1.1:7000 → bbd4…cb2d
+message reçu et authentifié de 062b…cea0
+refus explicite : HELLO_DENIED auth_required
+== PASS — deux hôtes L3 distincts, hors loopback ==
+```
+
+Ce que cela prouve : le protocole fonctionne sur un chemin routé, entre deux
+piles réseau séparées par le noyau, sur des sous-réseaux différents, sans que
+A puisse joindre B autrement que par le relais.
+Ce que cela ne prouve pas : ce qui dépend du matériel — deux noyaux, deux
+horloges, deux cartes réseau, perte réelle, NAT. C'est l'objet de
+`docs/P0-DEUX-MACHINES.md`.
 
 ## 4. Ce qui protège quoi
 
@@ -81,14 +109,17 @@ verts avant cette mission.
 
 ## 5. Non vérifié, et pourquoi
 
-1. **Deux machines physiques.** Une seule machine disponible. La procédure
-   complète, avec contrôles négatifs et tableau de preuve, est dans
-   [`P0-DEUX-MACHINES.md`](P0-DEUX-MACHINES.md). Tant que ce tableau est vide,
-   la définition de terminé de la mission n'est **pas** satisfaite sur ce point.
+1. **Deux machines physiques.** Le chemin L3 à deux hôtes est prouvé (§3.3),
+   mais une seule machine physique était disponible : deux noyaux, deux
+   horloges, deux cartes réseau et le comportement réseau réel ne sont pas
+   testés. La procédure complète, avec contrôles négatifs et tableau de preuve,
+   est dans [`P0-DEUX-MACHINES.md`](P0-DEUX-MACHINES.md). Tant que ce tableau
+   est vide, ce point de la définition de terminé n'est **pas** satisfait.
 2. **Traversée de NAT.** Non implémentée. Le relais doit être joignable en
    entrée ; deux pairs derrière des NAT symétriques ne peuvent pas se parler.
-3. **Version de protocole.** `AUTH_INIT` n'en porte aucune : une évolution
-   incompatible sera un refus, pas une négociation.
+3. **Négociation de version.** `AUTH_INIT v1` est explicite et une version
+   inconnue est refusée (`unsupported_version`), mais il n'existe pas de double
+   support : relais et clients doivent monter ensemble.
 4. **Rotation de clé.** `clef-tourner` change la clé ML-DSA, donc le `node_id`
    et l'ancre de confiance des pairs ; aucune propagation n'existe. C'est la
    décision D2, toujours non tranchée.

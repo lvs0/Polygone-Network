@@ -6,8 +6,9 @@
 > puis les documents de pilotage ajoutés depuis (`FOUNDER_VISION.md`,
 > `EXECUTION_STATUS.md`, `THREAT-MODEL-SERVICES.md`, `threat-msg.md`), et les
 > deux documents P0 du 2026-11-09 (`PROTOCOL-RELAY-AUTH.md`,
-> `P0-DEUX-MACHINES.md`, `MISSION-P0-RAPPORT-2026-11-09.md`), le total attendu
-> est **69 fichiers Markdown**.
+> `P0-DEUX-MACHINES.md`, `MISSION-P0-RAPPORT-2026-11-09.md`,
+> `adr/0001-authentification-du-relais.md`), le total attendu est **70 fichiers
+> Markdown**.
 >
 > **Règle de date :** une date de contenu ou de nom de fichier est indiquée
 > lorsqu'elle est explicite. Pour les documents Atlas sans date de rédaction
@@ -41,6 +42,7 @@
 | `docs/HERMES-FICHE-REPRISE-2026-08-12.md` | Fiche de reprise Hermes | 2026-08-12 | brouillon | Reprise / feuille de route | L'en-tête dit « Draft de travail » et précise que la fiche n'engage pas le projet sans confirmation ; `VISION.md` racine prime. |
 | `docs/HIDE-SPEC.md` | Spécification Hide | 2026-08-09 | brouillon | Proxy Hide / SOCKS5 | Spécification de réintroduction ; le périmètre livré doit être confronté à `ETAT-REEL.md` et au code avant toute promesse produit. |
 | `docs/P0-DEUX-MACHINES.md` | Validation P0 sur deux machines physiques | 2026-11-09 | brouillon | Réseau / preuve physique | Procédure de test prête mais **non exécutée** (une seule machine disponible) ; elle se termine par un tableau de preuves à remplir et ne vaut pas validation tant qu'il est vide. |
+| `docs/adr/0001-authentification-du-relais.md` | ADR-0001 — Authentification du relais | 2026-11-09 | autorité | Sécurité / décision d'architecture | Décision acceptée et implémentée : identité dérivée de la clé de signature, preuve de possession KEM + ML-DSA, slot non volable, alternatives écartées et conséquences négatives (graphe visible, rotation = changement d'identité) déclarées. |
 | `docs/MISSION-P0-RAPPORT-2026-11-09.md` | Mission P0 — rapport de preuves | 2026-11-09 | daté | Réseau / preuves d'exécution | Instantané d'une exécution : 450 tests verts, parcours réel à trois processus, et liste explicite de ce qui n'a pas été vérifié (deux machines physiques, NAT, version de protocole). |
 | `docs/P0-RAPPORT.md` | Rapport de preuves P0 | 2026-11-03 | daté | Archive / inventaire historique | Copie d'un rapport d'exécution daté ; il précise lui-même ce que l'archive prouve et ce qu'elle ne prouve pas. |
 | `docs/PLAN_BLOC_HASH.md` | Plan du magasin de blocs adressés par hash | Non indiquée | brouillon | Stockage distribué | Le texte est un plan de preuve à deux machines, pas la preuve que le transfert inter-hôtes fonctionne ; voir tâche `BLOCKS.9`. |

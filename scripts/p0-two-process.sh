@@ -15,8 +15,11 @@
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-CLIENT="$ROOT/target/debug/polygone"
-RELAY="$ROOT/target/debug/polygone-relay"
+# Les binaires viennent de target/debug par défaut ; la CI pointe
+# POLYGONE_BIN_DIR=target/release après son build release.
+BIN_DIR="${POLYGONE_BIN_DIR:-$ROOT/target/debug}"
+CLIENT="$BIN_DIR/polygone"
+RELAY="$BIN_DIR/polygone-relay"
 MARKER="P0-$(date +%s)-$RANDOM"
 TMP="$(mktemp -d -t polygone-p0.XXXXXX)"
 RELAY_PID=""
@@ -35,8 +38,14 @@ step() { printf '\n== %s ==\n' "$*"; }
 fail() { printf '\n✖ FAIL: %s\n' "$*" >&2; exit 1; }
 
 step "0. binaires"
-[[ -x "$CLIENT" ]] || cargo build --manifest-path "$ROOT/Cargo.toml" -p polygone-client
-[[ -x "$RELAY" ]] || cargo build --manifest-path "$ROOT/Cargo.toml" -p polygone-relay
+# Toujours construire : `cargo test` compile les binaires en harnais de test et
+# laisse `target/debug/polygone` périmé — un test qui tourne sur un binaire
+# périmé ne prouve rien. La CI (build release déjà fait) passe
+# POLYGONE_SKIP_BUILD=1.
+if [[ "${POLYGONE_SKIP_BUILD:-0}" != "1" ]]; then
+  cargo build --manifest-path "$ROOT/Cargo.toml" -p polygone-client -p polygone-relay
+fi
+[[ -x "$CLIENT" && -x "$RELAY" ]] || fail "binaires absents dans $BIN_DIR (build d'abord, ou POLYGONE_BIN_DIR)"
 printf 'client %s\nrelais %s\n' "$CLIENT" "$RELAY"
 
 PORT=$(( 20000 + RANDOM % 20000 ))

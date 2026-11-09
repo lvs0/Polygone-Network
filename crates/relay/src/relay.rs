@@ -3,7 +3,7 @@
 //! Protocol (newline-delimited JSON):
 //!
 //! ```text
-//!   client → relay : AUTH_INIT <node_id> <sign_pk> <kem_pk>
+//!   client → relay : AUTH_INIT <version> <node_id> <sign_pk> <kem_pk>
 //!   relay   → peer  : CHALLENGE <kem_ct>
 //!   client → relay : AUTH_RESP <signature> <token>
 //!   relay   → peer  : AUTH_OK\n          (identity proven — the slot is yours)
@@ -65,6 +65,10 @@ const FRAME_CONTINUATION_TIMEOUT: std::time::Duration = std::time::Duration::fro
 const DESTINATION_WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// Bound attacker-controlled routing keys even before registration.
 const MAX_NODE_ID_LEN: usize = 64;
+/// Wire version of the authentication handshake. Bumped only on an
+/// incompatible change: a peer asking for another version is refused
+/// explicitly (`AUTH_DENIED unsupported_version`) instead of being misparsed.
+pub const AUTH_PROTOCOL_VERSION: &str = "v1";
 
 #[cfg(test)]
 mod auth_tests;
@@ -291,7 +295,7 @@ async fn handshake_line(
 
 /// Authenticate one connection before it may register a routing slot.
 ///
-/// `AUTH_INIT <node_id> <sign_pk_hex> <kem_pk_hex>` →
+/// `AUTH_INIT v1 <node_id> <sign_pk_hex> <kem_pk_hex>` →
 /// `CHALLENGE <kem_ct_hex>` →
 /// `AUTH_RESP <signature_hex> <token_hex>` → `AUTH_OK`.
 ///
@@ -318,12 +322,21 @@ async fn perform_handshake(
 
         if let Some(rest) = line.strip_prefix("AUTH_INIT ") {
             let mut parts = rest.split_whitespace();
-            let (Some(node_id), Some(sign_pk_hex), Some(kem_pk_hex)) =
-                (parts.next(), parts.next(), parts.next())
+            let (Some(version), Some(node_id), Some(sign_pk_hex), Some(kem_pk_hex)) =
+                (parts.next(), parts.next(), parts.next(), parts.next())
             else {
                 deny(writer, "malformed").await;
                 return Ok(None);
             };
+            if version != AUTH_PROTOCOL_VERSION {
+                log::warn!(
+                    "relay: {} asked for unsupported auth version '{}'",
+                    peer_addr,
+                    version
+                );
+                deny(writer, "unsupported_version").await;
+                return Ok(None);
+            }
             if parts.next().is_some() {
                 deny(writer, "malformed").await;
                 return Ok(None);

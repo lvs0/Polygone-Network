@@ -36,7 +36,7 @@ Transport : TCP, une ligne = une trame, fin de ligne `\n`, plafond 64 KiB.
 Encodage hexadécimal minuscule pour toutes les valeurs binaires.
 
 ```text
-client → relais : AUTH_INIT <node_id> <sign_pk_hex> <kem_pk_hex>\n
+client → relais : AUTH_INIT <version> <node_id> <sign_pk_hex> <kem_pk_hex>\n
 relais → client : CHALLENGE <kem_ct_hex>\n
 client → relais : AUTH_RESP <signature_hex> <token_hex>\n
 relais → client : AUTH_OK\n
@@ -65,8 +65,13 @@ rejouant un challenge d'une autre connexion.
 
 ### 3.2 Motifs de refus (stables, exploitables)
 
-`malformed`, `identity_mismatch`, `bad_kem_key`, `bad_sign_key`,
-`bad_signature`, `invalid_token`, `duplicate`, `auth_required` (HELLO hérité).
+`malformed`, `unsupported_version`, `identity_mismatch`, `bad_kem_key`,
+`bad_sign_key`, `bad_signature`, `invalid_token`, `duplicate`, `auth_required`
+(HELLO hérité).
+
+`unsupported_version` répond à un `AUTH_INIT` dont le premier champ n'est pas
+`v1` : le handshake est versionné, et une version inconnue n'est jamais
+interprétée au mieux.
 
 `duplicate` signifie qu'une connexion vivante possède déjà ce `node_id` :
 le relais ne fait **jamais** de « dernier arrivé gagne ».
@@ -109,8 +114,10 @@ ailleurs, côté destinataire (`crates/client/src/net/mod.rs`) :
 
 ## 6. Limites assumées
 
-1. **Aucune version de protocole** sur `AUTH_INIT`. Une évolution incompatible
-   sera un refus, pas une négociation. À ajouter avant toute publication large.
+1. **Version de protocole** : `AUTH_INIT v1` est explicite et une version
+   inconnue est refusée (`unsupported_version`). Il n'y a pas encore de
+   négociation de version ni de fenêtre de double support : une montée de
+   version exige de mettre à jour relais et clients ensemble.
 2. **Rotation de clé = changement de `node_id`** : `clef-tourner` renouvelle la
    clé ML-DSA, donc l'identité de routage et l'ancre de confiance des pairs.
    La rotation est prouvée localement, mais aucun message ne propage la nouvelle
