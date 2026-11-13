@@ -103,6 +103,41 @@ partagées sur toutes les plateformes. »
   grant réel et contrôle du contenu observé par le relais.
 - **Non prouvé :** deux hôtes physiques sur LAN réel, deux réseaux distincts,
   NAT, perte de paquets, reconnexion inter-hôtes, analyse de trafic, multi-hop Hide.
+- **Prouvé le 2026-11-10 (WAN, deux noyaux) :** nœud A sur la machine locale
+  (`Linux 7.2.5-3-omarchy`), nœud B dans un conteneur Modal (`4.19.0-gvisor`), relais
+  dans le conteneur exposé par un tunnel TCP brut. Message livré par le relais,
+  marqueur retrouvé chez B, ancre de confiance apprise
+  (`BLAKE3-256 0ea5d646…`), dates de démarrage distinctes (`1794231716` ≠
+  `1794347093`). Journal : `docs/proofs/modal-two-host-20261110T214504Z.md`.
+  Ce n'est pas deux machines personnelles : le second hôte est virtualisé (gVisor)
+  et aucun pair n'est derrière une box, donc le NAT résidentiel reste non prouvé.
+- **Prouvé le 2026-11-10 (trois noyaux, deux sauts de WAN) :** A local, relais R et
+  nœud B dans **deux conteneurs Modal distincts**. Trois `boot_id` différents
+  (`96607c82…`, `1acb281c…`, `99d41715…`), marqueur livré par R, ancre apprise
+  (`BLAKE3-256 89e939b6…`). Le relais ne partage plus le noyau du destinataire.
+  Journal : `docs/proofs/modal-three-kernels-20261110T215027Z.md`.
+- **Prouvé le 2026-11-10 (coupure et reprise) :** le tunnel public est fermé en pleine
+  session ; l'écouteur de B tombe (`died=1`), B se réenregistre sur un nouveau tunnel
+  avec le **même `node_id`, la même clé KEM et la même ancre de confiance**, et le
+  message suivant est livré. Aucun `duplicate` : le slot du pair coupé est
+  effectivement libéré, pas conservé. Journal :
+  `docs/proofs/modal-reconnect-20261110T215246Z.md`. Non prouvé : la reprise si le
+  relais lui-même redémarre (état des slots en mémoire seulement).
+- **Mesuré avant correctif le 2026-11-10 (redémarrage du relais) :** R1 tué par SIGKILL,
+  R2 relancé sur le même port derrière le même tunnel. Aucun état ne survit chez le relais.
+  Côté pair, l'écouteur sortait avec le code 0 et ne se reconnectait pas. Journal historique :
+  `docs/proofs/modal-relay-restart-20261110T215706Z.md`.
+- **Corrigé et re-mesuré le 2026-11-10 :** `receive_network()` conserve ses buffers, ses
+  caches anti-rejeu et ses ancres pendant la reconnexion ; il refait le handshake avec la
+  même identité, avec un backoff de 1 à 30 s. Après SIGKILL de R1 et redémarrage de R2 sur
+  la même adresse, le même processus B reste vivant (`exit=None`), se réauthentifie
+  automatiquement (`auto_reconnected=true`) et reçoit la sonde. L'ancre n'est pas réapprise.
+  Journal final : `docs/proofs/modal-relay-restart-20261110T221636Z.md`.
+  Régression : `cargo test -p polygone-client --bin polygone net::tests:: -- --test-threads=1`
+  — **38 tests, 0 échec** ; `cargo build -p polygone-client --bin polygone` : PASS.
+- **Limites restantes :** le relais ne persiste toujours pas ses slots ; ils sont recréés
+  quand le pair se réauthentifie. Aucune livraison différée des messages envoyés pendant
+  la coupure n'a été prouvée. NAT résidentiel et hôtes physiques restent hors de cette preuve.
 - **Conséquence :** le mot « réseau décentralisé » est autorisé en architecture,
   pas en démonstration publique.
 

@@ -8,6 +8,7 @@ pub mod error;
 pub mod identity;
 pub mod receipt;
 pub mod sign;
+pub mod task;
 
 pub use crypto::SharedSecret;
 pub use envelope::{Envelope, EnvelopeKind, Fragment, FRAGMENT_SHARES, FRAGMENT_THRESHOLD};
@@ -16,4 +17,8 @@ pub use identity::{NodeId, SessionId};
 pub use sign::{
     KeyPair, PublicKey, SecretKey, Signature, Signer, Verifier, PUBLIC_KEY_SIZE, SECRET_KEY_SIZE,
     SIGNATURE_SIZE,
+};
+pub use task::{
+    TaskConstraints, TaskError, TaskId, TaskKind, TaskPermissions, TaskRecord, TaskRequirements,
+    TaskResult, TaskSpec, TaskState,
 };

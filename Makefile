@@ -3,7 +3,7 @@
 
 CARGO ?= cargo
 
-.PHONY: help check fmt clippy test docs smoke build clean
+.PHONY: help check fmt clippy test docs smoke migrate-proof build clean
 
 help:
 	@echo "make check   fmt + clippy + tests workspace (porte complète)"
@@ -12,6 +12,7 @@ help:
 	@echo "make test    tests workspace"
 	@echo "make docs    cohérence documentaire (scripts/check-docs.mjs)"
 	@echo "make smoke   parcours réel relais + deux processus (scripts/p0-two-process.sh)"
+	@echo "make migrate-proof  migration peers.json v1 → v2 (script de preuve)"
 	@echo "make build   binaires de release"
 
 check: fmt clippy test docs
@@ -30,6 +31,9 @@ docs:
 
 smoke:
 	./scripts/p0-two-process.sh
+
+migrate-proof:
+	./scripts/peers-migration-smoke.sh
 
 build:
 	$(CARGO) build --release --workspace

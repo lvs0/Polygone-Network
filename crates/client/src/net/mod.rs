@@ -196,6 +196,33 @@ pub const MAX_WIRE_LINE: usize = 64 * 1024;
 /// Once a relay frame starts, it must finish within this absolute deadline.
 const FRAME_CONTINUATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Backoff for a relay that is temporarily unavailable. The receiver keeps
+/// its local session buffers and trust anchors while the TCP connection is
+/// re-established; it must not turn a transient EOF into a successful exit.
+const RELAY_RECONNECT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+const RELAY_RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn is_retryable_relay_io(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::NotConnected
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::UnexpectedEof
+    )
+}
+
+fn is_retryable_relay_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| is_retryable_relay_io(io.kind()))
+    })
+}
+
 /// Read one newline-delimited frame without allowing an untrusted relay to
 /// grow a `String`/`Vec` without bound. An overlong frame fails closed.
 async fn read_line_capped<R: AsyncBufRead + Unpin>(
@@ -670,6 +697,7 @@ async fn borrow_request(
     known_peers: &mut HashMap<String, String>,
     timeout: std::time::Duration,
 ) -> Result<Option<String>> {
+    let policy = TrustPolicy::from_env()?;
     let mut stream = connect(relay, identity).await?;
     let from = node_id(identity);
     let req_session = session_id();
@@ -737,7 +765,7 @@ async fn borrow_request(
                 // ghost's key (trust anchor), the signature MUST verify —
                 // a malicious relay cannot forge a grant for our session.
                 // First contact = TOFU: learn the ghost's key.
-                let sig_ok = verify_grant(&env, known_peers, ghost_node);
+                let sig_ok = verify_grant(&env, known_peers, ghost_node, policy);
                 if sig_ok {
                     return Ok(Some(String::from_utf8_lossy(&env.payload).to_string()));
                 }
@@ -754,6 +782,7 @@ fn verify_grant(
     env: &NetEnvelope,
     known_peers: &mut HashMap<String, String>,
     ghost_node: &str,
+    policy: TrustPolicy,
 ) -> bool {
     let (sig, signer, ts) = match (&env.sig, &env.signer, env.ts) {
         (Some(s), Some(pk_hex), Some(t)) if t > 0 => (s.clone(), pk_hex.clone(), t),
@@ -763,6 +792,9 @@ fn verify_grant(
     // this, a relay could answer our request under any node id it chooses.
     if polygone_core::sign::node_id_from_sign_pk_hex(&signer).as_deref() != Some(ghost_node) {
         return false;
+    }
+    if policy == TrustPolicy::Strict && !known_peers.contains_key(ghost_node) {
+        return false; // strict: an unanchored ghost is not trusted on first contact
     }
     if let Some(expected_pk) = known_peers.get(ghost_node) {
         if expected_pk != &signer {
@@ -880,10 +912,20 @@ fn grant_for(
 /// Verify an authenticated RES request (signed like a message).
 /// The ghost only executes requests from provable senders: freshness,
 /// signature, and the trust anchor are all enforced.
+#[allow(dead_code)] // wrapper TOFU, utilisé par les tests
 pub(crate) fn verify_req(
     env: &NetEnvelope,
     known_peers: &mut HashMap<String, String>,
     now_secs: u64,
+) -> bool {
+    verify_req_with_policy(env, known_peers, now_secs, TrustPolicy::Tofu)
+}
+
+fn verify_req_with_policy(
+    env: &NetEnvelope,
+    known_peers: &mut HashMap<String, String>,
+    now_secs: u64,
+    policy: TrustPolicy,
 ) -> bool {
     let (sig, signer, ts) = match (&env.sig, &env.signer, env.ts) {
         (Some(s), Some(pk_hex), Some(t)) if t > 0 => (s.clone(), pk_hex.clone(), t),
@@ -895,6 +937,9 @@ pub(crate) fn verify_req(
     if polygone_core::sign::node_id_from_sign_pk_hex(&signer).as_deref() != Some(env.from.as_str())
     {
         return false; // the sender does not own the identity it claims
+    }
+    if policy == TrustPolicy::Strict && !known_peers.contains_key(&env.from) {
+        return false; // strict: no compute for a peer that was never anchored
     }
     if let Some(expected_pk) = known_peers.get(&env.from) {
         if expected_pk != &signer {
@@ -1032,6 +1077,42 @@ fn valid_wire_token(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
+/// Politique de confiance pour un pair jamais vu.
+///
+/// `Tofu` est le comportement historique : le premier message vérifié ancre la
+/// clé. `Strict` refuse tout pair absent de `peers.json` : l'utilisateur doit
+/// avoir vérifié l'empreinte hors-ligne avant le premier échange. Un couple
+/// d'appairage n'est donc pas créé par un simple message entrant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrustPolicy {
+    Tofu,
+    Strict,
+}
+
+/// Variable d'environnement qui choisit la politique de confiance.
+pub const TRUST_POLICY_ENV: &str = "POLYGONE_TRUST_POLICY";
+
+impl TrustPolicy {
+    /// Analyse une valeur explicite. Vide ou absente vaut `Tofu` ; une valeur
+    /// inconnue est une **erreur**, jamais un repli silencieux vers un mode plus
+    /// permissif que celui demandé.
+    pub fn parse(value: Option<&str>) -> Result<Self> {
+        match value.map(str::trim) {
+            None | Some("") => Ok(TrustPolicy::Tofu),
+            Some(v) if v.eq_ignore_ascii_case("tofu") => Ok(TrustPolicy::Tofu),
+            Some(v) if v.eq_ignore_ascii_case("strict") => Ok(TrustPolicy::Strict),
+            Some(other) => anyhow::bail!(
+                "{TRUST_POLICY_ENV} invalide : {other:?} — valeurs acceptées : tofu, strict"
+            ),
+        }
+    }
+
+    /// Lit la politique de l'environnement du processus.
+    pub fn from_env() -> Result<Self> {
+        Self::parse(std::env::var(TRUST_POLICY_ENV).ok().as_deref())
+    }
+}
+
 /// Motif explicite d'abandon d'une trame, rendu par
 /// [`process_line_detailed`] et journalisé par `process_line`.
 ///
@@ -1056,6 +1137,7 @@ pub(crate) enum Refusal {
     MissingTimestamp,
     StaleTimestamp,
     UntrustedKey,
+    UnknownPeer,
     IdentityMismatch,
     BadSignerKey,
     BadSignature,
@@ -1082,6 +1164,7 @@ impl Refusal {
             Refusal::MissingTimestamp => "AUTH.MISSING_TIMESTAMP",
             Refusal::StaleTimestamp => "REPLAY.STALE_TIMESTAMP",
             Refusal::UntrustedKey => "AUTH.UNTRUSTED_KEY",
+            Refusal::UnknownPeer => "AUTH.UNKNOWN_PEER",
             Refusal::IdentityMismatch => "AUTH.IDENTITY_MISMATCH",
             Refusal::BadSignerKey => "AUTH.INVALID_SIGNER_KEY",
             Refusal::BadSignature => "AUTH.BAD_SIGNATURE",
@@ -1112,6 +1195,7 @@ type LineVerdict = (Option<(String, Received)>, Option<Refusal>);
 /// `from` est connu et le `signer` ne correspond pas → rejet. Vide =
 /// confiance au premier contact (TOFU) — le binding est appris ici même
 /// après un message vérifié, et l'appelant le persiste.
+#[allow(dead_code)] // wrappers historiques, utilisés par les tests
 fn process_line_detailed(
     line: &str,
     identity: &LocalIdentity,
@@ -1119,6 +1203,29 @@ fn process_line_detailed(
     now_secs: u64,
     completed: &mut CompletedSessions,
     sessions: &mut HashMap<String, SessionBuffer>,
+) -> Result<LineVerdict> {
+    process_line_detailed_with_policy(
+        line,
+        identity,
+        known_peers,
+        now_secs,
+        completed,
+        sessions,
+        TrustPolicy::Tofu,
+    )
+}
+
+/// Variante paramétrée par la politique de confiance. La production charge la
+/// politique une fois par processus ; les tests choisissent explicitement.
+#[allow(clippy::too_many_arguments)]
+fn process_line_detailed_with_policy(
+    line: &str,
+    identity: &LocalIdentity,
+    known_peers: &mut HashMap<String, String>,
+    now_secs: u64,
+    completed: &mut CompletedSessions,
+    sessions: &mut HashMap<String, SessionBuffer>,
+    policy: TrustPolicy,
 ) -> Result<LineVerdict> {
     let raw = line.trim();
     if raw.is_empty() {
@@ -1248,6 +1355,11 @@ fn process_line_detailed(
     if polygone_core::sign::node_id_from_sign_pk_hex(&sig.1).as_deref() != Some(buf.from.as_str()) {
         return Ok((None, Some(Refusal::IdentityMismatch)));
     }
+    // Trust policy: in strict mode, a peer that is not already anchored is
+    // refused before any payload is released. TOFU would learn it here.
+    if policy == TrustPolicy::Strict && !known_peers.contains_key(&buf.from) {
+        return Ok((None, Some(Refusal::UnknownPeer)));
+    }
     // Trust anchor: if we know this peer's signing key, it must match.
     if let Some(expected_pk) = known_peers.get(&buf.from) {
         if expected_pk != &sig.1 {
@@ -1324,6 +1436,7 @@ fn process_line_detailed(
 
 /// Entrée de production : même traitement, motif de refus journalisé et non
 /// remonté à l'appelant (le récepteur ne renvoie rien à l'émetteur).
+#[allow(dead_code)] // wrapper historique, utilisé par les tests
 fn process_line(
     line: &str,
     identity: &LocalIdentity,
@@ -1332,8 +1445,36 @@ fn process_line(
     completed: &mut CompletedSessions,
     sessions: &mut HashMap<String, SessionBuffer>,
 ) -> Result<Option<(String, Received)>> {
-    let (outcome, refusal) =
-        process_line_detailed(line, identity, known_peers, now_secs, completed, sessions)?;
+    process_line_with_policy(
+        line,
+        identity,
+        known_peers,
+        now_secs,
+        completed,
+        sessions,
+        TrustPolicy::Tofu,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_line_with_policy(
+    line: &str,
+    identity: &LocalIdentity,
+    known_peers: &mut HashMap<String, String>,
+    now_secs: u64,
+    completed: &mut CompletedSessions,
+    sessions: &mut HashMap<String, SessionBuffer>,
+    policy: TrustPolicy,
+) -> Result<Option<(String, Received)>> {
+    let (outcome, refusal) = process_line_detailed_with_policy(
+        line,
+        identity,
+        known_peers,
+        now_secs,
+        completed,
+        sessions,
+        policy,
+    )?;
     if let Some(refusal) = refusal {
         log::debug!("net : trame abandonnée — {}", refusal.code());
     }
@@ -1371,202 +1512,299 @@ fn combinations4(fragments: &[shamir::Fragment]) -> Vec<Vec<shamir::Fragment>> {
 /// File transfers are saved to `~/.polygone/received/`. When `compute` is
 /// set, RES requests (`req` envelopes) get a `grant` reply (ghost node).
 pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: bool) -> Result<()> {
-    let stream = connect(relay, identity).await?;
-    let (reader, mut writer) = stream.into_split();
-    let mut reader = BufReader::new(reader);
+    // These structures outlive the TCP connection. A relay restart must not
+    // erase partially received sessions, anti-replay state, or trust anchors.
     let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
     let mut completed: CompletedSessions = VecDeque::new();
     let mut seen_compute_requests: HashSet<(String, String)> = HashSet::new();
     let mut compute_request_order: VecDeque<(String, String, u64)> = VecDeque::new();
-    // The trust anchor, loaded ONCE (persisted, learned, enforced).
+    // The trust anchor, loaded ONCE (persisted, learned, enforced); the
+    // policy is fixed for the process lifetime.
     let mut known_peers = load_peers()?;
+    let trust_policy = TrustPolicy::from_env()?;
+    let mut reconnect_delay = RELAY_RECONNECT_INITIAL_DELAY;
+    let mut connected_once = false;
 
-    println!(
-        "⬡ en écoute via relay {} — node {}",
-        relay,
-        node_id(identity)
-    );
-    if !known_peers.is_empty() {
+    'reconnect: loop {
+        let stream = match connect(relay, identity).await {
+            Ok(stream) => {
+                if connected_once {
+                    println!("⬡ reconnexion au relay réussie : {relay}");
+                }
+                connected_once = true;
+                reconnect_delay = RELAY_RECONNECT_INITIAL_DELAY;
+                stream
+            }
+            Err(error)
+                if error
+                    .to_string()
+                    .contains("relay a refusé l'enregistrement") =>
+            {
+                // A duplicate/denied identity is not a transient network fault.
+                return Err(error);
+            }
+            Err(error)
+                if is_retryable_relay_error(&error)
+                    || error
+                        .to_string()
+                        .contains("muet : aucune réponse au handshake") =>
+            {
+                eprintln!(
+                    "relay {relay} indisponible ({error}) — nouvelle tentative dans {} s",
+                    reconnect_delay.as_secs()
+                );
+                tokio::time::sleep(reconnect_delay).await;
+                reconnect_delay = (reconnect_delay * 2).min(RELAY_RECONNECT_MAX_DELAY);
+                continue 'reconnect;
+            }
+            Err(error) => return Err(error),
+        };
+        let (reader, mut writer) = stream.into_split();
+        let mut reader = BufReader::new(reader);
+
         println!(
-            "  ⬡ ancre de confiance : {} pair(s) connu(s) — empreintes à vérifier hors-ligne :",
-            known_peers.len()
+            "⬡ en écoute via relay {} — node {}",
+            relay,
+            node_id(identity)
         );
-        for node in known_peers.keys() {
-            if let Some(fp) = peer_fingerprint(&known_peers, node) {
-                println!("      · {node} → BLAKE3-256 {fp}");
-            } else {
-                println!("      · {node} → clé ML-DSA invalide (ancre ignorée à la vérification)");
+        if !known_peers.is_empty() {
+            println!(
+                "  ⬡ ancre de confiance : {} pair(s) connu(s) — empreintes à vérifier hors-ligne :",
+                known_peers.len()
+            );
+            for node in known_peers.keys() {
+                if let Some(fp) = peer_fingerprint(&known_peers, node) {
+                    println!("      · {node} → BLAKE3-256 {fp}");
+                } else {
+                    println!(
+                        "      · {node} → clé ML-DSA invalide (ancre ignorée à la vérification)"
+                    );
+                }
             }
         }
-    }
-    if compute {
-        println!("  ⬡ RES : prêt de compute actif (les requêtes seront accordées)");
-    }
-    println!("  (Ctrl-C pour arrêter)\n");
-
-    loop {
-        let Some(bytes) =
-            read_line_capped(&mut reader, MAX_WIRE_LINE, FRAME_CONTINUATION_TIMEOUT).await?
-        else {
-            println!("relay déconnecté.");
-            return Ok(());
-        };
-        let line = String::from_utf8_lossy(&bytes);
-        // The relay acknowledges the handshake: a denied slot means another
-        // connection owns this node_id — the traffic would go nowhere.
-        if line.starts_with("AUTH_DENIED") || line.starts_with("HELLO_DENIED") {
-            println!(
-                "✖ ce node_id est déjà connecté au relay (slot pris par une autre connexion)."
-            );
-            println!("  Si c'est un ancien process, fermez-le et réessayez.");
-            return Ok(());
+        if compute {
+            println!("  ⬡ RES : prêt de compute actif (les requêtes seront accordées)");
         }
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        println!("  (Ctrl-C pour arrêter)\n");
 
-        // RES compute requests: answer with a grant (ghost node).
-        // Only answer requests addressed to this node, and only if the
-        // request is AUTHENTICATED (signed req, fresh timestamp). The
-        // borrower's reputation is recorded for real on failure.
-        if let Ok(env) = serde_json::from_str::<NetEnvelope>(line.trim()) {
-            if env.typ == "req" && compute && env.to == node_id(identity) {
-                let was_known = known_peers.contains_key(&env.from);
-                let req_ok = verify_req(&env, &mut known_peers, now_secs);
-                if req_ok && !was_known {
-                    announce_new_peer(&known_peers, &env.from);
-                    save_peers(&known_peers)?;
+        loop {
+            let bytes = match read_line_capped(
+                &mut reader,
+                MAX_WIRE_LINE,
+                FRAME_CONTINUATION_TIMEOUT,
+            )
+            .await
+            {
+                Ok(Some(bytes)) => bytes,
+                Ok(None) => {
+                    println!("relay déconnecté — conservation de l'état local et reconnexion.");
+                    break;
                 }
-                if !req_ok {
-                    crate::reputation::ReputationTable::load().record(&env.from, false);
+                Err(error) if is_retryable_relay_io(error.kind()) => {
+                    eprintln!("connexion au relay interrompue ({error}) — reconnexion.");
+                    break;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            let line = String::from_utf8_lossy(&bytes);
+            // The relay acknowledges the handshake: a denied slot means another
+            // connection owns this node_id — the traffic would go nowhere.
+            if line.starts_with("AUTH_DENIED") || line.starts_with("HELLO_DENIED") {
+                println!(
+                    "✖ ce node_id est déjà connecté au relay (slot pris par une autre connexion)."
+                );
+                println!("  Si c'est un ancien process, fermez-le et réessayez.");
+                anyhow::bail!("relay a refusé l'enregistrement : identité déjà connectée");
+            }
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+
+            // RES compute requests: answer with a grant (ghost node).
+            // Only answer requests addressed to this node, and only if the
+            // request is AUTHENTICATED (signed req, fresh timestamp). The
+            // borrower's reputation is recorded for real on failure.
+            if let Ok(env) = serde_json::from_str::<NetEnvelope>(line.trim()) {
+                if env.typ == "req" && compute && env.to == node_id(identity) {
+                    let was_known = known_peers.contains_key(&env.from);
+                    let req_ok =
+                        verify_req_with_policy(&env, &mut known_peers, now_secs, trust_policy);
+                    if req_ok && !was_known {
+                        announce_new_peer(&known_peers, &env.from);
+                        save_peers(&known_peers)?;
+                    }
+                    if !req_ok {
+                        crate::reputation::ReputationTable::load().record(&env.from, false);
+                        let mut body = grant_payload(identity);
+                        body["ok"] = serde_json::Value::Bool(false);
+                        body["error"] =
+                            serde_json::Value::String("requête non authentifiée".into());
+                        let grant = grant_for(&env, identity, body)?;
+                        if let Err(error) = write_net_envelope(&mut writer, &grant).await {
+                            if is_retryable_relay_error(&error) {
+                                eprintln!("connexion au relay perdue pendant l'envoi : {error}");
+                                break;
+                            }
+                            return Err(error);
+                        }
+                        continue;
+                    }
+                    match remember_compute_request(
+                        &mut seen_compute_requests,
+                        &mut compute_request_order,
+                        &env.from,
+                        &env.session,
+                        now_secs,
+                        MAX_COMPUTE_REPLAYS,
+                    ) {
+                        ComputeReplayDecision::Accepted => {}
+                        ComputeReplayDecision::Duplicate => {
+                            log::warn!(
+                                "RES : requête compute rejouée ignorée ({} / {})",
+                                env.from,
+                                env.session
+                            );
+                            continue;
+                        }
+                        ComputeReplayDecision::Capacity => {
+                            log::warn!("RES : cache anti-rejeu plein — requête refusée");
+                            let mut body = grant_payload(identity);
+                            body["ok"] = serde_json::Value::Bool(false);
+                            body["error"] = serde_json::Value::String(
+                                "cache anti-rejeu saturé ; réessayez après expiration".into(),
+                            );
+                            let grant = grant_for(&env, identity, body)?;
+                            if let Err(error) = write_net_envelope(&mut writer, &grant).await {
+                                if is_retryable_relay_error(&error) {
+                                    eprintln!(
+                                        "connexion au relay perdue pendant l'envoi : {error}"
+                                    );
+                                    break;
+                                }
+                                return Err(error);
+                            }
+                            continue;
+                        }
+                    }
+
+                    // Reputation gate: a borrower known to fail is refused.
+                    let table = crate::reputation::ReputationTable::load();
+                    if let Some(rep) = table.nodes.get(&env.from) {
+                        if rep.fail >= 3 && rep.score() < 30 {
+                            let mut body = grant_payload(identity);
+                            body["ok"] = serde_json::Value::Bool(false);
+                            body["error"] =
+                                serde_json::Value::String("réputation insuffisante".into());
+                            let grant = grant_for(&env, identity, body)?;
+                            if let Err(error) = write_net_envelope(&mut writer, &grant).await {
+                                if is_retryable_relay_error(&error) {
+                                    eprintln!(
+                                        "connexion au relay perdue pendant l'envoi : {error}"
+                                    );
+                                    break;
+                                }
+                                return Err(error);
+                            }
+                            continue;
+                        }
+                    }
+
                     let mut body = grant_payload(identity);
-                    body["ok"] = serde_json::Value::Bool(false);
-                    body["error"] = serde_json::Value::String("requête non authentifiée".into());
+                    match run_res_task(&env).await {
+                        Some(Ok(output)) => {
+                            body["output"] = serde_json::Value::String(output);
+                            crate::reputation::ReputationTable::load().record(&env.from, true);
+                        }
+                        Some(Err(error)) => {
+                            body["ok"] = serde_json::Value::Bool(false);
+                            body["error"] = serde_json::Value::String(error.to_string());
+                            crate::reputation::ReputationTable::load().record(&env.from, false);
+                        }
+                        None => {
+                            body["ok"] = serde_json::Value::Bool(false);
+                            body["error"] = serde_json::Value::String(
+                                "requête compute invalide ou tâche absente".into(),
+                            );
+                            crate::reputation::ReputationTable::load().record(&env.from, false);
+                        }
+                    }
+                    // Sign only after the final output/error has been attached.
                     let grant = grant_for(&env, identity, body)?;
-                    write_net_envelope(&mut writer, &grant).await?;
+                    if let Err(error) = write_net_envelope(&mut writer, &grant).await {
+                        if is_retryable_relay_error(&error) {
+                            eprintln!("connexion au relay perdue pendant l'envoi : {error}");
+                            break;
+                        }
+                        return Err(error);
+                    }
+                    println!("⬡ RES : compute accordé à {}", env.from);
                     continue;
                 }
-                match remember_compute_request(
-                    &mut seen_compute_requests,
-                    &mut compute_request_order,
-                    &env.from,
-                    &env.session,
-                    now_secs,
-                    MAX_COMPUTE_REPLAYS,
-                ) {
-                    ComputeReplayDecision::Accepted => {}
-                    ComputeReplayDecision::Duplicate => {
-                        log::warn!(
-                            "RES : requête compute rejouée ignorée ({} / {})",
-                            env.from,
-                            env.session
-                        );
-                        continue;
-                    }
-                    ComputeReplayDecision::Capacity => {
-                        log::warn!("RES : cache anti-rejeu plein — requête refusée");
-                        let mut body = grant_payload(identity);
-                        body["ok"] = serde_json::Value::Bool(false);
-                        body["error"] = serde_json::Value::String(
-                            "cache anti-rejeu saturé ; réessayez après expiration".into(),
-                        );
-                        let grant = grant_for(&env, identity, body)?;
-                        write_net_envelope(&mut writer, &grant).await?;
-                        continue;
-                    }
-                }
+            }
 
-                // Reputation gate: a borrower known to fail is refused.
-                let table = crate::reputation::ReputationTable::load();
-                if let Some(rep) = table.nodes.get(&env.from) {
-                    if rep.fail >= 3 && rep.score() < 30 {
-                        let mut body = grant_payload(identity);
-                        body["ok"] = serde_json::Value::Bool(false);
-                        body["error"] = serde_json::Value::String("réputation insuffisante".into());
-                        let grant = grant_for(&env, identity, body)?;
-                        write_net_envelope(&mut writer, &grant).await?;
-                        continue;
+            let candidate_sender = serde_json::from_str::<NetEnvelope>(line.trim())
+                .ok()
+                .map(|envelope| envelope.from);
+            let sender_was_known = candidate_sender
+                .as_ref()
+                .is_some_and(|sender| known_peers.contains_key(sender));
+            match process_line_with_policy(
+                &line,
+                identity,
+                &mut known_peers,
+                now_secs,
+                &mut completed,
+                &mut sessions,
+                trust_policy,
+            )? {
+                Some((session, Received::Message(text))) => {
+                    // Persist a newly learned peer (TOFU trust anchor) + show it.
+                    if !sender_was_known {
+                        if let Some(sender) = candidate_sender.as_deref() {
+                            announce_new_peer(&known_peers, sender);
+                        }
                     }
+                    save_peers(&known_peers)?;
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("⬡ message reçu (session {session} · 4/7 fragments)");
+                    println!();
+                    println!("{text}");
+                    println!();
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 }
-
-                let mut body = grant_payload(identity);
-                match run_res_task(&env).await {
-                    Some(Ok(output)) => {
-                        body["output"] = serde_json::Value::String(output);
-                        crate::reputation::ReputationTable::load().record(&env.from, true);
+                Some((session, Received::File { name, bytes })) => {
+                    // Persist a newly learned peer (TOFU trust anchor) + show it.
+                    if !sender_was_known {
+                        if let Some(sender) = candidate_sender.as_deref() {
+                            announce_new_peer(&known_peers, sender);
+                        }
                     }
-                    Some(Err(error)) => {
-                        body["ok"] = serde_json::Value::Bool(false);
-                        body["error"] = serde_json::Value::String(error.to_string());
-                        crate::reputation::ReputationTable::load().record(&env.from, false);
-                    }
-                    None => {
-                        body["ok"] = serde_json::Value::Bool(false);
-                        body["error"] = serde_json::Value::String(
-                            "requête compute invalide ou tâche absente".into(),
-                        );
-                        crate::reputation::ReputationTable::load().record(&env.from, false);
-                    }
+                    save_peers(&known_peers)?;
+                    let dir = received_dir()?;
+                    let path = dir.join(sanitize_name(&name));
+                    std::fs::write(&path, &bytes)?;
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!(
+                        "⬡ fichier reçu : {} ({} octets · session {session} · 4/7 fragments)",
+                        path.display(),
+                        bytes.len()
+                    );
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 }
-                // Sign only after the final output/error has been attached.
-                let grant = grant_for(&env, identity, body)?;
-                write_net_envelope(&mut writer, &grant).await?;
-                println!("⬡ RES : compute accordé à {}", env.from);
-                continue;
+                None => {}
             }
         }
 
-        let candidate_sender = serde_json::from_str::<NetEnvelope>(line.trim())
-            .ok()
-            .map(|envelope| envelope.from);
-        let sender_was_known = candidate_sender
-            .as_ref()
-            .is_some_and(|sender| known_peers.contains_key(sender));
-        match process_line(
-            &line,
-            identity,
-            &mut known_peers,
-            now_secs,
-            &mut completed,
-            &mut sessions,
-        )? {
-            Some((session, Received::Message(text))) => {
-                // Persist a newly learned peer (TOFU trust anchor) + show it.
-                if !sender_was_known {
-                    if let Some(sender) = candidate_sender.as_deref() {
-                        announce_new_peer(&known_peers, sender);
-                    }
-                }
-                save_peers(&known_peers)?;
-                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                println!("⬡ message reçu (session {session} · 4/7 fragments)");
-                println!();
-                println!("{text}");
-                println!();
-                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            }
-            Some((session, Received::File { name, bytes })) => {
-                // Persist a newly learned peer (TOFU trust anchor) + show it.
-                if !sender_was_known {
-                    if let Some(sender) = candidate_sender.as_deref() {
-                        announce_new_peer(&known_peers, sender);
-                    }
-                }
-                save_peers(&known_peers)?;
-                let dir = received_dir()?;
-                let path = dir.join(sanitize_name(&name));
-                std::fs::write(&path, &bytes)?;
-                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                println!(
-                    "⬡ fichier reçu : {} ({} octets · session {session} · 4/7 fragments)",
-                    path.display(),
-                    bytes.len()
-                );
-                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            }
-            None => {}
-        }
+        // Release the dead TCP halves before waiting or attempting another dial.
+        drop(reader);
+        drop(writer);
+        println!(
+            "prochaine tentative vers {relay} dans {} s",
+            reconnect_delay.as_secs()
+        );
+        tokio::time::sleep(reconnect_delay).await;
+        reconnect_delay = (reconnect_delay * 2).min(RELAY_RECONNECT_MAX_DELAY);
     }
 }
 

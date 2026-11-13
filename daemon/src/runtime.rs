@@ -306,6 +306,30 @@ mod tests {
     }
 
     #[test]
+    fn test_runtime_state_publishes_measured_storage_fail_closed() {
+        let engine = engine();
+        let mut snap = snapshot();
+        snap.storage = crate::resources::StorageInfo {
+            total_bytes: 120 * 1024 * 1024 * 1024,
+            available_bytes: 37 * 1024 * 1024 * 1024,
+        };
+
+        let state = runtime_state(&engine, &snap, 1_000_000, 43);
+
+        assert_eq!(state.total_storage_bytes, 37 * 1024 * 1024 * 1024);
+        assert_eq!(
+            state.enforced_storage_bytes, 0,
+            "une mesure de capacité ne signifie pas que le système impose une limite"
+        );
+
+        // Une mesure absente doit rester à zéro : ne jamais inventer une capacité.
+        snap.storage = Default::default();
+        let unknown = runtime_state(&engine, &snap, 1_000_000, 44);
+        assert_eq!(unknown.total_storage_bytes, 0);
+        assert_eq!(unknown.enforced_storage_bytes, 0);
+    }
+
+    #[test]
     fn test_tick_publishes_new_seq() {
         // L'état partagé démarre à seq = 0, comme celui construit par main.rs
         // avant la boucle.

@@ -55,8 +55,8 @@ Les plus gros écarts de lignes uniques côté réel :
 | `crates/relay/src/relay.rs` | 206 | 226 | canonique plus récent : handshake `AUTH_INIT/CHALLENGE/AUTH_RESP`, tests d'usurpation. Les lignes réelles sont l'ancien `HELLO` + `AUTH_DENIED`. **Canonique retenu.** |
 | `crates/client/src/net/mod.rs` | 71 | 287 | idem : le canonique porte le handshake authentifié. **Canonique retenu.** |
 | `crates/client/src/mesh.rs` | 38 | 261 | le canonique porte `select_interfaces` (MESH.1) ; le réel diffuse depuis `0.0.0.0`. **Canonique retenu** (le réel est moins sûr). |
-| `daemon/src/socket.rs` | 33 | 655 | le réel réserve du stockage dans le ledger (`grants: HashMap<String,(u32,u64,u64)>`). **À porter**, non fait dans cette session : cela change le protocole du socket. |
-| `daemon/src/runtime.rs` | 38 | 15 | tests de mesure de stockage, réintégrés en partie via `snap.storage`. **À revoir** après le port du ledger. |
+| `daemon/src/socket.rs` | 33 | 655 | le réel avait une variante de réservation ; le canonique courant porte désormais réservations CPU/RAM/stockage, libération, expiration et persistance dans `Ledger`. **Canonique retenu après vérification directe** (tests dédiés présents). |
+| `daemon/src/runtime.rs` | 38 | 15 | les tests de stockage du réel n'ont pas été copiés tels quels ; le canonique publie `snap.storage.available_bytes`. Un test ciblé de publication mesurée et de repli fail-closed est ajouté au canonique. |
 | `install.sh` (124 hunks) | 6 | 92 | canonique plus récent (fail-closed SHA256SUMS). **Canonique retenu.** |
 
 Le détail ligne à ligne reste dans le TSV ; aucun de ces fichiers n'a été
@@ -73,5 +73,6 @@ Le détail ligne à ligne reste dans le TSV ; aucun de ces fichiers n'a été
 
 Sur 78 entrées : 23 identiques, 14 déjà couvertes par le canonique, 4 fichiers
 porteurs d'une fonctionnalité réelle réintégrés, 31 restant à statuer
-individuellement (dont un — la réservation de stockage dans le ledger — qui est
-un vrai travail, pas une formalité).
+individuellement à la date de la revue initiale. La réservation de stockage est
+désormais présente dans le canonique courant ; cette ligne de revue est actualisée
+à la lumière du code et des tests du HEAD de travail.

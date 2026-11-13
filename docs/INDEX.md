@@ -7,8 +7,9 @@
 > `EXECUTION_STATUS.md`, `THREAT-MODEL-SERVICES.md`, `threat-msg.md`), et les
 > deux documents P0 du 2026-11-09 (`PROTOCOL-RELAY-AUTH.md`,
 > `P0-DEUX-MACHINES.md`, `MISSION-P0-RAPPORT-2026-11-09.md`,
-> `adr/0001-authentification-du-relais.md`), le total attendu est **71 fichiers
-> Markdown** (l'ADR de réconciliation canonique du 2026-11-09 s'y ajoute).
+> `adr/0001-authentification-du-relais.md`), le total attendu est **85 fichiers
+> Markdown** (l'ADR de réconciliation canonique du 2026-11-09 et les sept preuves
+> modales du 2026-11-10 s'y ajoutent).
 >
 > **Règle de date :** une date de contenu ou de nom de fichier est indiquée
 > lorsqu'elle est explicite. Pour les documents Atlas sans date de rédaction
@@ -33,6 +34,13 @@
 | Fichier | Titre | Date du document | Statut | Thème | Justification / preuve |
 |---|---|---|---|---|---|
 | `docs/INDEX.md` | Index documentaire | 2026-11-04 | autorité | Inventaire documentaire | Présent index ; couverture vérifiée automatiquement par `crates/client/tests/doc_index.rs`. |
+| `docs/architecture/API-CONTRACTS.md` | Contrats d'API existants | 2026-11-09 | autorité | Contrats / interfaces | Décrit uniquement les interfaces implémentées (socket daemon v1, gateway `/api/v1`, relais) et marque explicitement les domaines absents (tâches, usage, événements). |
+| `docs/architecture/COMPONENT-MAP.md` | Carte des composants | 2026-11-09 | autorité | Architecture / inventaire | Mesures par crate (fichiers, lignes, tests) et responsabilités ; les composants sans appelant de production sont signalés. |
+| `docs/architecture/DATA-FLOWS.md` | Flux de données réels | 2026-11-09 | autorité | Architecture / flux | Décrit les flux identité, messages, relais, ledger, calcul, blocs et gateway, avec les échecs observés ; liste les flux absents. |
+| `docs/architecture/SYSTEM-ARCHITECTURE.md` | Architecture système canonique | 2026-11-09 | autorité | Architecture / socle | Décrit les couches, la topologie, les états, la persistance et les frontières de confiance du code au HEAD `e2936a3`. |
+| `docs/security/THREAT-MODEL.md` | Modèle de menace du socle | 2026-11-09 | brouillon | Sécurité / menace | Auto-évaluation citant les protections testées et les risques résiduels ; aucun audit externe, donc pas « autorité ». |
+| `docs/testing/TEST-STRATEGY.md` | Stratégie de test et niveaux de preuve | 2026-11-09 | autorité | Tests / portes qualité | Définit L0–L5, ce que chaque niveau prouve et ne prouve pas, les contre-épreuves exigées et les trous connus. |
+| `docs/testing/VALIDATION-RESULTS.md` | Résultats de validation du 2026-11-09 | 2026-11-09 | daté | Tests / preuves d'exécution | **Instantané daté** des commandes, codes de sortie et limites ; il ne décrit pas seul l'état courant. |
 | `docs/ARCHITECTURE_RESEAU.md` | Architecture réseau et partage de ressources | 2026-10-01 (mise à jour 2b-13) | daté | Architecture réseau | En-tête : état 2b-13 et test entre deux machines encore non exécuté ; les exigences réseau actuelles sont reprises dans `docs/atlas/plan/epiques/01-transport-confidentialite.md`. |
 | `docs/BUDGET.md` | Budget et soutenabilité du relay | Non indiquée | brouillon | Financement / coûts | Le texte présente des estimations pour un premier relay public, pas une facture ni des coûts mesurés ; aucun état de dépenses n'est joint. |
 | `docs/CORE-COMPLETE.md` | Rapport de complétude du core | 2026-08-31 | daté | Historique des tests et du workspace | Le bandeau du fichier le déclare instantané historique (4 crates / 109 tests) ; `ARCHITECTURE.md` racine porte les mesures récentes. |
@@ -103,6 +111,13 @@
 | `docs/threat-msg.md` | Métadonnées visibles par le relais | 2026-11-05 | daté | Sécurité / métadonnées réseau | Mesure SEC.10 sur un flux réel : source, destination, taille, cadence, session visibles ; contenu et nom de fichier absents ; limites loopback explicites. |
 | `docs/threat-commodity.md` | Modèle de menace utilisateur quotidien | Non indiquée | brouillon | Modèle de menace courant | Document à réconcilier avec les limites mesurées de `ETAT-REEL.md` ; les modèles par service de SEC.1 sont désormais dans `THREAT-MODEL-SERVICES.md`. |
 | `docs/threat-high-value.md` | Modèle de menace utilisateur haute-valeur | Non indiquée | brouillon | Modèle de menace haute-valeur | Document à réconcilier avec les limites mesurées de `ETAT-REEL.md` ; les modèles par service de SEC.1 sont désormais dans `THREAT-MODEL-SERVICES.md`. |
+| `docs/proofs/modal-two-host-20261110T214504Z.md` | Preuve réseau à deux hôtes — 20261110T214504Z | 2026-11-10 | daté | Preuve réseau / deux hôtes | Exécution datée de `scripts/p0-modal-two-host.sh` avec journaux bruts joints ; elle prouve un échange entre deux hôtes à cet instant, pas l'état courant du produit. |
+| `docs/proofs/modal-three-kernels-20261110T215027Z.md` | Preuve réseau à trois noyaux — 20261110T215027Z | 2026-11-10 | daté | Preuve réseau / trois noyaux | Exécution datée de `scripts/p0-modal-three-kernels.sh` avec journaux bruts joints ; instantané de la topologie testée, sans valeur de contrat permanent. |
+| `docs/proofs/modal-reconnect-20261110T215246Z.md` | Coupure et reprise en pleine session — 20261110T215246Z | 2026-11-10 | daté | Preuve réseau / reconnexion | Exécution datée de `scripts/p0-modal-reconnect.sh` ; mesure la reprise après coupure sur ce montage précis, pas la reconnexion inter-hôtes générale. |
+| `docs/proofs/modal-relay-restart-20261110T215622Z.md` | Redémarrage du relais en pleine session — 20261110T215622Z | 2026-11-10 | daté | Preuve réseau / relais | Exécution datée de `scripts/p0-modal-relay-restart.sh` ; le tunnel public est conservé, seul le processus du relais est remplacé. |
+| `docs/proofs/modal-relay-restart-20261110T215706Z.md` | Redémarrage du relais en pleine session — 20261110T215706Z | 2026-11-10 | daté | Preuve réseau / relais | Réexécution datée du même scénario de redémarrage du relais ; consignée séparément pour ne pas écraser la preuve précédente. |
+| `docs/proofs/modal-relay-restart-20261110T221117Z.md` | Redémarrage du relais en pleine session — 20261110T221117Z | 2026-11-10 | daté | Preuve réseau / relais | Troisième exécution datée du scénario de redémarrage du relais, avec ses propres journaux ; instantané, pas état courant. |
+| `docs/proofs/modal-relay-restart-20261110T221636Z.md` | Redémarrage du relais en pleine session — 20261110T221636Z | 2026-11-10 | daté | Preuve réseau / relais | Quatrième exécution datée du scénario de redémarrage du relais ; conservée comme trace horodatée indépendante. |
 
 ## Contrôle
 

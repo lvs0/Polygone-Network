@@ -22,11 +22,16 @@
 //!   POST /api/v1/nodes/ping      → challenge de mesure, signé
 //!   POST /api/v1/nodes/pong      → RTT mesuré, challenge à usage unique
 //!   GET  /api/v1/node/:id        → info d'un nœud
+//!   POST /api/v1/tasks           → création d'une tâche publiée (non exécutée)
+//!   GET  /api/v1/tasks           → liste filtrée et paginée
+//!   GET  /api/v1/tasks/:id       → détail d'une tâche
+//!   POST /api/v1/tasks/:id/cancel→ annulation
 
 pub mod http;
 pub mod routes;
 pub mod static_files;
 pub mod status;
+pub mod tasks;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -104,6 +109,8 @@ pub struct Gateway {
     /// Sérialise les écritures du fichier : deux heartbeats concurrents ne
     /// doivent pas produire un fichier entrelacé.
     persist_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Tâches créées via l'API produit. Aucun exécuteur n'y est branché.
+    pub tasks: tasks::TaskStore,
     /// Instant de démarrage, en secondes Unix : sert à un uptime mesuré.
     pub started_at: u64,
 }
@@ -117,6 +124,17 @@ impl Gateway {
     /// l'écrit après chaque heartbeat. Un fichier illisible ne fait pas
     /// tomber la gateway : il repart d'une table vide et le dit dans le log.
     pub fn with_nodes_file(site_dir: PathBuf, nodes_file: Option<PathBuf>) -> Self {
+        Self::with_state_files(site_dir, nodes_file, None)
+    }
+
+    /// Comme [`Gateway::with_nodes_file`], avec en plus un fichier de tâches.
+    /// Les deux chemins restent explicites pour que les tests n'écrivent jamais
+    /// dans `$HOME` par accident.
+    pub fn with_state_files(
+        site_dir: PathBuf,
+        nodes_file: Option<PathBuf>,
+        tasks_file: Option<PathBuf>,
+    ) -> Self {
         let nodes = nodes_file
             .as_deref()
             .and_then(|path| match std::fs::read(path) {
@@ -147,6 +165,7 @@ impl Gateway {
             nodes: Arc::new(RwLock::new(nodes)),
             pings: Arc::new(RwLock::new(HashMap::new())),
             nodes_file,
+            tasks: tasks::TaskStore::new(tasks_file),
             persist_lock: Arc::new(tokio::sync::Mutex::new(())),
             started_at: now_secs(),
         }
@@ -201,9 +220,14 @@ impl Gateway {
             Some(path) => info!("⬡ gateway : heartbeat persisté dans {}", path.display()),
             None => log::warn!("⬡ gateway : aucun HOME — heartbeat en mémoire seulement"),
         }
+        let tasks_file = default_tasks_path();
+        match &tasks_file {
+            Some(path) => info!("⬡ gateway : tâches persistées dans {}", path.display()),
+            None => log::warn!("⬡ gateway : aucun HOME — tâches en mémoire seulement"),
+        }
         let listener = TcpListener::bind(address).await?;
         info!("⬡ gateway : HTTP local sur {address}");
-        Self::serve_with_nodes(listener, site_dir, nodes_file).await
+        Self::serve_with_state(listener, site_dir, nodes_file, tasks_file).await
     }
 
     /// Sert sur une socket déjà liée. Séparer le bind du service évite les
@@ -221,13 +245,23 @@ impl Gateway {
         site_dir: PathBuf,
         nodes_file: Option<PathBuf>,
     ) -> Result<()> {
+        Self::serve_with_state(listener, site_dir, nodes_file, None).await
+    }
+
+    /// Sert avec persistance explicite des nœuds et des tâches.
+    pub async fn serve_with_state(
+        listener: TcpListener,
+        site_dir: PathBuf,
+        nodes_file: Option<PathBuf>,
+        tasks_file: Option<PathBuf>,
+    ) -> Result<()> {
         let address = listener.local_addr()?;
         if !address.ip().is_loopback() {
             bail!(
                 "Gateway HTTP sans TLS/authentification mutuelle : écoute publique refusée ({address}); utilisez une adresse loopback"
             );
         }
-        let gateway = Self::with_nodes_file(site_dir, nodes_file);
+        let gateway = Self::with_state_files(site_dir, nodes_file, tasks_file);
         let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
         loop {
             let (stream, peer) = match listener.accept().await {
@@ -413,7 +447,13 @@ async fn read_request(
         return Err(RequestReadError::BodyTooLarge);
     }
 
-    let path = target.split('?').next().unwrap_or("/").to_string();
+    let (path, query) = match target.split_once('?') {
+        Some((path, query)) => (path.to_string(), query.to_string()),
+        None => (target.to_string(), String::new()),
+    };
+    if query.len() > 1024 {
+        return Err(RequestReadError::Malformed);
+    }
     let body_start = head_end + 4;
     let mut body = buffer[body_start..].to_vec();
     while body.len() < content_length {
@@ -428,6 +468,7 @@ async fn read_request(
     Ok(Some(HttpRequest {
         method: method.to_string(),
         path,
+        query,
         body,
     }))
 }
@@ -444,6 +485,15 @@ pub fn default_nodes_path() -> Option<PathBuf> {
         return Some(PathBuf::from(explicit));
     }
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".polygone").join("nodes.json"))
+}
+
+/// Chemin par défaut du fichier de tâches : `$POLYGONE_GATEWAY_TASKS` puis
+/// `$HOME/.polygone/tasks.json`. Sans HOME, aucune persistance implicite.
+pub fn default_tasks_path() -> Option<PathBuf> {
+    if let Some(explicit) = std::env::var_os("POLYGONE_GATEWAY_TASKS") {
+        return Some(PathBuf::from(explicit));
+    }
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".polygone").join("tasks.json"))
 }
 
 /// Secondes Unix courantes.

@@ -13,7 +13,27 @@ pub struct HttpRequest {
     pub method: String,
     /// Chemin sans la chaîne de requête (`?…` retiré).
     pub path: String,
+    /// Chaîne de requête brute, sans le `?`. Vide s'il n'y en a pas.
+    pub query: String,
     pub body: Vec<u8>,
+}
+
+impl HttpRequest {
+    /// Requête sans chaîne de requête, forme utilisée par les tests et le
+    /// routage interne.
+    pub fn new(method: impl Into<String>, path: impl Into<String>, body: Vec<u8>) -> Self {
+        Self {
+            method: method.into(),
+            path: path.into(),
+            query: String::new(),
+            body,
+        }
+    }
+
+    pub fn with_query(mut self, query: impl Into<String>) -> Self {
+        self.query = query.into();
+        self
+    }
 }
 
 /// Réponse prête à écrire sur le socket.
@@ -111,6 +131,7 @@ pub fn status_text(code: u16) -> &'static str {
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        409 => "Conflict",
         408 => "Request Timeout",
         413 => "Payload Too Large",
         431 => "Request Header Fields Too Large",

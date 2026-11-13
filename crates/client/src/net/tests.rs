@@ -1,6 +1,51 @@
 use super::*;
 use crate::identity::LocalIdentity;
 
+#[test]
+fn relay_transport_disconnect_errors_are_retryable() {
+    for kind in [
+        std::io::ErrorKind::BrokenPipe,
+        std::io::ErrorKind::ConnectionAborted,
+        std::io::ErrorKind::ConnectionRefused,
+        std::io::ErrorKind::ConnectionReset,
+        std::io::ErrorKind::NotConnected,
+        std::io::ErrorKind::TimedOut,
+        std::io::ErrorKind::UnexpectedEof,
+    ] {
+        assert!(is_retryable_relay_io(kind), "{kind:?} must reconnect");
+    }
+}
+
+#[test]
+fn malformed_relay_frames_are_not_retryable_transport_errors() {
+    for kind in [
+        std::io::ErrorKind::InvalidData,
+        std::io::ErrorKind::PermissionDenied,
+        std::io::ErrorKind::InvalidInput,
+    ] {
+        assert!(
+            !is_retryable_relay_io(kind),
+            "{kind:?} must remain a visible error, not be hidden by reconnect"
+        );
+    }
+}
+
+#[test]
+fn protocol_and_authentication_errors_are_not_retryable_transport_errors() {
+    let error = anyhow::anyhow!("relay: réponse inattendue au handshake: AUTH_INVALID");
+    assert!(!is_retryable_relay_error(&error));
+}
+
+#[test]
+fn wrapped_relay_io_errors_remain_classifiable() {
+    let error: anyhow::Error = std::io::Error::new(
+        std::io::ErrorKind::ConnectionReset,
+        "relay closed the TCP stream",
+    )
+    .into();
+    assert!(is_retryable_relay_error(&error));
+}
+
 fn private_test_path(label: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
         "polygone-{label}-{}-{}",
@@ -840,14 +885,24 @@ fn grant_reply_routes_back_and_signs_the_final_output_payload() {
 
     // The requester accepts the exact final payload, but not a changed output.
     let mut known = HashMap::new();
-    assert!(verify_grant(&grant, &mut known, &node_id(&ghost)));
+    assert!(verify_grant(
+        &grant,
+        &mut known,
+        &node_id(&ghost),
+        TrustPolicy::Tofu
+    ));
     assert_eq!(known.get(&node_id(&ghost)), Some(&ghost.sign_pk_hex));
 
     let mut tampered = grant;
     let mut changed: serde_json::Value = serde_json::from_slice(&tampered.payload).unwrap();
     changed["output"] = serde_json::Value::String("résultat falsifié".into());
     tampered.payload = changed.to_string().into_bytes();
-    assert!(!verify_grant(&tampered, &mut known, &node_id(&ghost)));
+    assert!(!verify_grant(
+        &tampered,
+        &mut known,
+        &node_id(&ghost),
+        TrustPolicy::Tofu
+    ));
 }
 
 #[test]
@@ -1604,4 +1659,134 @@ async fn replay_through_relay_is_refused_with_an_explicit_code() {
         fresh_completed.is_empty(),
         "une session refusée pour horodatage périmé ne doit pas être mémorisée comme livrée"
     );
+}
+
+// ── Politique de confiance : TOFU par défaut, strict sur demande ─────────
+
+#[test]
+fn trust_policy_parses_only_the_documented_values() {
+    assert_eq!(TrustPolicy::parse(None).unwrap(), TrustPolicy::Tofu);
+    assert_eq!(TrustPolicy::parse(Some("")).unwrap(), TrustPolicy::Tofu);
+    assert_eq!(TrustPolicy::parse(Some("tofu")).unwrap(), TrustPolicy::Tofu);
+    assert_eq!(
+        TrustPolicy::parse(Some("strict")).unwrap(),
+        TrustPolicy::Strict
+    );
+    let error = TrustPolicy::parse(Some("strcit")).unwrap_err();
+    assert!(
+        error.to_string().contains("tofu, strict"),
+        "une valeur inconnue doit nommer les valeurs acceptées, pas retomber sur TOFU : {error}"
+    );
+}
+
+/// En mode strict, un pair inconnu est refusé **avant** que le message ne soit
+/// livré, et son identité n'est jamais apprise : c'est la différence avec TOFU.
+#[test]
+fn strict_policy_refuses_an_unknown_peer_without_learning_it() {
+    let eve = LocalIdentity::generate();
+    let bob = LocalIdentity::generate();
+    let pk = bob.kem_public_key().unwrap();
+    let bob_node = node_id(&bob);
+    let eve_node = node_id(&eve);
+
+    let mut known_peers: HashMap<String, String> = HashMap::new();
+    let mut completed: CompletedSessions = VecDeque::new();
+    let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
+
+    let output = crate::msg::send("inconnu", &pk).unwrap();
+    let session = "strict-unknown";
+    let kem_line = signed_kem_json(session, &eve, &bob_node, test_now(), &output, None);
+    let (_, refusal) = process_line_detailed_with_policy(
+        &kem_line,
+        &bob,
+        &mut known_peers,
+        test_now(),
+        &mut completed,
+        &mut sessions,
+        TrustPolicy::Strict,
+    )
+    .unwrap();
+    assert_eq!(
+        refusal, None,
+        "la trame KEM seule n'est pas encore un refus"
+    );
+
+    let mut last_refusal = None;
+    for frag in output.fragments.iter().take(4) {
+        let line = frag_json(session, &eve_node, &bob_node, frag.index, &frag.share);
+        let (received, refusal) = process_line_detailed_with_policy(
+            &line,
+            &bob,
+            &mut known_peers,
+            test_now(),
+            &mut completed,
+            &mut sessions,
+            TrustPolicy::Strict,
+        )
+        .unwrap();
+        assert!(
+            received.is_none(),
+            "un pair inconnu ne doit jamais être livré en mode strict"
+        );
+        last_refusal = refusal.or(last_refusal);
+    }
+    assert_eq!(last_refusal, Some(Refusal::UnknownPeer));
+    assert!(
+        known_peers.is_empty(),
+        "le mode strict ne doit pas apprendre l'ancre d'un pair inconnu"
+    );
+}
+
+/// Le même message passe dès que la clé du pair est ancrée hors-ligne.
+#[test]
+fn strict_policy_accepts_an_anchored_peer() {
+    let alice = LocalIdentity::generate();
+    let bob = LocalIdentity::generate();
+    let pk = bob.kem_public_key().unwrap();
+    let bob_node = node_id(&bob);
+    let alice_node = node_id(&alice);
+
+    let mut known_peers: HashMap<String, String> = HashMap::new();
+    known_peers.insert(alice_node.clone(), alice.sign_pk_hex.clone());
+    let mut completed: CompletedSessions = VecDeque::new();
+    let mut sessions: HashMap<String, SessionBuffer> = HashMap::new();
+
+    let output = crate::msg::send("ancré", &pk).unwrap();
+    let session = "strict-known";
+    let kem_line = signed_kem_json(session, &alice, &bob_node, test_now(), &output, None);
+    process_line_detailed_with_policy(
+        &kem_line,
+        &bob,
+        &mut known_peers,
+        test_now(),
+        &mut completed,
+        &mut sessions,
+        TrustPolicy::Strict,
+    )
+    .unwrap();
+
+    let mut delivered = None;
+    // Quatre fragments suffisent : au-delà, la session est déjà complétée et
+    // le refus attendu est `AlreadyCompleted`, pas un refus de confiance.
+    for frag in output.fragments.iter().take(4) {
+        let line = frag_json(session, &alice_node, &bob_node, frag.index, &frag.share);
+        let (received, refusal) = process_line_detailed_with_policy(
+            &line,
+            &bob,
+            &mut known_peers,
+            test_now(),
+            &mut completed,
+            &mut sessions,
+            TrustPolicy::Strict,
+        )
+        .unwrap();
+        assert_eq!(refusal, None, "un pair ancré ne doit pas être refusé");
+        if let Some((_, received)) = received {
+            delivered = Some(received);
+        }
+    }
+    match delivered.expect("le message d'un pair ancré doit être livré en mode strict") {
+        Received::Message(text) => assert_eq!(text, "ancré"),
+        _ => panic!("message attendu"),
+    }
 }

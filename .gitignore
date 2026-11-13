@@ -59,3 +59,12 @@ NIGHT-REPORT.md
 .env.*
 # Exception : archive documentée (time_sync, décision D9)
 !archive/2026-08-time_sync/
+
+# Ruflo local secrets and runtime data
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+
+# Ruflo provider configuration (may contain credentials)
+claude-flow.config.json

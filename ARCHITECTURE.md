@@ -14,7 +14,7 @@
 > cette date. `gateway`, `petals` et `serverless` ont été intégrés le
 > 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
 > **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
-> `cargo test --workspace -j 2` (**462 tests, 0 échec**) pour les tests.
+> `cargo test --workspace -j 2` (**499 tests, 0 échec**) pour les tests.
 
 ---
 
@@ -106,23 +106,27 @@ polygone/
 
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
-| `core` | 12 | 1476 | — (lib) | 32 |
-| `client` | 33 | 15360 | `polygone` | 195 |
+| `core` | 13 | 2337 | — (lib) | 47 |
+| `client` | 33 | 15783 | `polygone` | 202 |
 | `relay` | 4 | 1675 | `polygone-relay` | 28 |
-| `gateway` | 7 | 2583 | `polygone-gateway` | 47 |
+| `gateway` | 8 | 3534 | `polygone-gateway` | 57 |
 | `petals` | 12 | 3094 | — (lib) | 19 |
 | `serverless` | 3 | 776 | — (lib) | 17 |
-| `daemon` | 17 | 10453 | `polygoned` | 124 |
+| `daemon` | 17 | 10730 | `polygoned` | 129 |
 | doc-tests | — | — | — | comptés dans leur crate |
-| **Total** | **88** | **35417** | **4 binaires** | **462** |
+| **Total** | **90** | **37929** | **4 binaires** | **499** |
 
-> Re-mesuré le **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
+> Base de mesure initiale du **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
-> 88 fichiers Rust,35417 lignes et 462 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> 88 fichiers Rust, 35597 lignes et 465 tests, dont le contrôle de couverture de `docs/INDEX.md`.
 > *Mise à jour du 2026-11-09* : la réconciliation canonique (`docs/decisions/ADR-0001`)
 > ajoute quatre fichiers Rust issus de `realign/v2` et du correctif P0
 > (`relay/auth_tests.rs`, `client/net/s1_tests.rs`, `core/sign/node_id_tests.rs`,
 > `client/tests/`) ; les compteurs de tests restent à recomputer par `make test`.
+> Re-mesuré le **2026-11-09** sur `reconcile/2026-11` : **90 fichiers Rust et 37 392 lignes**, après l'ajout du modèle de tâche (`crates/core/src/task.rs`), du magasin et de l'API produit (`crates/gateway/src/tasks.rs`), de leurs 25 tests et des correctifs précédents. Une exécution workspace complète donne **490 tests, 0 échec**.
+> Re-mesuré le **2026-11-13** après `F1-RES-03` (plafond CPU par palier) et
+> `F1-SEC-02` (politique de confiance stricte) : **90 fichiers, 37 929 lignes,
+> 499 tests, 0 échec**.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
@@ -147,7 +151,7 @@ polygone/
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **462 tests, 0 échec**
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **499 tests, 0 échec**
 > (recompté le 2026-11-09 sur l'arbre réconcilié).
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
@@ -363,7 +367,7 @@ relay routing/drop/ignore tests.
 
 ```bash
 cargo build --release            # all 4 binaries
-cargo test --workspace           # 462 tests
+cargo test --workspace           # 499 tests
 cargo clippy --all --all-targets -- -D warnings
 ```
 

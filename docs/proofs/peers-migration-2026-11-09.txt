@@ -1,28 +1,32 @@
 # Preuve — migration peers.json v1 -> v2
-# date: 2026-11-09T15:40:59+01:00
-# HEAD: 9ff9360fed388fd74daf52a80c40e03491ee4933
+# date: 2026-11-09T17:02:08+01:00
+# HEAD: e2936a3e94ae2d7bd95afb9c21be8dd23c2641f2
 
 $ cargo test -p polygone-client --bin polygone net::peers_tests
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 122 filtered out; finished in 0.07s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 122 filtered out
 
-$ scripts/peers-migration-smoke.sh
+$ make migrate-proof
+./scripts/peers-migration-smoke.sh
 
 == 0. binaire ==
 client /home/lvs0/Polygone-canonical/target/debug/polygone
 
 == 1. identité dans un HOME temporaire ==
-identifiant courant : 6a451f646c27891f4fce3e82cf34bcd6 (32 caractères)
+identifiant courant : 94794e46ab9242ada11dbd1af12bca66 (32 caractères)
 
 == 2. écrire un peers.json au format v1 ==
-v1 : 0123456789abcdef → ea856f56d854c499…
+v1 : 0123456789abcdef → 657fe54d271445f9…
 
 == 3. lire avec le binaire courant (polygone verite) ==
-      · 0123456789abcdef → ea856f56d854c499…  [2m(clé publique, pas un contenu)[0m
-      · 6a451f646c27891f4fce3e82cf34bcd6 → ea856f56d854c499…  [2m(clé publique, pas un contenu)[0m
+      · 0123456789abcdef → 657fe54d271445f9…  [2m(clé publique, pas un contenu)[0m
+      · 94794e46ab9242ada11dbd1af12bca66 → 657fe54d271445f9…  [2m(clé publique, pas un contenu)[0m
 
 == 4. le fichier contient les deux identifiants, et la copie v1 existe ==
-fichier migré : 2 entrées, dont v1 0123456789abcdef et courant 6a451f646c27891f4fce3e82cf34bcd6
+fichier migré : 2 entrées, dont v1 0123456789abcdef et courant 94794e46ab9242ada11dbd1af12bca66
 copie v1 intacte : 600
 
 == PASS ==
 migration v1 → v2 prouvée sur un fichier réel, sans perte d entrée
+
+Résultat : migration v1 → v2 prouvée sur un fichier réel temporaire ; les deux identifiants
+pointent vers la même clé, la sauvegarde v1 reste intacte en mode 0600, aucune entrée perdue.

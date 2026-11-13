@@ -626,7 +626,12 @@ mod tests {
         if let Some(parent) = path.parent() {
             std::env::set_var(crate::socket::ENV_LEDGER_PATH, parent.join("ledger.json"));
         }
-        let state = Arc::new(RwLock::new(DaemonState::new(tier)));
+        let state = Arc::new(RwLock::new(DaemonState {
+            // 6 cœurs physiques à 50 % = 3 cœurs réservables, pour que ces
+            // tests de parcours CLI ne butent pas sur le plafond CPU du palier.
+            cpu_cores: 6,
+            ..DaemonState::new(tier)
+        }));
         let shutdown = Arc::new(AtomicBool::new(false));
 
         let serve_shutdown = Arc::clone(&shutdown);

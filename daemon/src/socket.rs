@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::panic::{self, AssertUnwindSafe};
@@ -343,9 +343,9 @@ pub enum Reply {
     /// `docs/PLAN_CONSOMMATEUR.md` §4. Le daemon, lui, enregistre la réservation
     /// pour ne plus sur-accorder — il ne peut pas la faire tenir.
     ///
-    /// `expires_at` est aujourd'hui toujours `None` : aucun accord n'expire, un
-    /// accord ne survit pas à la fermeture de la connexion qui l'a obtenu
-    /// (`LedgerGuard`), et rien ne le renouvelle automatiquement.
+    /// `expires_at` porte l'échéance réelle du bail : le ledger la fait
+    /// respecter (`sweep_expired`), et un consommateur vivant peut la
+    /// prolonger avec `Request::Renew`.
     #[serde(rename = "alloc_granted")]
     AllocGranted {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -433,7 +433,11 @@ pub struct DaemonState {
     /// RAM actuellement allouée au réseau.
     pub ram_bytes: u64,
     pub bandwidth_mbps: u32,
-    /// Cœurs encore disponibles pour le réseau.
+    /// Cœurs **physiques** mesurés sur la machine.
+    ///
+    /// Ce n'est pas le pool réservable : `allowed_cpu_cores()` applique le
+    /// plafond `max_cpu_percent` du palier. Le champ garde son nom et sa
+    /// signification de mesure pour ne pas casser le protocole v1.
     pub cpu_cores: u32,
     pub gpu_free_vram_mb: u32,
     pub shrinking: bool,
@@ -496,6 +500,14 @@ impl DaemonState {
     /// RAM encore allouable sans franchir le plafond du palier.
     pub fn ram_headroom_bytes(&self) -> u64 {
         self.allowed_ram_bytes().saturating_sub(self.ram_bytes)
+    }
+
+    /// Cœurs que le palier s'autorise à promettre, d'après le total mesuré.
+    ///
+    /// Arrondi vers le bas : promettre un cœur entier supplémentaire au-delà
+    /// du pourcentage serait exactement le mensonge que le plafond évite.
+    pub fn allowed_cpu_cores(&self) -> u32 {
+        ((self.cpu_cores as u64 * self.max_cpu_percent as u64) / 100) as u32
     }
 
     /// Stockage allouable : le total annoncé. Pas de pourcentage ici — le
@@ -775,14 +787,56 @@ impl Ledger {
 
     /// Sérialise le ledger sur son chemin explicite, ou sur le chemin par défaut
     /// du daemon pour une instance de production.
+    ///
+    /// **Écriture atomique** : le JSON complet est écrit dans un fichier
+    /// temporaire du même répertoire, synchronisé, puis renommé sur la cible.
+    /// Écrire directement sur `path` laisserait, après une coupure au mauvais
+    /// moment, un JSON tronqué que `load_from` lirait comme un ledger vide :
+    /// toutes les réservations en cours disparaîtraient en silence. Le fichier
+    /// est créé en `0600` — les réservations ne regardent que son propriétaire.
     pub fn persist(&self) -> io::Result<()> {
         let path = self.path.clone().unwrap_or_else(ledger_path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        fs::create_dir_all(&parent)?;
+
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "ledger sans nom de fichier")
+        })?;
+        let mut tmp_name = OsString::from(".");
+        tmp_name.push(name);
+        tmp_name.push(".tmp");
+        let tmp = parent.join(tmp_name);
+
+        let bytes = serde_json::to_vec_pretty(self)?;
+        {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&tmp)?;
+            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            if let Err(e) = file.write_all(&bytes).and_then(|_| file.sync_all()) {
+                let _ = fs::remove_file(&tmp);
+                return Err(e);
+            }
         }
-        let file = File::create(&path)?;
-        let writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, &self)?;
+        if let Err(e) = fs::rename(&tmp, &path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(e);
+        }
+        // Rend le rename durable : sans synchronisation du répertoire, une
+        // coupure peut laisser l'ancien contenu en place alors que l'appel a
+        // réussi. L'échec n'est pas fatal (certains systèmes refusent fsync sur
+        // un répertoire ouvert en lecture), mais il ne doit pas être tu.
+        if let Ok(dir) = File::open(&parent) {
+            if let Err(e) = dir.sync_all() {
+                log::debug!("ledger : fsync du répertoire impossible : {}", e);
+            }
+        }
         Ok(())
     }
 
@@ -793,17 +847,41 @@ impl Ledger {
 
     /// Charge un ledger depuis un chemin explicite. Le chemin reste attaché à
     /// l'instance afin que les mutations ultérieures écrivent au même endroit.
+    ///
+    /// **Aucune perte silencieuse** : un fichier présent mais illisible est mis
+    /// de côté (`<nom>.corrupt-<horodatage>-<pid>`) avant que la première
+    /// écriture ne puisse l'écraser. Le daemon repart d'un ledger vierge — il
+    /// doit démarrer — mais l'opérateur peut inspecter et restaurer l'ancien
+    /// contenu. Un fichier absent, lui, est le cas normal du premier lancement.
     fn load_from(path: impl AsRef<Path>) -> Ledger {
         let path = path.as_ref().to_path_buf();
-        let mut ledger = match File::open(&path) {
-            Ok(file) => {
-                let reader = BufReader::new(file);
-                // Un ledger illisible vaut un ledger vierge : mieux vaut
-                // repartir de zéro que refuser de démarrer. Le fichier corrompu
-                // n'est pas écrasé tant qu'aucune écriture n'a lieu.
-                serde_json::from_reader::<_, Ledger>(reader).unwrap_or_default()
+        let mut ledger = match fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice::<Ledger>(&bytes) {
+                Ok(ledger) => ledger,
+                Err(error) => {
+                    let quarantine = path.with_extension(format!(
+                        "corrupt-{}-{}",
+                        now_unix(),
+                        std::process::id()
+                    ));
+                    match fs::rename(&path, &quarantine) {
+                        Ok(()) => log::error!(
+                            "ledger illisible ({error}) : conservé dans {}",
+                            quarantine.display()
+                        ),
+                        Err(move_error) => log::error!(
+                            "ledger illisible ({error}) et impossible à mettre de côté \
+                             ({move_error}) ; il sera écrasé à la prochaine écriture"
+                        ),
+                    }
+                    Ledger::default()
+                }
+            },
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ledger::default(),
+            Err(e) => {
+                log::error!("ledger illisible ({e}) : démarrage sur un ledger vierge");
+                Ledger::default()
             }
-            Err(_) => Ledger::default(),
         };
         ledger.path = Some(path);
         ledger
@@ -816,8 +894,17 @@ impl Ledger {
     }
 
     /// Cœurs encore réservables, même logique que la RAM.
+    ///
+    /// Le pool n'est pas le total physique : le palier s'autorise
+    /// `max_cpu_percent` de la machine, exactement comme pour la RAM. Sans ce
+    /// plafond, un nœud en `eco` (25 %) pouvait promettre cent pour cent de ses
+    /// cœurs — le contrat de ressources mentait dans un sens que rien ne
+    /// mesurait. `cpu_cores` reste le total **mesuré** ; la part réservable est
+    /// calculée ici, et les réservations en cours s'en déduisent.
     pub fn free_cpu_cores(&self, state: &DaemonState) -> u32 {
-        state.cpu_cores.saturating_sub(self.reserved_cpu_cores)
+        state
+            .allowed_cpu_cores()
+            .saturating_sub(self.reserved_cpu_cores)
     }
 
     /// Stockage encore réservable — agrégat O(1) comme `free_ram_bytes`.
@@ -1977,12 +2064,16 @@ fn write_reply(stream: &mut UnixStream, reply: &Reply) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::BufRead;
+    use std::io::{BufRead, BufReader};
 
     /// État servant de référence : 16 Gio, palier 50 % → 8 Gio autorisés,
-    /// 1 Gio déjà alloué → 7 Gio de marge, 3 cœurs disponibles.
+    /// 1 Gio déjà alloué → 7 Gio de marge. Six cœurs physiques, palier 50 %,
+    /// donc **3 cœurs réservables** — le total mesuré n'est pas le pool.
     fn state() -> DaemonState {
-        DaemonState::new("balanced")
+        DaemonState {
+            cpu_cores: 6,
+            ..DaemonState::new("balanced")
+        }
     }
 
     #[test]
@@ -2049,6 +2140,79 @@ mod tests {
         let loaded = Ledger::load_from(&ledger_file);
         // Le même identifiant doit être présent avec les mêmes valeurs.
         assert_eq!(loaded.grants.get(&alloc_id), ledger.grants.get(&alloc_id));
+    }
+
+    /// La persistance doit être atomique et privée : un fichier tronqué serait
+    /// lu comme un ledger vide, et un ledger lisible par tous exposerait les
+    /// réservations de l'utilisateur.
+    #[test]
+    fn test_ledger_persist_is_atomic_and_private() {
+        let dir = tempfile::tempdir().expect("dossier temporaire");
+        let ledger_file = dir.path().join("ledger_atomic.json");
+
+        let mut ledger = Ledger::at_path(&ledger_file);
+        ledger.reserve("alloc".to_string(), 1, 1024, 0, None);
+        ledger.persist().expect("persistance");
+
+        let mode = fs::metadata(&ledger_file)
+            .expect("métadonnées du ledger")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "un ledger doit rester privé (0600), trouvé {mode:o}"
+        );
+
+        let text = fs::read_to_string(&ledger_file).expect("relecture du ledger");
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&text).is_ok(),
+            "le fichier renommé doit toujours être un JSON complet : {text}"
+        );
+        assert!(
+            !dir.path().join(".ledger_atomic.json.tmp").exists(),
+            "aucun fichier temporaire ne doit rester après un rename réussi"
+        );
+    }
+
+    /// Un ledger illisible ne doit jamais être écrasé sans trace : il est
+    /// quarantiné, et le daemon repart d'un ledger vierge.
+    #[test]
+    fn test_corrupt_ledger_is_quarantined_not_silently_erased() {
+        let dir = tempfile::tempdir().expect("dossier temporaire");
+        let ledger_file = dir.path().join("ledger_corrupt.json");
+        fs::write(&ledger_file, b"{ ceci n'est pas du JSON").expect("écriture du fichier corrompu");
+
+        let ledger = Ledger::load_from(&ledger_file);
+        assert!(
+            ledger.is_empty(),
+            "un fichier illisible ne doit pas ressusciter de fausses réservations"
+        );
+        assert!(
+            !ledger_file.exists(),
+            "l'original est déplacé, pas laissé pour être écrasé à la première écriture"
+        );
+
+        let quarantined: Vec<_> = fs::read_dir(dir.path())
+            .expect("lecture du dossier")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.contains("corrupt-"))
+            })
+            .collect();
+        assert_eq!(
+            quarantined.len(),
+            1,
+            "le contenu illisible doit être conservé dans un seul fichier de quarantaine"
+        );
+        let preserved = fs::read(&quarantined[0]).expect("relecture de la quarantaine");
+        assert_eq!(
+            preserved, b"{ ceci n'est pas du JSON",
+            "la quarantaine contient les octets d'origine, pas une reconstruction"
+        );
     }
 
     #[test]
@@ -2344,7 +2508,10 @@ mod tests {
             }
         );
         assert_eq!(ledger.free_ram_bytes(&shrinking), free_before);
-        assert_eq!(ledger.free_cpu_cores(&shrinking), shrinking.cpu_cores);
+        assert_eq!(
+            ledger.free_cpu_cores(&shrinking),
+            shrinking.allowed_cpu_cores()
+        );
     }
 
     #[test]
@@ -2389,6 +2556,83 @@ mod tests {
         );
         assert_eq!(
             too_many_cores,
+            Reply::AllocDenied {
+                id: None,
+                reason: REASON_INSUFFICIENT_CPU.to_string()
+            }
+        );
+    }
+
+    /// Le pool CPU suit le palier, pas le total physique. Un nœud `eco` à
+    /// 25 % de huit cœurs ne peut promettre que deux cœurs ; le cinquième
+    /// refus porte le motif dédié, pas un refus de mémoire.
+    #[test]
+    fn test_cpu_pool_is_capped_by_the_tier() {
+        let mut state = state();
+        state.cpu_cores = 8;
+        state.max_cpu_percent = 25;
+        let mut ledger = Ledger::default();
+
+        assert_eq!(state.allowed_cpu_cores(), 2);
+        assert_eq!(ledger.free_cpu_cores(&state), 2);
+
+        let granted = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 2,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &state,
+            &mut ledger,
+        );
+        assert!(matches!(granted, Reply::AllocGranted { .. }));
+        assert_eq!(ledger.free_cpu_cores(&state), 0);
+
+        let denied = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 1,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &state,
+            &mut ledger,
+        );
+        assert_eq!(
+            denied,
+            Reply::AllocDenied {
+                id: None,
+                reason: REASON_INSUFFICIENT_CPU.to_string()
+            }
+        );
+    }
+
+    /// Un cœur au-delà du plafond est refusé même quand la machine en a
+    /// physiquement assez : c'est le contrat de palier, pas une mesure.
+    #[test]
+    fn test_cpu_above_the_tier_pool_is_denied() {
+        let mut state = state();
+        state.cpu_cores = 8;
+        state.max_cpu_percent = 50;
+        let reply = dispatch(
+            Request::Alloc {
+                id: None,
+                client: None,
+                cpu_cores: 5,
+                ram_gb: 1.0,
+                gpu_vram_gb: None,
+                storage_gb: None,
+            },
+            &state,
+            &mut Ledger::default(),
+        );
+        assert_eq!(
+            reply,
             Reply::AllocDenied {
                 id: None,
                 reason: REASON_INSUFFICIENT_CPU.to_string()
@@ -3104,6 +3348,9 @@ mod server_tests {
         let state = Arc::new(RwLock::new(DaemonState {
             platform: "test".to_string(),
             uptime_secs: 42,
+            // 6 cœurs physiques à 50 % = 3 cœurs réservables : le pool que ces
+            // tests de réservation attendent depuis l'origine.
+            cpu_cores: 6,
             ..DaemonState::new("balanced")
         }));
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -3767,7 +4014,8 @@ mod server_tests {
     // ── Réservations (ledger) ────────────────────────────────────────────
     //
     // L'état de test offre 7 Gio de marge (8 autorisés − 1 déjà alloué) et
-    // 3 cœurs : 5 Gio est accordable UNE fois, jamais deux.
+    // 3 cœurs réservables (6 physiques à 50 %) : 5 Gio est accordable UNE
+    // fois, jamais deux.
 
     /// Demande d'allocation de 5 Gio, 1 cœur.
     const ALLOC_5GIB: &str =

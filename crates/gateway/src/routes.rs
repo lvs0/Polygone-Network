@@ -3,11 +3,13 @@
 //! Rien ici n'ouvre de socket, ce qui permet de tester chaque route en
 //! mémoire. La couche réseau de `lib.rs` ne fait que lire puis écrire.
 
+use polygone_core::task::{TaskId, TaskState};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::http::{HttpRequest, HttpResponse};
 use crate::static_files;
+use crate::tasks::{CreateTaskRequest, DEFAULT_TASK_LIST_LIMIT, MAX_TASK_LIST_LIMIT, StoreError};
 use crate::{
     Gateway, MAX_PENDING_PAIRINGS, NodeInfo, PAIR_TOKEN_TTL_SECS, PairAcceptRequest, PairRequest,
     PairToken, PendingPing, now_secs, uuid_short,
@@ -140,6 +142,12 @@ impl Gateway {
             ("POST", "/api/v1/nodes/heartbeat") => self.heartbeat(&request.body).await,
             ("POST", "/api/v1/nodes/ping") => self.ping(&request.body).await,
             ("POST", "/api/v1/nodes/pong") => self.pong(&request.body).await,
+            ("POST", "/api/v1/tasks") => self.create_task(&request.body).await,
+            ("GET", "/api/v1/tasks") => self.list_tasks(&request.query).await,
+            ("POST", path) if path.starts_with("/api/v1/tasks/") && path.ends_with("/cancel") => {
+                self.cancel_task(path).await
+            }
+            ("GET", path) if path.starts_with("/api/v1/tasks/") => self.get_task(path).await,
             ("GET", path) if path.starts_with("/api/v1/pair/qr/") => {
                 let token = path.trim_start_matches("/api/v1/pair/qr/");
                 self.pair_qr(token).await
@@ -491,6 +499,132 @@ impl Gateway {
             None => HttpResponse::json(404, &json!({ "error": "nœud inconnu" })),
         }
     }
+
+    /// Crée une tâche validée et publiée. La réponse dit explicitement qu'aucun
+    /// exécuteur n'est branché : une tâche publiée n'est pas un calcul en cours.
+    async fn create_task(&self, body: &[u8]) -> HttpResponse {
+        let request: CreateTaskRequest = match serde_json::from_slice(body) {
+            Ok(value) => value,
+            Err(error) => {
+                return task_error(StoreError::Invalid(format!(
+                    "corps de tâche invalide : {error}"
+                )));
+            }
+        };
+        match self.tasks.create(request, now_secs()).await {
+            Ok(task) => {
+                HttpResponse::json(201, &json!({ "task": task, "executor_attached": false }))
+            }
+            Err(error) => task_error(error),
+        }
+    }
+
+    async fn list_tasks(&self, query: &str) -> HttpResponse {
+        let (state, limit, offset) = match parse_task_query(query) {
+            Ok(parsed) => parsed,
+            Err(message) => return task_error(StoreError::Invalid(message)),
+        };
+        match self.tasks.list(state, limit, offset, now_secs()).await {
+            Ok(page) => HttpResponse::json(200, &json!(page)),
+            Err(error) => task_error(error),
+        }
+    }
+
+    async fn get_task(&self, path: &str) -> HttpResponse {
+        let id = path.trim_start_matches("/api/v1/tasks/");
+        let Ok(id) = TaskId::parse(id) else {
+            return task_error(StoreError::NotFound);
+        };
+        match self.tasks.get(id.as_str(), now_secs()).await {
+            Ok(task) => {
+                HttpResponse::json(200, &json!({ "task": task, "executor_attached": false }))
+            }
+            Err(error) => task_error(error),
+        }
+    }
+
+    async fn cancel_task(&self, path: &str) -> HttpResponse {
+        let rest = path.trim_start_matches("/api/v1/tasks/");
+        let Some(id) = rest.strip_suffix("/cancel") else {
+            return task_error(StoreError::NotFound);
+        };
+        if id.contains('/') {
+            return task_error(StoreError::NotFound);
+        }
+        let Ok(id) = TaskId::parse(id) else {
+            return task_error(StoreError::NotFound);
+        };
+        match self.tasks.cancel(id.as_str(), now_secs()).await {
+            Ok(task) => {
+                HttpResponse::json(200, &json!({ "task": task, "executor_attached": false }))
+            }
+            Err(error) => task_error(error),
+        }
+    }
+}
+
+/// Traduit une erreur du magasin en réponse stable pour l'interface.
+fn task_error(error: StoreError) -> HttpResponse {
+    let (status, code) = match &error {
+        StoreError::Invalid(_) => (400, "invalid_task"),
+        StoreError::NotFound => (404, "task_not_found"),
+        StoreError::Conflict(_) => (409, "invalid_transition"),
+        StoreError::Full => (429, "too_many_tasks"),
+        StoreError::Persistence(_) => (500, "task_storage_failure"),
+    };
+    HttpResponse::json(
+        status,
+        &json!({ "error": code, "message": error.to_string() }),
+    )
+}
+
+/// Analyse `state`, `limit` et `offset`. Toute clé inconnue, dupliquée ou
+/// malformée est refusée : une pagination devinée vaut moins qu'une erreur.
+fn parse_task_query(query: &str) -> Result<(Option<TaskState>, usize, usize), String> {
+    let mut state = None;
+    let mut limit = DEFAULT_TASK_LIST_LIMIT;
+    let mut offset = 0usize;
+    let mut seen = std::collections::HashSet::new();
+
+    if !query.is_empty() {
+        for pair in query.split('&') {
+            if pair.is_empty() {
+                return Err("paramètre vide".into());
+            }
+            let (key, value) = pair
+                .split_once('=')
+                .ok_or_else(|| format!("paramètre sans valeur : {pair}"))?;
+            if !seen.insert(key) {
+                return Err(format!("paramètre dupliqué : {key}"));
+            }
+            if value.is_empty() || value.contains('%') {
+                return Err(format!("valeur invalide pour {key}"));
+            }
+            match key {
+                "state" => {
+                    state = Some(
+                        TaskState::parse(value).ok_or_else(|| format!("état inconnu : {value}"))?,
+                    );
+                }
+                "limit" => {
+                    let parsed: usize = value
+                        .parse()
+                        .map_err(|_| format!("limit invalide : {value}"))?;
+                    if parsed == 0 || parsed > MAX_TASK_LIST_LIMIT {
+                        return Err("limit hors bornes".into());
+                    }
+                    limit = parsed;
+                }
+                "offset" => {
+                    offset = value
+                        .parse()
+                        .map_err(|_| format!("offset invalide : {value}"))?;
+                }
+                _ => return Err(format!("paramètre inconnu : {key}")),
+            }
+        }
+    }
+    Ok((state, limit, offset))
 }
 
 #[cfg(test)]
@@ -512,20 +646,15 @@ mod tests {
         Gateway::new(PathBuf::from("."))
     }
 
-    fn get(path: &str) -> HttpRequest {
-        HttpRequest {
-            method: "GET".into(),
-            path: path.into(),
-            body: Vec::new(),
+    fn get(target: &str) -> HttpRequest {
+        match target.split_once('?') {
+            Some((path, query)) => HttpRequest::new("GET", path, Vec::new()).with_query(query),
+            None => HttpRequest::new("GET", target, Vec::new()),
         }
     }
 
     fn post(path: &str, body: &str) -> HttpRequest {
-        HttpRequest {
-            method: "POST".into(),
-            path: path.into(),
-            body: body.as_bytes().to_vec(),
-        }
+        HttpRequest::new("POST", path, body.as_bytes().to_vec())
     }
 
     fn body_json(response: &HttpResponse) -> serde_json::Value {
@@ -535,11 +664,7 @@ mod tests {
     #[tokio::test]
     async fn options_is_204_with_cors() {
         let response = gateway()
-            .route(HttpRequest {
-                method: "OPTIONS".into(),
-                path: "/api/v1/services".into(),
-                body: Vec::new(),
-            })
+            .route(HttpRequest::new("OPTIONS", "/api/v1/services", Vec::new()))
             .await;
 
         assert_eq!(response.status, 204);
@@ -663,7 +788,9 @@ mod tests {
 
         let nodes = gateway.nodes.read().await;
         assert_eq!(nodes[node_id].latency_ms, Some(42));
-        assert_eq!(nodes[node_id].last_seen, stamp);
+        // `last_seen` est horodaté par la gateway : il peut être postérieur au
+        // timestamp du client si la requête traverse une frontière de seconde.
+        assert!(nodes[node_id].last_seen >= stamp);
         assert_eq!(nodes["silencieux000000"].latency_ms, None);
         drop(nodes);
         assert_eq!(
@@ -807,11 +934,7 @@ mod tests {
     #[tokio::test]
     async fn unsupported_method_is_405() {
         let response = gateway()
-            .route(HttpRequest {
-                method: "PUT".into(),
-                path: "/api/v1/services".into(),
-                body: Vec::new(),
-            })
+            .route(HttpRequest::new("PUT", "/api/v1/services", Vec::new()))
             .await;
 
         assert_eq!(response.status, 405);
@@ -1033,5 +1156,101 @@ mod tests {
         let status = body_json(&gateway.route(get("/api/v1/network/status")).await);
         let uptime = status["uptime_seconds"].as_u64().unwrap();
         assert!(uptime < 60, "uptime inattendu : {uptime}");
+    }
+
+    fn task_body() -> String {
+        json!({
+            "owner": "ui-user",
+            "kind": "echo",
+            "input_hex": "68656c6c6f",
+            "deadline_in_seconds": 300
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn task_api_publishes_without_claiming_execution() {
+        let gateway = gateway();
+        let response = gateway.route(post("/api/v1/tasks", &task_body())).await;
+        assert_eq!(response.status, 201);
+
+        let payload = body_json(&response);
+        assert_eq!(payload["task"]["state"], "published");
+        assert_eq!(payload["task"]["spec"]["kind"], "echo");
+        assert_eq!(payload["task"]["spec"]["input"], "68656c6c6f");
+        assert_eq!(payload["executor_attached"], false);
+        assert!(payload["task"]["result"].is_null());
+        let id = payload["task"]["spec"]["id"].as_str().unwrap().to_string();
+        assert!(id.starts_with("task_"));
+
+        let fetched = body_json(&gateway.route(get(&format!("/api/v1/tasks/{id}"))).await);
+        assert_eq!(fetched["task"]["state"], "published");
+
+        let page = body_json(&gateway.route(get("/api/v1/tasks?limit=10")).await);
+        assert_eq!(page["total"], 1);
+        assert_eq!(page["tasks"][0]["spec"]["id"], id);
+        assert_eq!(page["executor_attached"], false);
+
+        let cancelled = gateway
+            .route(post(&format!("/api/v1/tasks/{id}/cancel"), "{}"))
+            .await;
+        assert_eq!(cancelled.status, 200);
+        assert_eq!(body_json(&cancelled)["task"]["state"], "cancelled");
+
+        let again = gateway
+            .route(post(&format!("/api/v1/tasks/{id}/cancel"), "{}"))
+            .await;
+        assert_eq!(again.status, 409);
+        assert_eq!(body_json(&again)["error"], "invalid_transition");
+    }
+
+    #[tokio::test]
+    async fn task_api_refuses_smuggled_state_and_bad_queries() {
+        let gateway = gateway();
+
+        // Un client ne peut pas fabriquer un état ou un résultat par le corps.
+        let smuggled = json!({
+            "owner": "ui-user",
+            "kind": "echo",
+            "state": "succeeded",
+            "result": {"output": "", "output_hash": "00"}
+        })
+        .to_string();
+        let response = gateway.route(post("/api/v1/tasks", &smuggled)).await;
+        assert_eq!(response.status, 400);
+        assert_eq!(body_json(&response)["error"], "invalid_task");
+
+        let network = json!({
+            "owner": "ui-user",
+            "kind": "echo",
+            "allow_network": true
+        })
+        .to_string();
+        assert_eq!(
+            gateway.route(post("/api/v1/tasks", &network)).await.status,
+            400
+        );
+
+        for query in [
+            "/api/v1/tasks?limit=0",
+            "/api/v1/tasks?limit=1&limit=2",
+            "/api/v1/tasks?state=done",
+            "/api/v1/tasks?inconnu=1",
+        ] {
+            assert_eq!(gateway.route(get(query)).await.status, 400, "{query}");
+        }
+
+        assert_eq!(
+            gateway.route(get("/api/v1/tasks/inconnue")).await.status,
+            404
+        );
+        assert_eq!(
+            gateway
+                .route(post("/api/v1/tasks/inconnue/cancel", "{}"))
+                .await
+                .status,
+            404
+        );
+        assert!(gateway.tasks.is_empty().await, "aucune tâche fantôme");
     }
 }

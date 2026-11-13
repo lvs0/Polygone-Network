@@ -18,7 +18,7 @@ Décision `D1` tranchée : **option D1-b**, documentée dans
 | Histoires préservées | `main` et `realign/realign/v2` intactes, aucun force-push |
 | Hors fusion | les 78 modifications non commitées de `Polygone-real` (jamais commitées) restent dans `~/Ops/backups/polygone-unification-2026-11-09/dirty/` |
 
-## Vérifications du 2026-11-09 (arbre réconcilié)
+## Vérifications de la première réconciliation — état historique avant e2936a3
 
 | Commande | Résultat |
 |---|---|
@@ -37,6 +37,26 @@ Décision `D1` tranchée : **option D1-b**, documentée dans
 | Revue des 78 modifications de `Polygone-real` | 4 fichiers porteurs d'une fonctionnalité réelle **réintégrés** ; 31 restent à statuer (dont la réservation de stockage du ledger) — `project/DIRTY-REVIEW.md` |
 
 **Non vérifié, et pourquoi** : `gitleaks` n'est pas installé sur cette machine — le scan d'historique exigé par l'étape 9 du plan n'a **pas** été exécuté. Aucune publication vers `origin` n'a été faite. Le test de migration `peers.json` v1 → v2 (AK-02) n'existe pas encore : l'identifiant `node_id` a changé de longueur avec S1, donc la migration est un prérequis de version stable, pas un détail.
+
+
+## Vérifications manuelles actualisées — 2026-11-09
+
+HEAD vérifié : `e2936a3e94ae2d7bd95afb9c21be8dd23c2641f2` sur `reconcile/2026-11`. Cet état remplace les
+indications devenues obsolètes dans la première réconciliation ci-dessus.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `cargo test --workspace` | **463 réussis, 0 échec**, doc-tests inclus, exit 0 (log temporaire `/tmp/polygone-workspace-test-2026-11-09.log`) |
+| `cargo fmt --all -- --check` | PASS |
+| `node scripts/check-docs.mjs --tests 463` | PASS |
+| `make migrate-proof` | PASS — cinq tests de migration et smoke test sur fichier v1 réel |
+| Test `runtime_state` stockage | PASS — valeur mesurée publiée, enforcement reste à zéro, absence de mesure fail-closed |
+| Tests ledger stockage | PASS — réservation/libération et conservation après redémarrage ; preuve : docs/proofs/storage-ledger-2026-11-09.txt |
+| Publication | **Aucune** ; aucun push ou commit créé pendant cette reprise |
+
+La réservation de stockage n'est donc plus une tâche à porter : le code du ledger
+et ses tests sont déjà présents dans le HEAD. Le suivi a été corrigé pour le refléter.
+La CI GitHub Actions et les essais sur deux machines physiques restent non vérifiés.
 
 ## Dernière session
 
@@ -200,3 +220,80 @@ Voir `ROADMAP.md`, `docs/P0-RAPPORT.md` et `docs/atlas/agent/backlog.json`.
 |---|---|---|
 | node scripts/check-atlas.mjs | 6 épiques, 132 identifiants, backlog cohérent, aucun chemin privé | 2026-11-04 |
 | node --test docs/atlas/agent/tests/backlog.test.mjs | tests du véritable orchestrateur, worker absent et tâches déjà terminées | 2026-11-04 |
+
+## Audit de fondation — 2026-11-09 (session 4)
+
+HEAD `e2936a3`, branche `reconcile/2026-11`. Audit intégral du socle, correctifs
+et documentation de fondation. Détail complet : `project/FOUNDATION-AUDIT.md`,
+`project/FOUNDATION-STATUS.md`, `docs/testing/VALIDATION-RESULTS.md`.
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo test --workspace` | **465 réussis, 0 échec**, doc-tests inclus, exit 0 |
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | exit 0 |
+| `node scripts/check-docs.mjs --tests 465` | documents cohérents, 78 Markdown couverts, exit 0 |
+| `node scripts/check-ci-honesty.mjs` | matrice honnête, exit 0 |
+| `cargo test -p polygone-client --test no_tracked_secrets` | 2/2, exit 0 |
+| `git diff --check` | exit 0 |
+| `cargo test -p polygoned socket::tests::` | 35/35, exit 0 |
+| Persistance du ledger | **corrigée** — écriture atomique, `0600`, quarantaine d'un fichier illisible |
+| Test de heartbeat gateway | **rendu déterministe** — comparait un timestamp client à `last_seen`, échouait à une frontière de seconde |
+| Mesures | 88 fichiers Rust, 35 597 lignes, 4 binaires, 465 tests |
+
+**Non vérifié** : deux machines physiques, CI GitHub Actions, Gitleaks sur
+l'arbre final, audit de dépendances, macOS, VM neuve. Aucun commit ni push créé.
+
+Verdict : Foundation 1.0 **non atteinte** ; socle local cohérent et documenté,
+mais multi-machine, CI, dépendances et secrets finaux restent non prouvés, et
+l'API produit de tâches/événements n'existe pas.
+
+## File de tâches — 2026-11-09 (session 5)
+
+Modèle, file et API produit de tâches ; aucun exécuteur branché.
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo test --workspace` | **490 réussis, 0 échec**, exit 0 |
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | exit 0 |
+| `node scripts/check-docs.mjs --tests 490` | documents cohérents, 78 Markdown couverts, exit 0 |
+| `git diff --check` | exit 0 |
+
+Livré : `crates/core/src/task.rs` (15 tests), `crates/gateway/src/tasks.rs`
+(8 tests), routes `/api/v1/tasks` (2 tests). Cycle de vie explicite, résultat
+BLAKE3 recalculé et producteur imposé, persistance atomique `0600`, quarantaine
+d'un fichier illisible, expiration balayée à la lecture. L'API ne dépasse jamais
+`published` et renvoie `executor_attached: false`.
+
+Limites : aucun exécuteur, donc aucune tâche réellement exécutée ; pas de test
+HTTP de bout en bout dédié aux routes de tâches ; multi-machine, CI, Gitleaks
+final et audit de dépendances toujours non vérifiés. Aucun commit ni push.
+
+## Plafond CPU et politique de confiance — 2026-11-13 (session 6)
+
+Deux ambiguïtés de fondation fermées, sans prétendre à une preuve multi-machine.
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | exit 0 |
+| `cargo test --workspace` | **499 réussis, 0 échec**, exit 0 |
+| `node scripts/check-docs.mjs --tests 499` | documents cohérents, 85 Markdown couverts, exit 0 |
+| `cargo test -p polygone-client --test doc_index` | 1/1, exit 0 |
+| `gitleaks git .` | 281 commits, aucune fuite |
+| `gitleaks dir` (arbre hors `target/`, `.git/`) | aucune fuite |
+
+`F1-RES-03` : `allowed_cpu_cores()` = `floor(cpu_cores × max_cpu_percent / 100)`.
+`cpu_cores` reste le total physique ; `free_cpu_cores` ne dépasse plus ce pool.
+Tests `test_cpu_pool_is_capped_by_the_tier` et
+`test_cpu_above_the_tier_pool_is_denied`. Les fixtures de test modélisent
+désormais 6 cœurs physiques pour conserver 3 cœurs réservables à 50 %.
+
+`F1-SEC-02` : `POLYGONE_TRUST_POLICY` accepte `tofu` (défaut) ou `strict`.
+En strict, un pair non ancré est refusé avant livraison (`AUTH.UNKNOWN_PEER`)
+et n'est jamais appris ; une valeur inconnue empêche le démarrage du client.
+Trois tests : analyse des valeurs, refus sans apprentissage, pair ancré accepté.
+
+Limites : aucune contrainte CPU noyau (`enforced = 0`), TOFU reste le défaut,
+et multi-machine, CI, audit de dépendances et VM neuve restent non vérifiés.

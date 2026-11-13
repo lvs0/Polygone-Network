@@ -261,6 +261,20 @@ async fn heartbeat_round_trip_over_real_http_is_persisted() {
     );
     assert_eq!(status_code(&response), 200, "{response}");
 
+    // Le heartbeat est horodaté par la gateway, pas par le client. Comparer
+    // `last_seen` au `stamp` envoyé ne passe que si les deux tombent dans la
+    // même seconde : c'est un test qui échoue au hasard d'une frontière de
+    // seconde, pas un défaut du produit. On relit la valeur réellement
+    // persistée depuis la réponse.
+    let heartbeat_last_seen = serde_json::from_str::<serde_json::Value>(response_body(&response))
+        .expect("JSON heartbeat")["last_seen"]
+        .as_u64()
+        .expect("last_seen numérique");
+    assert!(
+        heartbeat_last_seen >= stamp,
+        "la gateway ne peut pas dater un heartbeat avant le client"
+    );
+
     // Mesure réelle : ping signé → challenge, pong signé → RTT enregistré.
     let ping_signature = keys.signer.sign(ping_message(&node_id, stamp).as_bytes());
     let ping = send_raw_http(
@@ -313,6 +327,17 @@ async fn heartbeat_round_trip_over_real_http_is_persisted() {
         "la mesure doit apparaître dans le statut réseau"
     );
 
+    // Le ping/pong qui suit le heartbeat avance légitimement `last_seen`. On
+    // compare donc le disque au **dernier** état servi, pas au premier.
+    let node_path = format!("/api/v1/node/{node_id}");
+    let node_info = send_raw_http(address, "GET", &node_path, &[]);
+    assert_eq!(status_code(&node_info), 200, "{node_info}");
+    let node_last_seen = serde_json::from_str::<serde_json::Value>(response_body(&node_info))
+        .expect("JSON nœud")["last_seen"]
+        .as_u64()
+        .expect("last_seen numérique");
+    assert!(node_last_seen >= heartbeat_last_seen);
+
     server.abort();
     let _ = server.await;
 
@@ -323,7 +348,10 @@ async fn heartbeat_round_trip_over_real_http_is_persisted() {
     let reloaded = Gateway::with_nodes_file(site_dir.clone(), Some(nodes_file.clone()));
     let nodes = reloaded.nodes.read().await;
     let node = nodes.get(&node_id).expect("nœud rechargé depuis le disque");
-    assert_eq!(node.last_seen, stamp);
+    assert_eq!(
+        node.last_seen, node_last_seen,
+        "l'état persisté doit être le dernier état servi"
+    );
     drop(nodes);
     std::fs::remove_dir_all(root).ok();
 }
