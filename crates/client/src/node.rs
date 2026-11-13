@@ -770,7 +770,13 @@ mod tests {
                     daemon_version: "test".to_string(),
                     platform: "test".to_string(),
                     tier: "balanced".to_string(),
-                    protocol_version: polygoned::socket::PROTOCOL_VERSION,
+                    protocol_version: polygoned::socket::MIN_PROTOCOL_VERSION,
+                    max_protocol_version: Some(polygoned::socket::PROTOCOL_VERSION),
+                    min_protocol_version: polygoned::socket::MIN_PROTOCOL_VERSION,
+                    capabilities: polygoned::socket::CAPABILITIES
+                        .iter()
+                        .map(|c| (*c).to_string())
+                        .collect(),
                 };
                 let _ = writer.write_all(polygoned::socket::encode(&hello).as_bytes());
 

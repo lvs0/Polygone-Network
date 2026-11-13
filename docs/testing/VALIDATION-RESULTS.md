@@ -143,3 +143,44 @@ sans apprentissage, acceptation d'un pair ancré.
 
 Limite : en mode strict, l'empreinte doit être vérifiée hors-ligne avant le
 premier message ; aucun outil d'appairage guidé n'existe encore.
+
+---
+
+## 7. Incrément `F1-PROTO-01` — 2026-11-13
+
+Même hôte Linux unique, branche `reconcile/2026-11`, arbre de la session 7.
+
+| Commande | Résultat | Code de sortie | Portée |
+|---|---|---:|---|
+| `cargo fmt --all -- --check` | aucun écart | **0** | tout le workspace |
+| `cargo clippy --workspace --all-targets -- -D warnings` | aucun avertissement | **0** | tout le workspace |
+| `cargo test --workspace` | **502 réussis, 0 échec** (doc-tests inclus) | **0** | L0–L2 local |
+| `node scripts/check-docs.mjs --tests 502` | documents cohérents, 85 Markdown couverts | **0** | documentation |
+| `cargo test -p polygone-client --test doc_index` | 1 réussi, 0 échec | **0** | index documentaire |
+| `gitleaks git .` | historique complet, aucune fuite | **0** | historique Git |
+| `gitleaks dir` (copie hors `target/`, `.git/`) | aucune fuite | **0** | arbre de travail |
+
+Mesures : 90 fichiers Rust, **38 179** lignes, 4 binaires, 502 tests.
+
+### 7.1 Fenêtre de versions
+
+Le `hello` reste en `v: 1` et annonce `max_protocol_version: 2`,
+`min_protocol_version: 1` et les capacités réelles. Le serveur répond avec la
+version de la requête, donc un client v1 continue de lire toutes les réponses.
+Le client négocie `min(2, max daemon)` et encode ses requêtes avec cette
+version ; `v: 3` est refusé par `unsupported_version` sans fermer la connexion.
+
+### 7.2 Preuves
+
+- `test_serve_accepts_v1_and_refuses_v3_without_closing` : v3 refusé, puis v1
+  servi en v1 et v2 servi en v2 sur la même connexion.
+- `test_client_negotiates_v1_with_an_old_daemon` : `hello` sans
+  `max_protocol_version` → négociation v1, requête servie.
+- `test_client_negotiates_v2_from_the_max_field` : `max_protocol_version: 2`
+  → négociation v2.
+- `test_client_rejects_wrong_protocol_version` : fenêtres disjointes → erreur
+  explicite avant toute requête.
+- Contrat petals : la version vérifiée est `PROTOCOL_VERSION`, plus `v: 1` figé.
+
+Limite : le relais garde son propre handshake `AUTH_INIT v1`, hors de cette
+négociation ; une future v3 exigera d'élargir la fenêtre et les tests.

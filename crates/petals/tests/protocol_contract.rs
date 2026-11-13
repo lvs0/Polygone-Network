@@ -29,9 +29,12 @@ fn requirements() -> ResourceRequest {
 fn l_allocation_du_client_est_acceptee_par_le_daemon() {
     let line = encode_request(&alloc_request(&requirements()));
 
-    // Le champ `v` est posé par l'encodeur du daemon : un seul exemplaire,
-    // pour les deux directions.
-    assert!(line.contains("\"v\":1"), "le champ v manque : {line}");
+    // Le champ `v` est posé par l'encodeur du daemon, à la version courante :
+    // un seul exemplaire, pour les deux directions.
+    assert!(
+        line.contains(&format!("\"v\":{}", polygoned::socket::PROTOCOL_VERSION)),
+        "le champ v manque ou n'est pas la version courante : {line}"
+    );
 
     let request = decode(line.trim_end()).expect("le daemon doit accepter la requête du client");
     match request {
@@ -104,13 +107,20 @@ fn le_client_sait_lire_une_reponse_reelle_du_daemon() {
 
 #[test]
 fn une_fiche_de_demande_du_client_ne_contient_que_des_champs_connus() {
-    // Le protocole v1 n'a que quatre types de requete. Si le client en
-    // inventait un, le daemon le refuserait avec `UnknownType` : ce test le
-    // prouve avant qu'il n'arrive en production.
+    // Le protocole ne connaît que ces types. Si le client en inventait un, le
+    // daemon le refuserait avec `UnknownType` : ce test le prouve avant qu'il
+    // n'arrive en production.
     let line = encode_request(&alloc_request(&requirements()));
     let value: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
 
-    let known = ["status_request", "ping", "alloc_request", "release"];
+    let known = [
+        "status_request",
+        "ping",
+        "alloc_request",
+        "release",
+        "renew",
+        "refusals_request",
+    ];
     let kind = value.get("type").and_then(|t| t.as_str()).unwrap();
     assert!(known.contains(&kind), "type de requête inconnu : {kind}");
 }

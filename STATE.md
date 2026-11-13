@@ -297,3 +297,34 @@ Trois tests : analyse des valeurs, refus sans apprentissage, pair ancré accept�
 
 Limites : aucune contrainte CPU noyau (`enforced = 0`), TOFU reste le défaut,
 et multi-machine, CI, audit de dépendances et VM neuve restent non vérifiés.
+
+## Négociation de protocole v1/v2 — 2026-11-13 (session 7)
+
+`F1-PROTO-01` : la fenêtre de compatibilité est explicite et testée.
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | exit 0 |
+| `cargo test --workspace` | **502 réussis, 0 échec**, exit 0 |
+| `node scripts/check-docs.mjs --tests 502` | documents cohérents, 85 Markdown couverts, exit 0 |
+| `cargo test -p polygone-client --test doc_index` | 1/1, exit 0 |
+| `gitleaks git .` | historique complet, aucune fuite |
+| `gitleaks dir` (arbre hors `target/`, `.git/`) | aucune fuite |
+
+Le `hello` reste en `v: 1` pour les binaires déjà installés, et annonce
+`max_protocol_version: 2`, `min_protocol_version: 1` et les capacités
+(`refusals`, `renew`, `storage_capacity`, `cpu_tier_cap`). Le serveur répond
+dans la version de la requête : `v1` reçoit du `v1`, `v2` reçoit du `v2`. Le
+client retient `min(2, max daemon)` et encode toutes ses requêtes avec cette
+version ; sans recouvrement, il refuse la connexion avant toute requête.
+
+Preuves : `test_serve_accepts_v1_and_refuses_v3_without_closing`,
+`test_client_negotiates_v1_with_an_old_daemon`,
+`test_client_negotiates_v2_from_the_max_field`,
+`test_client_rejects_wrong_protocol_version`, et le contrat petals qui vérifie
+la version courante au lieu de figer `v: 1`.
+
+Limite : une future v3 devra élargir la fenêtre et les tests, pas réinterpréter
+les messages existants. Le relais garde son propre handshake `AUTH_INIT v1`,
+non concerné par cette négociation.

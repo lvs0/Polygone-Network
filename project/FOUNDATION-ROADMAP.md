@@ -31,7 +31,7 @@
 | F1-PROOF-02 | CI | Prouver le pipeline sur le HEAD réel | Structure vérifiée localement, runner jamais exécuté | `.github/workflows/ci.yml` | autorisation de push | Lancer le workflow et archiver le résultat | URL du run + statut + journaux | `test` et `smoke` verts sur Linux | NOT_STARTED (BLOCKED : aucun push autorisé) | cache, runners, temps |
 | F1-SEC-01 | Secrets | Rejouer Gitleaks sur l'arbre final | Preuve antérieure existe ; non rejouée dans ce lot | `docs/proofs/gitleaks-2026-11-09.txt` | binaire `~/bin/gitleaks` | Exécuter `git` + `dir` sur l'arbre courant | Sortie datée, aucune valeur sensible dans le rapport | 0 fuite sur l'arbre courant | NOT_STARTED | faux positifs, volume |
 | F1-RES-03 | Ressources | Décider et appliquer la limite CPU du palier | **Livré** : `allowed_cpu_cores()` = `floor(cpu_cores × max_cpu_percent / 100)` ; `free_cpu_cores` s'y limite ; `cpu_cores` reste le total physique mesuré | `daemon/src/socket.rs`, `DaemonState` | — | Plafonner le pool CPU par palier, sans changer le champ de mesure | `test_cpu_pool_is_capped_by_the_tier`, `test_cpu_above_the_tier_pool_is_denied` | Comportement unique, testé, documenté | **TESTED** | un palier bas réduit le nombre de cœurs partageables (1 cœur sur 3 physiques à 50 %) |
-| F1-PROTO-01 | Protocole | Versionner et négocier les capacités | `v: 1` fixe, pas de négociation ; incompatibilité silencieuse possible | `daemon/src/socket.rs`, `crates/client`, `crates/petals` | F1-RES-03 (fait) | Ajouter version de protocole + capacités, garder `v:1` lisible | Test de rejet explicite d'une version non supportée | Deux versions se comportent comme spécifié | NOT_STARTED | rupture client |
+| F1-PROTO-01 | Protocole | Versionner et négocier les capacités | **Livré** : fenêtre `v1..=v2`, `hello` v1 annonçant `max_protocol_version: 2` et `capabilities`, réponse dans la version de la requête, client négociant `min(2, max daemon)` | `daemon/src/socket.rs`, `daemon/src/client.rs`, `crates/client/src/node.rs`, `crates/petals` | F1-RES-03 (fait) | Version de protocole + capacités, sans couper les clients v1 | Tests : v1 accepté et répondu en v1, v2 répondu en v2, v3 refusé sans fermer, vieux daemon négocié en v1, daemon v2 négocié en v2 | Deux versions se comportent comme spécifié | **TESTED** | une future v3 devra élargir la fenêtre, pas réinterpréter |
 
 ---
 
@@ -92,11 +92,10 @@ F1-RES-03 (politique CPU)─┘                                      │
                                                                  └─> F1-SVC-01 / F1-SVC-03
 ```
 
-**Prochaine tâche technique précise** : `F1-PROTO-01` (version et négociation
-des capacités), parce qu'elle est réalisable sur une seule machine et que ses
-deux prérequis techniques sont désormais levés (`F1-RES-03` testé, contrat de
-ressources écrit). `F1-TASK-01` est livrée pour la file ; la suite est le
-branchement d'un exécuteur (`F1-TASK-02`), puis la vérification de bout en bout
+**Prochaine tâche technique précise** : `F1-TASK-02` (brancher un exécuteur
+réel sur la file), parce qu'elle est réalisable sur une seule machine et que
+le protocole est désormais versionné et négocié. `F1-TASK-01` est livrée pour
+la file ; après l'exécuteur viendra la vérification de bout en bout
 (`F1-TASK-03`). `F1-PROOF-01` et `F1-PROOF-02` restent prioritaires mais
 bloquées par l'environnement (second hôte, autorisation de push).
 

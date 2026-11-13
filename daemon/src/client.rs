@@ -1,4 +1,4 @@
-//! Client de référence du protocole v1 — la moitié manquante du socket.
+//! Client de référence du protocole (v1 et v2) — la moitié manquante du socket.
 //!
 //! Jusqu'à 2b-6, le daemon ne savait que **servir** : `encode(&Reply)` et
 //! `decode(&str) -> Request` n'avaient pas de symétriques, donc tout client
@@ -14,7 +14,8 @@
 //! de dériver du serveur sans qu'un test le voie.
 
 use crate::socket::{
-    decode_reply, encode_request, Reply, Request, CONNECTION_IDLE_TIMEOUT, PROTOCOL_VERSION,
+    decode_reply, encode_request_with_version, Reply, Request, CONNECTION_IDLE_TIMEOUT,
+    MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use std::fmt;
 use std::io::{BufRead, BufReader, Write};
@@ -78,6 +79,12 @@ pub struct DaemonClient {
     /// Compteur d'identifiants, strictement croissant. C'est lui qui permet de
     /// dire « cette réponse n'est pas la mienne » au lieu de la croire.
     next_id: u64,
+    /// Version retenue après le `hello` : `min(client, daemon)`. Toutes les
+    /// requêtes de cette connexion l'utilisent, jamais la constante locale.
+    protocol_version: u8,
+    /// Capacités annoncées par le daemon, telles quelles. Une capacité absente
+    /// se traite comme indisponible, pas comme acquise.
+    capabilities: Vec<String>,
 }
 
 impl DaemonClient {
@@ -117,18 +124,29 @@ impl DaemonClient {
             stream,
             reader,
             next_id: 0,
+            protocol_version: MIN_PROTOCOL_VERSION,
+            capabilities: Vec::new(),
         };
 
         match client.read_reply()? {
             Reply::Hello {
-                protocol_version, ..
+                protocol_version: daemon_base,
+                max_protocol_version,
+                min_protocol_version: daemon_min,
+                capabilities,
+                ..
             } => {
-                if protocol_version != PROTOCOL_VERSION {
+                let daemon_max = max_protocol_version.unwrap_or(daemon_base);
+                let negotiated = PROTOCOL_VERSION.min(daemon_max);
+                if negotiated < MIN_PROTOCOL_VERSION.max(daemon_min) {
                     return Err(ClientError::Protocol(format!(
-                        "version de protocole inconnue : le daemon annonce {protocol_version}, \
-                         ce client parle {PROTOCOL_VERSION}"
+                        "aucune version de protocole commune : le daemon annonce \
+                         {daemon_min}..={daemon_max}, ce client parle \
+                         {MIN_PROTOCOL_VERSION}..={PROTOCOL_VERSION}"
                     )));
                 }
+                client.protocol_version = negotiated;
+                client.capabilities = capabilities;
             }
             other => {
                 return Err(ClientError::Protocol(format!(
@@ -148,7 +166,8 @@ impl DaemonClient {
     pub fn request(&mut self, request: Request) -> Result<Reply, ClientError> {
         self.next_id += 1;
         let id = format!("c{}", self.next_id);
-        let line = encode_request(&with_id(request, id.clone()));
+        let line =
+            encode_request_with_version(&with_id(request, id.clone()), self.protocol_version);
 
         self.stream.write_all(line.as_bytes())?;
         self.stream.flush()?;
@@ -189,6 +208,16 @@ impl DaemonClient {
         }
 
         Ok(reply)
+    }
+
+    /// Version réellement négociée pour cette connexion.
+    pub fn protocol_version(&self) -> u8 {
+        self.protocol_version
+    }
+
+    /// Capacités annoncées par le daemon, dans l'ordre reçu.
+    pub fn capabilities(&self) -> &[String] {
+        &self.capabilities
     }
 
     /// État courant de la décision d'allocation.
@@ -353,6 +382,15 @@ mod tests {
         format!(
             "{{\"v\":1,\"type\":\"hello\",\"daemon_version\":\"2.0.0\",\"platform\":\"test\",\
              \"tier\":\"balanced\",\"protocol_version\":{protocol_version}}}\n"
+        )
+    }
+
+    /// `hello` d'un daemon qui impose une version minimale plus récente.
+    fn hello_line_with_min(protocol_version: u8, min_protocol_version: u8) -> String {
+        format!(
+            "{{\"v\":1,\"type\":\"hello\",\"daemon_version\":\"2.0.0\",\"platform\":\"test\",\
+             \"tier\":\"balanced\",\"protocol_version\":{protocol_version},\
+             \"min_protocol_version\":{min_protocol_version}}}\n"
         )
     }
 
@@ -613,20 +651,68 @@ mod tests {
 
     #[test]
     fn test_client_rejects_wrong_protocol_version() {
-        let (path, handle, _dir) = start_fake_server(hello_line(2), String::new());
+        let (path, handle, _dir) = start_fake_server(hello_line_with_min(3, 3), String::new());
 
         let err = match DaemonClient::connect(&path) {
-            Ok(_) => panic!("un `hello` en version 2 doit être refusé"),
+            Ok(_) => panic!("un `hello` en version 3 doit être refusé"),
             Err(err) => err,
         };
 
         match err {
             ClientError::Protocol(message) => assert!(
-                message.contains("version de protocole inconnue"),
+                message.contains("aucune version de protocole commune"),
                 "message attendu sur la version, obtenu : {message}"
             ),
             other => panic!("attendu ClientError::Protocol, obtenu {other:?}"),
         }
+
+        let _ = handle.join();
+    }
+
+    /// Un daemon v2 annonce sa version maximale dans un champ séparé, tout en
+    /// gardant un `hello` v1 lisible par les anciens clients.
+    #[test]
+    fn test_client_negotiates_v2_from_the_max_field() {
+        let hello = "{\"v\":1,\"type\":\"hello\",\"daemon_version\":\"2.0.0\",\
+                     \"platform\":\"test\",\"tier\":\"balanced\",\
+                     \"protocol_version\":1,\"max_protocol_version\":2}\n";
+        let (path, handle, _dir) = start_fake_server(
+            hello.to_string(),
+            "{\"v\":2,\"type\":\"pong\",\"id\":\"c1\"}\n".to_string(),
+        );
+
+        let mut client = DaemonClient::connect(&path).expect("connexion au daemon v2");
+        assert_eq!(client.protocol_version(), 2);
+        assert!(
+            matches!(
+                client.request(Request::Ping { id: None }),
+                Ok(Reply::Pong { .. })
+            ),
+            "une requête négociée en v2 doit être servie"
+        );
+
+        let _ = handle.join();
+    }
+
+    /// Un daemon ancien n'annonce ni version minimale ni capacités : le client
+    /// doit retomber sur v1, pas refuser la connexion.
+    #[test]
+    fn test_client_negotiates_v1_with_an_old_daemon() {
+        let (path, handle, _dir) = start_fake_server(
+            hello_line(1),
+            "{\"v\":1,\"type\":\"pong\",\"id\":\"c1\"}\n".to_string(),
+        );
+
+        let mut client = DaemonClient::connect(&path).expect("connexion au daemon v1");
+        assert_eq!(client.protocol_version(), 1);
+        assert!(client.capabilities().is_empty());
+        assert!(
+            matches!(
+                client.request(Request::Ping { id: None }),
+                Ok(Reply::Pong { .. })
+            ),
+            "une requête négociée en v1 doit être servie"
+        );
 
         let _ = handle.join();
     }

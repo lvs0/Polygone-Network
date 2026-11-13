@@ -24,10 +24,12 @@ terminée par `\n` ; une réponse = une ligne JSON.
 **Enveloppe obligatoire** :
 
 ```json
-{"v": 1, "type": "<type>", "id": "<optionnel>"}
+{"v": 2, "type": "<type>", "id": "<optionnel>"}
 ```
 
-- `v` absent ou différent de `1` → `unsupported_version`.
+- `v` absent ou hors de la fenêtre `1..=2` → `unsupported_version`.
+- Le serveur répond avec **la version de la requête** : `v: 1` reçoit du v1,
+  `v: 2` reçoit du v2. Un client v1 existant continue donc de lire le flux.
 - `type` hors liste blanche → `unknown_type`.
 - ligne > 64 Kio → `line_too_long` (la connexion est fermée).
 - JSON invalide ou champ obligatoire manquant → `malformed_json`.
@@ -49,7 +51,7 @@ terminée par `\n` ; une réponse = une ligne JSON.
 
 | `type` | Champs notables |
 |---|---|
-| `hello` | `daemon_version`, `platform`, `tier`, `protocol_version` — envoyé à la connexion, avant toute requête |
+| `hello` | `daemon_version`, `platform`, `tier`, `protocol_version` (version de base, `1`), `max_protocol_version` (`2` chez ce daemon), `min_protocol_version`, `capabilities` — envoyé à la connexion, avant toute requête. Le `hello` reste lui-même en `v: 1` pour les anciens clients. |
 | `status_response` | `tier`, `seq`, `max_cpu_percent`, `max_ram_percent`, `max_bandwidth_percent`, `max_gpu_percent`, `ram_bytes`, `ram_mb`, `bandwidth_mbps`, `cpu_cores`, `gpu_free_vram_mb`, `shrinking`, `uptime_secs`, `ram_capacity`, `storage_capacity` |
 | `alloc_granted` | `allocation_id`, `cpu_cores`, `ram_gb`, `gpu_vram_gb?`, `storage_gb?`, `expires_at?`, `enforced: bool` |
 | `alloc_denied` | `reason` |
@@ -110,8 +112,15 @@ client (`CLI.6`). Les compteurs sont exposés par `refusals_request`.
   décodable (`Option`).
 - Un daemon antérieur qui reçoit `renew`/`refusals_request` répond
   `unknown_type` ; le client doit afficher « non mesuré », pas zéro.
-- **Aucune négociation de capacités** n'existe encore : c'est une dette
-  (`F1-PROTO-01`).
+- **Négociation** : le client lit `max_protocol_version` (repli :
+  `protocol_version`) et retient `min(2, max daemon)`. Il envoie ensuite toutes
+  ses requêtes avec cette version. Si les fenêtres ne se recouvrent pas, il
+  échoue avec « aucune version de protocole commune » avant toute requête.
+- `capabilities` énumère les fonctions optionnelles réellement présentes
+  (`refusals`, `renew`, `storage_capacity`, `cpu_tier_cap`). Une capacité
+  absente se traite comme indisponible, jamais comme acquise.
+- Un client v1 reçoit un `hello` v1, envoie du v1 et reçoit des réponses v1 :
+  la montée en v2 ne coupe pas les binaires déjà installés.
 
 ---
 

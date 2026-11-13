@@ -86,8 +86,21 @@ pub fn ensure_dir() -> Result<()> {
 // uniquement l'état déjà en mémoire qui lui est passé — c'est ce qui rend
 // une rafale de requêtes inoffensive pour la boucle d'allocation.
 
-/// Version du protocole, portée par le champ `v` de chaque message.
-pub const PROTOCOL_VERSION: u8 = 1;
+/// Version courante du protocole, portée par le champ `v` de chaque message.
+pub const PROTOCOL_VERSION: u8 = 2;
+
+/// Plus ancienne version encore lue. Une requête `v: 1` reste valide : une
+/// montée de version ne doit pas se transformer en rupture pour les clients
+/// déjà installés.
+pub const MIN_PROTOCOL_VERSION: u8 = 1;
+
+/// Capacités annoncées dans `hello`, en plus de la version.
+pub const CAPABILITIES: [&str; 4] = ["refusals", "renew", "storage_capacity", "cpu_tier_cap"];
+
+/// Valeur de repli pour un `hello` v1 qui ne porte pas encore ce champ.
+fn default_min_protocol_version() -> u8 {
+    MIN_PROTOCOL_VERSION
+}
 
 /// Longueur maximale d'une ligne de protocole, en octets (64 Kio).
 pub const MAX_LINE_BYTES: usize = 64 * 1024;
@@ -230,7 +243,9 @@ impl std::fmt::Display for DecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let msg = match self {
             DecodeError::MalformedJson => "message JSON invalide ou incomplet",
-            DecodeError::UnsupportedVersion => "version de protocole non supportée (attendu : 1)",
+            DecodeError::UnsupportedVersion => {
+                "version de protocole non supportée (supportées : 1 à 2)"
+            }
             DecodeError::UnknownType => "type de message inconnu",
             DecodeError::LineTooLong => "ligne trop longue (maximum 64 Kio)",
         };
@@ -306,7 +321,16 @@ pub enum Reply {
         daemon_version: String,
         platform: String,
         tier: String,
+        /// Version de base, lisible par un client v1.
         protocol_version: u8,
+        /// Version la plus récente que ce daemon sait parler. Absent d'un
+        /// daemon v1 : le client retombe alors sur `protocol_version`.
+        #[serde(default)]
+        max_protocol_version: Option<u8>,
+        #[serde(default = "default_min_protocol_version")]
+        min_protocol_version: u8,
+        #[serde(default)]
+        capabilities: Vec<String>,
     },
     #[serde(rename = "status_response")]
     Status {
@@ -524,11 +548,17 @@ impl DaemonState {
 /// aucune requête ni réponse ne peut partir sans sa version, même si un futur
 /// variant l'oublie.
 fn encode_line<T: Serialize>(value: &T) -> String {
+    encode_line_with_version(value, PROTOCOL_VERSION)
+}
+
+/// Même encodage, avec une version imposée. Le client s'en sert pour parler
+/// `v: 1` à un daemon ancien après la négociation du `hello`.
+fn encode_line_with_version<T: Serialize>(value: &T, version: u8) -> String {
     let mut obj = match serde_json::to_value(value) {
         Ok(serde_json::Value::Object(map)) => map,
         _ => serde_json::Map::new(),
     };
-    obj.insert("v".to_string(), serde_json::Value::from(PROTOCOL_VERSION));
+    obj.insert("v".to_string(), serde_json::Value::from(version));
 
     let mut line =
         serde_json::to_string(&serde_json::Value::Object(obj)).unwrap_or_else(|_| "{}".to_string());
@@ -541,6 +571,13 @@ pub fn encode(reply: &Reply) -> String {
     encode_line(reply)
 }
 
+/// Sérialise une réponse avec la version du pair. Le serveur s'en sert pour
+/// répondre en v1 à un client v1 : une montée de version ne coupe pas les
+/// clients déjà installés.
+pub fn encode_with_version(reply: &Reply, version: u8) -> String {
+    encode_line_with_version(reply, version)
+}
+
 /// Sérialise une requête (client → serveur) — la moitié manquante du protocole
 /// jusqu'à 2b-7a.
 ///
@@ -549,6 +586,13 @@ pub fn encode(reply: &Reply) -> String {
 /// noms de messages) sans que rien ne le signale.
 pub fn encode_request(request: &Request) -> String {
     encode_line(request)
+}
+
+/// Sérialise une requête avec la version négociée. Ne jamais appeler avec une
+/// version hors de `MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION` : le client tire
+/// cette valeur du `hello`, jamais d'une constante locale.
+pub fn encode_request_with_version(request: &Request, version: u8) -> String {
+    encode_line_with_version(request, version)
 }
 
 /// Validation commune aux deux sens du fil : taille, JSON, version, liste blanche.
@@ -565,9 +609,13 @@ fn validated_value(line: &str, known_types: &[&str]) -> Result<serde_json::Value
         serde_json::from_str(line.trim()).map_err(|_| DecodeError::MalformedJson)?;
     let obj = value.as_object().ok_or(DecodeError::MalformedJson)?;
 
-    // Version : absente ou différente → non supportée. On ne devine pas.
+    // Version : absente ou hors de la fenêtre supportée → refus explicite. On
+    // ne devine pas et on ne « réinterprète » pas une version future.
     match obj.get("v") {
-        Some(serde_json::Value::Number(n)) if n.as_u64() == Some(PROTOCOL_VERSION as u64) => {}
+        Some(serde_json::Value::Number(n))
+            if n.as_u64().is_some_and(|v| {
+                (MIN_PROTOCOL_VERSION as u64..=PROTOCOL_VERSION as u64).contains(&v)
+            }) => {}
         _ => return Err(DecodeError::UnsupportedVersion),
     }
 
@@ -588,9 +636,23 @@ fn validated_value(line: &str, known_types: &[&str]) -> Result<serde_json::Value
 /// Ordre des contrôles, du moins coûteux au plus coûteux : taille, JSON, version,
 /// type, puis désérialisation des champs (voir `validated_value`).
 pub fn decode(line: &str) -> Result<Request, DecodeError> {
+    decode_with_version(line).map(|(request, _)| request)
+}
+
+/// Comme `decode`, mais rend aussi la version lue.
+///
+/// Le serveur répond avec la version de la requête : un client v1 continue de
+/// décoder toutes les réponses, un client v2 reçoit du v2.
+pub fn decode_with_version(line: &str) -> Result<(Request, u8), DecodeError> {
     // Le type est déjà known : tout échec restant est un champ absent ou invalide.
     let value = validated_value(line, &KNOWN_REQUEST_TYPES)?;
-    serde_json::from_value(value).map_err(|_| DecodeError::MalformedJson)
+    let version = value
+        .get("v")
+        .and_then(|v| v.as_u64())
+        .and_then(|v| u8::try_from(v).ok())
+        .ok_or(DecodeError::UnsupportedVersion)?;
+    let request = serde_json::from_value(value).map_err(|_| DecodeError::MalformedJson)?;
+    Ok((request, version))
 }
 
 /// Décode une ligne de réponse (serveur → client) — symétrique de `decode`.
@@ -1904,7 +1966,7 @@ fn refuse_connection(mut stream: UnixStream) {
             MAX_CONNECTIONS
         ),
     };
-    let _ = write_reply(&mut stream, &reply);
+    let _ = write_reply_with_version(&mut stream, &reply, MIN_PROTOCOL_VERSION);
 }
 
 /// Sert une connexion : salutation, puis lecture/décodage/réponse en boucle.
@@ -1933,11 +1995,20 @@ pub fn handle_client(
         daemon_version: hello_state.daemon_version.clone(),
         platform: hello_state.platform.clone(),
         tier: hello_state.tier.clone(),
-        protocol_version: PROTOCOL_VERSION,
+        // Le `hello` reste en v1 pour les clients déjà installés ; il annonce
+        // la version la plus récente dans un champ séparé.
+        protocol_version: MIN_PROTOCOL_VERSION,
+        max_protocol_version: Some(PROTOCOL_VERSION),
+        min_protocol_version: MIN_PROTOCOL_VERSION,
+        capabilities: CAPABILITIES.iter().map(|c| (*c).to_string()).collect(),
     };
-    if write_reply(&mut stream, &hello).is_err() {
+    if write_reply_with_version(&mut stream, &hello, MIN_PROTOCOL_VERSION).is_err() {
         return; // Client déjà parti : plus rien à faire.
     }
+
+    // Version du pair pour cette connexion. Chaque réponse l'utilise : un
+    // client v1 ne doit jamais recevoir un `v: 2` qu'il refuserait.
+    let mut peer_version = MIN_PROTOCOL_VERSION;
 
     // Tampon persistant : conserve les octets reçus après un '\n' et non
     // encore traités (un client peut envoyer deux lignes d'un coup).
@@ -1963,12 +2034,13 @@ pub fn handle_client(
                 // Refus puis fermeture : la limite protège le CPU du daemon,
                 // elle ne se contente pas d'avertir un client emballé.
                 let reply = rate_limited_reply(salvage_id(line));
-                let _ = write_reply(&mut stream, &reply);
+                let _ = write_reply_with_version(&mut stream, &reply, peer_version);
                 return;
             }
 
-            match decode_line(line) {
-                Ok(request) => {
+            match decode_line_with_version(line) {
+                Ok((request, version)) => {
+                    peer_version = version;
                     // Verrou relâché AVANT l'écriture réseau : on lit, on clone,
                     // on lâche le garde, puis on dispatche. Le verrou n'est
                     // jamais tenu pendant une E/S.
@@ -1993,21 +2065,21 @@ pub fn handle_client(
                             reply
                         }
                     };
-                    if write_reply(&mut stream, &reply).is_err() {
+                    if write_reply_with_version(&mut stream, &reply, peer_version).is_err() {
                         return;
                     }
                 }
                 Err(DecodeError::LineTooLong) => {
                     // Impossible de resynchroniser le flux : on répond et on ferme.
                     let reply = error_reply(salvage_id(line), DecodeError::LineTooLong);
-                    let _ = write_reply(&mut stream, &reply);
+                    let _ = write_reply_with_version(&mut stream, &reply, peer_version);
                     return;
                 }
                 Err(err) => {
                     // Tout autre refus laisse la connexion ouverte : le client
                     // peut se corriger et renvoyer une requête.
                     let reply = error_reply(salvage_id(line), err);
-                    if write_reply(&mut stream, &reply).is_err() {
+                    if write_reply_with_version(&mut stream, &reply, peer_version).is_err() {
                         return;
                     }
                 }
@@ -2038,16 +2110,17 @@ pub fn handle_client(
 
         if !buffer.contains(&b'\n') && buffer.len() > MAX_LINE_BYTES {
             let reply = error_reply(salvage_id(&buffer), DecodeError::LineTooLong);
-            let _ = write_reply(&mut stream, &reply);
+            let _ = write_reply_with_version(&mut stream, &reply, peer_version);
             return;
         }
     }
 }
 
-/// Décode une ligne d'octets : l'UTF-8 invalide est un message mal formé.
-fn decode_line(line: &[u8]) -> Result<Request, DecodeError> {
+/// Décode une ligne d'octets avec sa version : l'UTF-8 invalide est un message
+/// mal formé.
+fn decode_line_with_version(line: &[u8]) -> Result<(Request, u8), DecodeError> {
     let text = std::str::from_utf8(line).map_err(|_| DecodeError::MalformedJson)?;
-    decode(text)
+    decode_with_version(text)
 }
 
 /// Écrit une réponse encodée puis vide le tampon.
@@ -2056,8 +2129,9 @@ fn decode_line(line: &[u8]) -> Result<Request, DecodeError> {
 /// `WouldBlock` sur Unix (voir `set_connection_timeouts`) — est rendue à
 /// l'appelant, qui ferme la connexion. Il n'y a rien à dire à un client qui
 /// n'écoute pas ses réponses.
-fn write_reply(stream: &mut UnixStream, reply: &Reply) -> io::Result<()> {
-    stream.write_all(encode(reply).as_bytes())?;
+/// Écrit une réponse dans la version du pair, puis vide le tampon.
+fn write_reply_with_version(stream: &mut UnixStream, reply: &Reply, version: u8) -> io::Result<()> {
+    stream.write_all(encode_with_version(reply, version).as_bytes())?;
     stream.flush()
 }
 
@@ -2111,12 +2185,22 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_wrong_version() {
+    fn test_decode_accepts_the_supported_version_window() {
+        // v1 reste lisible, v2 est la version courante.
+        for line in [
+            r#"{"v":1,"type":"status_request"}"#,
+            r#"{"v":2,"type":"status_request"}"#,
+        ] {
+            assert!(
+                matches!(decode(line), Ok(Request::Status { .. })),
+                "une version supportée doit se décoder : {line}"
+            );
+        }
+        // v3 est futur et refusé explicitement ; l'absence de version aussi.
         assert_eq!(
-            decode(r#"{"v":2,"type":"status_request"}"#),
+            decode(r#"{"v":3,"type":"status_request"}"#),
             Err(DecodeError::UnsupportedVersion)
         );
-        // Version absente : refusée aussi, on ne devine pas.
         assert_eq!(
             decode(r#"{"type":"status_request"}"#),
             Err(DecodeError::UnsupportedVersion)
@@ -2234,7 +2318,10 @@ mod tests {
         let line = encode(&reply);
 
         assert!(line.ends_with('\n'), "chaque réponse est une ligne");
-        assert!(line.contains("\"v\":1"), "version présente : {line}");
+        assert!(
+            line.contains(&format!("\"v\":{PROTOCOL_VERSION}")),
+            "version courante présente : {line}"
+        );
         assert!(
             line.contains("\"type\":\"status_response\""),
             "type présent : {line}"
@@ -3040,7 +3127,10 @@ mod tests {
                 daemon_version: "2.0.0".to_string(),
                 platform: "linux".to_string(),
                 tier: "balanced".to_string(),
-                protocol_version: PROTOCOL_VERSION,
+                protocol_version: MIN_PROTOCOL_VERSION,
+                max_protocol_version: Some(PROTOCOL_VERSION),
+                min_protocol_version: MIN_PROTOCOL_VERSION,
+                capabilities: CAPABILITIES.iter().map(|c| (*c).to_string()).collect(),
             },
             Reply::Status {
                 id: Some("s1".to_string()),
@@ -3201,13 +3291,33 @@ mod tests {
             line.ends_with('\n'),
             "chaque requête est une ligne : {line}"
         );
-        assert!(line.contains("\"v\":1"), "version présente : {line}");
+        assert!(
+            line.contains(&format!("\"v\":{PROTOCOL_VERSION}")),
+            "version courante présente : {line}"
+        );
         assert!(
             line.contains("\"type\":\"status_request\""),
             "type présent : {line}"
         );
         assert_eq!(
             decode(&line).expect("la requête encodée se décode"),
+            Request::Status {
+                id: Some("x".to_string())
+            }
+        );
+
+        let legacy = encode_request_with_version(
+            &Request::Status {
+                id: Some("x".to_string()),
+            },
+            MIN_PROTOCOL_VERSION,
+        );
+        assert!(
+            legacy.contains("\"v\":1"),
+            "l'encodage négocié doit pouvoir rester en v1 : {legacy}"
+        );
+        assert_eq!(
+            decode(&legacy).expect("la requête v1 se décode"),
             Request::Status {
                 id: Some("x".to_string())
             }
@@ -3426,6 +3536,14 @@ mod server_tests {
         assert_eq!(hello["v"], 1);
         assert_eq!(hello["type"], "hello");
         assert_eq!(hello["protocol_version"], 1);
+        assert_eq!(hello["max_protocol_version"], 2);
+        assert_eq!(hello["min_protocol_version"], 1);
+        assert!(
+            hello["capabilities"]
+                .as_array()
+                .is_some_and(|caps| caps.iter().any(|c| c.as_str() == Some("refusals"))),
+            "les capacités réelles doivent être annoncées : {hello}"
+        );
         assert_eq!(hello["platform"], "test");
         assert_eq!(hello["tier"], "balanced");
 
@@ -3452,6 +3570,45 @@ mod server_tests {
             reply["ram_mb"].as_u64().unwrap_or(0) > 0,
             "l'allocation courante est rapportée"
         );
+
+        stop_server(&shutdown, handle);
+    }
+
+    #[test]
+    fn test_serve_accepts_v1_and_refuses_v3_without_closing() {
+        let (path, shutdown, handle, _dir) = start_server();
+        let (mut stream, mut reader) = connect(&path);
+        let _hello = read_json(&mut reader);
+
+        // v3 est futur : refus explicite, pas d'interprétation au mieux.
+        send(
+            &mut stream,
+            "{\"v\":3,\"id\":\"x\",\"type\":\"status_request\"}\n",
+        );
+        let error = read_json(&mut reader);
+        assert_eq!(error["type"], "error");
+        assert_eq!(error["code"], "unsupported_version");
+        assert_eq!(error["v"], 1, "une erreur de version reste lisible en v1");
+
+        // La connexion reste ouverte, et v1 est toujours servi — en v1.
+        send(
+            &mut stream,
+            "{\"v\":1,\"id\":\"y\",\"type\":\"status_request\"}\n",
+        );
+        let status = read_json(&mut reader);
+        assert_eq!(status["type"], "status_response");
+        assert_eq!(status["id"], "y");
+        assert_eq!(status["v"], 1);
+
+        // La même requête en v2 reçoit une réponse v2.
+        send(
+            &mut stream,
+            "{\"v\":2,\"id\":\"z\",\"type\":\"status_request\"}\n",
+        );
+        let status_v2 = read_json(&mut reader);
+        assert_eq!(status_v2["type"], "status_response");
+        assert_eq!(status_v2["id"], "z");
+        assert_eq!(status_v2["v"], 2);
 
         stop_server(&shutdown, handle);
     }

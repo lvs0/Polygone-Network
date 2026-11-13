@@ -4,7 +4,7 @@
 > (journal des vérifications) : il dit **où en est la mission, quelle est la
 > prochaine action, et comment la prouver.**
 > Règle : aucune ligne `FAIT` sans commande et sortie associées.
-> Dernière mise à jour : 2026-11-13 (plafond CPU et politique de confiance, session 6).
+> Dernière mise à jour : 2026-11-13 (plafond CPU, confiance stricte et protocole v2, session 7).
 
 ## 1. Où travailler
 
@@ -33,9 +33,10 @@
 | Réservation de stockage dans le ledger | FAIT — réservations, libérations, expiration et persistance présentes | `daemon/src/socket.rs` : `Ledger::reserve/release/renew`, compteurs persistés et tests dédiés ; `docs/proofs/storage-ledger-2026-11-09.txt` |
 | Plafond CPU par palier | FAIT — pool réservable = `floor(cœurs physiques × max_cpu_percent / 100)` ; `cpu_cores` reste la mesure physique | `allowed_cpu_cores()` ; `test_cpu_pool_is_capped_by_the_tier`, `test_cpu_above_the_tier_pool_is_denied` |
 | Politique de confiance stricte | FAIT — `POLYGONE_TRUST_POLICY=strict` refuse un pair non ancré avant livraison, sans l'apprendre ; TOFU reste le défaut ; valeur inconnue = erreur | `crates/client/src/net/mod.rs` ; 3 tests réseau ; code `AUTH.UNKNOWN_PEER` |
+| Négociation de protocole | FAIT — fenêtre `v1..=v2`, `hello` v1 avec `max_protocol_version: 2` et capacités, réponse dans la version de la requête ; le client retient `min(2, max daemon)` | `daemon/src/socket.rs`, `daemon/src/client.rs` ; 4 tests ; `docs/architecture/API-CONTRACTS.md` §1.6 |
 | Persistance du ledger atomique et privée | FAIT — temporaire + `sync_all` + `rename`, `0600`, temporaire nettoyé | `test_ledger_persist_is_atomic_and_private` ; `docs/testing/VALIDATION-RESULTS.md` |
 | Ledger illisible conservé en quarantaine | FAIT — `<nom>.corrupt-<horodatage>-<pid>`, journal d'erreur, redémarrage sur ledger vierge | `test_corrupt_ledger_is_quarantined_not_silently_erased` |
-| Test de heartbeat déterministe | FAIT — comparé à la valeur renvoyée par la gateway, plus au timestamp client | `crates/gateway/tests/serve.rs` ; 499 tests workspace |
+| Test de heartbeat déterministe | FAIT — comparé à la valeur renvoyée par la gateway, plus au timestamp client | `crates/gateway/tests/serve.rs` ; 502 tests workspace |
 | Documentation de fondation (13 livrables) | FAIT — audit, roadmap, statut, architecture, menace, tests, produit | `project/FOUNDATION-AUDIT.md`, `project/FOUNDATION-ROADMAP.md`, `docs/architecture/`, `docs/security/THREAT-MODEL.md`, `docs/testing/`, `product/` |
 | Modèle de tâche | FAIT — états explicites, transitions vérifiées, résultat BLAKE3, producteur imposé, bornes | `crates/core/src/task.rs` ; 15 tests ; `task::tests::lifecycle_reaches_success_in_order` |
 | File et API de tâches | FAIT — créer, lire, annuler, expirer ; persistance atomique `0600` et quarantaine | `crates/gateway/src/tasks.rs`, `routes.rs` ; 10 tests ; `docs/architecture/API-CONTRACTS.md` §2.1 |
@@ -44,9 +45,9 @@
 
 ## 3. Prochaine action, dans l'ordre
 
-1. Traiter `F1-PROTO-01` : versionner et négocier les capacités du socket, en
-   gardant `v: 1` lisible. `F1-RES-03` est tranché : le pool est plafonné par
-   `max_cpu_percent` et le contrat est écrit dans `docs/architecture/API-CONTRACTS.md`.
+1. Traiter `F1-TASK-02` : brancher un exécuteur sur la file de tâches, avec
+   assignation, reprise après crash et résultat vérifié. Le protocole est
+   désormais versionné et négocié (`F1-PROTO-01`).
 2. Exécuter la CI GitHub Actions sur ce HEAD (pas encore vérifiée).
 3. Organiser un test entre deux machines physiques distinctes ; les tests locaux
    actuels utilisent plusieurs processus sur une seule machine.

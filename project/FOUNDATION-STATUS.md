@@ -1,8 +1,8 @@
 # FOUNDATION-STATUS — Polygone Foundation 1.0
 
 > Date : **2026-11-13**. Branche `reconcile/2026-11`, HEAD `e2936a3` plus le
-> correctif de persistance du ledger, la file de tâches, le plafond CPU et la
-> politique de confiance décrits ci-dessous.
+> correctif de persistance du ledger, la file de tâches, le plafond CPU, la
+> politique de confiance et la négociation de protocole décrits ci-dessous.
 >
 > Niveaux utilisés, sans exception :
 > **PASS** = testé et vérifié ; **PARTIAL** = fonctionne partiellement ou
@@ -28,10 +28,10 @@
 | Exécution | Tâche distribuée réellement exécutée | **PARTIAL** | moyenne | modèle et file de tâches livrés (états, transitions, expiration, persistance) ; aucun exécuteur branché, pas de placement multi-nœuds |
 | Résultats | Résultats récupérables et vérifiables | **PARTIAL** | moyenne | sortie capturée et reçue via le relais ; reçu signé existe mais n'est pas vérifié de bout en bout par le produit |
 | Sécurité | Modèle de menace et protections documentés | **PARTIAL** | moyenne | `docs/security/THREAT-MODEL.md` + protections testées ; TOFU par défaut, mode strict disponible (`POLYGONE_TRUST_POLICY`, `F1-SEC-02`) ; aucun audit externe |
-| API | Contrats stables et utilisables par un client | **PARTIAL** | haute | socket daemon v1, HTTP gateway v1 et API tâches (créer, lire, annuler) ; usage/événements/réglages absents |
+| API | Contrats stables et utilisables par un client | **PARTIAL** | haute | socket daemon v1/v2 négocié (réponse dans la version du pair), HTTP gateway v1 et API tâches (créer, lire, annuler) ; usage/événements/réglages absents |
 | Événements | États et changements observables | **FAIL** | haute | aucun bus ; seulement du polling (`status`, `refusals`, gateway) |
 | Diagnostic | Journaux et métriques exploitables | **PARTIAL** | moyenne | `doctor`, `verite`, `ecosysteme`, compteurs de refus ; pas de métriques ni d'export agrégé |
-| Tests | Suites unitaires et intégration validées | **PASS** (local) | haute | 499 tests workspace, exit 0 ; portée locale explicitement limitée |
+| Tests | Suites unitaires et intégration validées | **PASS** (local) | haute | 502 tests workspace, exit 0 ; portée locale explicitement limitée |
 | CI | Pipeline reproductible | **NOT VERIFIED** | — | structure vérifiée par `check-ci-honesty.mjs` ; runner jamais exécuté |
 | Dépendances | Audit effectué | **NOT VERIFIED** | — | aucun `cargo audit`/SBOM dans ce lot |
 | Secrets | Vérification effectuée | **PASS** (local) | moyenne | Gitleaks 2026-11-13 : historique (281 commits) et copie de l'arbre hors `target/`/`.git/`, aucune fuite |
@@ -70,7 +70,7 @@
 
 ## 4. Ce qui est réellement testé
 
-- 499 tests Rust workspace sur Linux, 0 échec (dont 25 tests pour le modèle, la file et l'API de tâches, 2 pour le plafond CPU et 3 pour la politique de confiance).
+- 502 tests Rust workspace sur Linux, 0 échec (dont 25 tests pour le modèle, la file et l'API de tâches, 2 pour le plafond CPU, 3 pour la politique de confiance et 4 pour la négociation de protocole).
 - Formatage et Clippy en erreur sur tout le workspace (voir
   `docs/testing/VALIDATION-RESULTS.md` pour les codes de sortie exacts).
 - Parcours réseau local : relais + deux pairs, handshake signé, refus d'identité
@@ -113,11 +113,11 @@
 
 ## 8. Prochain travail prioritaire
 
-1. **`F1-PROTO-01`** — versionner et négocier les capacités avant toute rupture (réalisable ici).
+1. **`F1-TASK-02`** — brancher un exécuteur sur la file (assignation, reprise, résultat vérifié).
 2. **`F1-PROOF-01`** — dès qu'un second hôte est disponible, exécuter la procédure
    et remplir ses preuves.
 3. **`F1-PROOF-02`** — exécuter la CI après autorisation de push.
-4. **`F1-TASK-02`** — brancher un exécuteur sur la file (assignation, reprise, résultat vérifié).
+4. **`F1-OBS-01`** — exporter un rapport de diagnostic agrégé, sans secret.
 
 ---
 

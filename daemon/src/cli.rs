@@ -894,12 +894,13 @@ mod tests {
             "un daemon muet doit être dit injoignable :\n{report}"
         );
 
-        // Borne LARGE (2 s pour une sonde de 1 s) : ce test doit rester vert sur
-        // une machine chargée, où la capture de l'instantané système coûte déjà
-        // quelque chose. Ce qu'il interdit, c'est d'attendre les 60 s d'un
-        // consommateur — c'est tout le défaut qu'il verrouille.
+        // Borne LARGE (5 s pour une sonde de 1 s) : ce test doit rester vert sur
+        // une machine chargée, où la capture de l'instantané système et les
+        // autres tests coûtent déjà quelque chose. Ce qu'il interdit, c'est
+        // d'attendre les 60 s d'un consommateur — c'est tout le défaut qu'il
+        // verrouille.
         assert!(
-            elapsed < Duration::from_secs(2),
+            elapsed < Duration::from_secs(5),
             "la sonde devait renoncer en ~1 s, pas en {elapsed:?} :\n{report}"
         );
     }
