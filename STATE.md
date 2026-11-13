@@ -328,3 +328,38 @@ la version courante au lieu de figer `v: 1`.
 Limite : une future v3 devra élargir la fenêtre et les tests, pas réinterpréter
 les messages existants. Le relais garde son propre handshake `AUTH_INIT v1`,
 non concerné par cette négociation.
+
+## Exécuteur local de tâches — 2026-11-13 (session 8)
+
+`F1-TASK-02` (volet local) : les tâches `echo` et `blake3` sont réellement
+calculées, avec résultat vérifié et reprise après interruption.
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | exit 0 |
+| `cargo test --workspace` | **507 réussis, 0 échec**, exit 0 |
+| `node scripts/check-docs.mjs --tests 507` | documents cohérents, 85 Markdown couverts, exit 0 |
+| `cargo test -p polygone-client --test doc_index` | 1/1, exit 0 |
+| `gitleaks git .` | historique complet, aucune fuite |
+| `gitleaks dir` (arbre hors `target/`, `.git/`) | aucune fuite |
+
+`TaskKind::execute` est pur : `echo` rend l'entrée, `blake3` rend son empreinte
+hexadécimale, et la borne `max_output_bytes` de la tâche est vérifiée. Un
+magasin ouvert avec `TaskStore::with_executor` assigne, exécute, vérifie le
+hash et le producteur, puis persiste `succeeded` ou `failed`. Un magasin
+ouvert avec `TaskStore::new` reste inerte et laisse la tâche `published`.
+
+La gateway attache l'exécuteur quand un fichier de tâches est configuré ;
+`executor_attached` reflète ce mode au lieu d'être figé à `false`. Au
+démarrage, `TaskStore::recover` reprend les tâches `published`, `assigned`,
+`accepted` ou `running` laissées par un arrêt brutal.
+
+Preuves : `echo_and_blake3_are_deterministic_and_pure`,
+`execution_respects_the_task_output_limit`,
+`executor_completes_an_echo_task_with_a_verified_result`,
+`executor_computes_blake3_and_respects_the_output_limit`,
+`executor_recovers_an_interrupted_task`.
+
+Limites : l'exécution est locale et mono-nœud ; aucun reçu signé n'est encore
+vérifié de bout en bout (`F1-TASK-03`), et le placement distribué reste absent.

@@ -140,10 +140,10 @@ borné (`MAX_BODY_BYTES`). Réponses JSON, erreurs en texte ou JSON.
 | POST | `/api/v1/nodes/ping` | `{node_id, timestamp, signature_hex}` | `{ok, challenge, expires_in_seconds: 30}` | 400, 403, 404 |
 | POST | `/api/v1/nodes/pong` | `{node_id, timestamp, challenge, rtt_ms, signature_hex}` | `{ok, latency_ms}` | 400 (borne), 403, 404, 409 (sans ping / expiré / rejoué) |
 | GET | `/api/v1/node/{id}` | — | `NodeInfo` | 404 |
-| POST | `/api/v1/tasks` | `{owner, kind, input_hex?, cpu_cores?, ram_bytes?, storage_bytes?, gpu_vram_bytes?, deadline_in_seconds?, max_attempts?, allow_network?, allow_filesystem_write?, max_output_bytes?}` | 201 `{task, executor_attached: false}` | 400 (`invalid_task`), 429 (`too_many_tasks`), 500 (`task_storage_failure`) |
-| GET | `/api/v1/tasks?state=&limit=&offset=` | — | `{tasks, total, limit, offset, executor_attached: false}` | 400 (`invalid_task`) |
-| GET | `/api/v1/tasks/{id}` | — | `{task, executor_attached: false}` | 404 (`task_not_found`) |
-| POST | `/api/v1/tasks/{id}/cancel` | `{}` (corps ignoré) | `{task, executor_attached: false}` | 404 (`task_not_found`), 409 (`invalid_transition`) |
+| POST | `/api/v1/tasks` | `{owner, kind, input_hex?, cpu_cores?, ram_bytes?, storage_bytes?, gpu_vram_bytes?, deadline_in_seconds?, max_attempts?, allow_network?, allow_filesystem_write?, max_output_bytes?}` | 201 `{task, executor_attached}` | 400 (`invalid_task`), 429 (`too_many_tasks`), 500 (`task_storage_failure`) |
+| GET | `/api/v1/tasks?state=&limit=&offset=` | — | `{tasks, total, limit, offset, executor_attached}` | 400 (`invalid_task`) |
+| GET | `/api/v1/tasks/{id}` | — | `{task, executor_attached}` | 404 (`task_not_found`) |
+| POST | `/api/v1/tasks/{id}/cancel` | `{}` (corps ignoré) | `{task, executor_attached}` | 404 (`task_not_found`), 409 (`invalid_transition`) |
 | GET | `/api/*` (inconnu) | — | — | 404 JSON, jamais un fichier statique |
 
 **Authentification** : aucune pour la lecture locale. Les mutations de nœud
@@ -171,10 +171,18 @@ Ce que l'API HTTP peut faire :
 3. Une tâche publiée dont l'échéance est passée devient `expired` à la première
    lecture ; le balayage est persisté.
 
-Ce que l'API HTTP **ne peut pas** faire : atteindre `assigned`, `accepted`,
-`running` ou `succeeded`. Aucun exécuteur n'est branché dans cet incrément, et
-le résultat exige un nœud assigné, un producteur identique et un hash BLAKE3
-recalculé. C'est pourquoi chaque réponse porte `executor_attached: false`.
+**Deux modes, dits par `executor_attached`.**
+
+- `false` : magasin inerte (tests, gateway sans fichier de tâches). La tâche
+  reste `published` ; l'API ne peut jamais la marquer `succeeded`.
+- `true` : un exécuteur local est attaché (gateway avec fichier de tâches).
+  Il assigne la tâche, exécute `echo`/`blake3`, vérifie le hash BLAKE3 et le
+  producteur, puis persiste `succeeded` ou `failed`. `POST` renvoie donc l'état
+  final, et `cancel` répond 409 sur une tâche déjà terminale.
+
+Dans les deux modes, aucune route HTTP ne fabrique un résultat : elle lit celui
+que l'exécuteur a produit, ou constate qu'il n'y en a pas. La reprise après
+arrêt brutal est faite au démarrage de la gateway (`TaskStore::recover`).
 
 Contraintes de la première famille (`echo`, `blake3`) : déterministes, sans
 réseau ni écriture disque ; une demande de permission correspondante est

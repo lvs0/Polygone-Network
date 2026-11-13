@@ -25,13 +25,13 @@
 | Ressources | Mesures réelles et actualisées | **PARTIAL** | haute | CPU/RAM/stockage/GPU mesurés au tick ; pool CPU réservable plafonné par `max_cpu_percent` (`F1-RES-03`) ; `user_active` = `Unknown` sur Linux/macOS ; pas d'application OS sans `--isoler` |
 | Partage | Limites contrôlées par le propriétaire | **PARTIAL** | moyenne | paliers, marges, pause, retrait, `shrinking` ; pool CPU plafonné par `max_cpu_percent` (`F1-RES-03`, FND-04 corrigé) ; aucun quota CPU OS posé (`enforced = 0`) |
 | Réservations | Allocation cohérente et persistante | **PASS** | haute | ledger : reserve/release/renew/expire, concurrence sous un mutex, redémarrage, **écriture atomique** (nouveau) |
-| Exécution | Tâche distribuée réellement exécutée | **PARTIAL** | moyenne | modèle et file de tâches livrés (états, transitions, expiration, persistance) ; aucun exécuteur branché, pas de placement multi-nœuds |
-| Résultats | Résultats récupérables et vérifiables | **PARTIAL** | moyenne | sortie capturée et reçue via le relais ; reçu signé existe mais n'est pas vérifié de bout en bout par le produit |
+| Exécution | Tâche distribuée réellement exécutée | **PARTIAL** | moyenne | exécuteur local attaché : `echo`/`blake3`, transitions complètes, résultat BLAKE3 vérifié, reprise après arrêt ; pas encore de placement multi-nœuds |
+| Résultats | Résultats récupérables et vérifiables | **PARTIAL** | moyenne | résultat local BLAKE3 vérifié et producteur imposé ; reçu signé non encore lié de bout en bout (`F1-TASK-03`) |
 | Sécurité | Modèle de menace et protections documentés | **PARTIAL** | moyenne | `docs/security/THREAT-MODEL.md` + protections testées ; TOFU par défaut, mode strict disponible (`POLYGONE_TRUST_POLICY`, `F1-SEC-02`) ; aucun audit externe |
 | API | Contrats stables et utilisables par un client | **PARTIAL** | haute | socket daemon v1/v2 négocié (réponse dans la version du pair), HTTP gateway v1 et API tâches (créer, lire, annuler) ; usage/événements/réglages absents |
 | Événements | États et changements observables | **FAIL** | haute | aucun bus ; seulement du polling (`status`, `refusals`, gateway) |
 | Diagnostic | Journaux et métriques exploitables | **PARTIAL** | moyenne | `doctor`, `verite`, `ecosysteme`, compteurs de refus ; pas de métriques ni d'export agrégé |
-| Tests | Suites unitaires et intégration validées | **PASS** (local) | haute | 502 tests workspace, exit 0 ; portée locale explicitement limitée |
+| Tests | Suites unitaires et intégration validées | **PASS** (local) | haute | 507 tests workspace, exit 0 ; portée locale explicitement limitée |
 | CI | Pipeline reproductible | **NOT VERIFIED** | — | structure vérifiée par `check-ci-honesty.mjs` ; runner jamais exécuté |
 | Dépendances | Audit effectué | **NOT VERIFIED** | — | aucun `cargo audit`/SBOM dans ce lot |
 | Secrets | Vérification effectuée | **PASS** (local) | moyenne | Gitleaks 2026-11-13 : historique (281 commits) et copie de l'arbre hors `target/`/`.git/`, aucune fuite |
@@ -70,7 +70,7 @@
 
 ## 4. Ce qui est réellement testé
 
-- 502 tests Rust workspace sur Linux, 0 échec (dont 25 tests pour le modèle, la file et l'API de tâches, 2 pour le plafond CPU, 3 pour la politique de confiance et 4 pour la négociation de protocole).
+- 507 tests Rust workspace sur Linux, 0 échec (dont 27 pour le modèle et l'exécution des tâches, 13 pour le magasin et l'API, 2 pour le plafond CPU, 3 pour la politique de confiance et 4 pour la négociation de protocole).
 - Formatage et Clippy en erreur sur tout le workspace (voir
   `docs/testing/VALIDATION-RESULTS.md` pour les codes de sortie exacts).
 - Parcours réseau local : relais + deux pairs, handshake signé, refus d'identité
@@ -86,7 +86,7 @@
 - Aucun test entre deux machines physiques.
 - Aucune exécution de la CI GitHub Actions sur cet arbre.
 - Aucun audit de dépendances ni SBOM.
-- API de tâches limitée à la file : aucun exécuteur, donc aucun résultat produit.
+- API de tâches : l'exécuteur local produit un résultat pour `echo`/`blake3`, mais il n'existe ni placement multi-nœuds ni reçu signé vérifié de bout en bout.
 - Pas d'historique / consommation / réglages / événements.
 - `serverless`, `petals::PipelinePlan` et la réputation ne sont pas câblés au produit.
 - Politique CPU appliquée au pool réservable, mais aucun quota CPU OS n'est posé (`enforced = 0`) : c'est une limite de partage, pas une contrainte noyau.
@@ -98,7 +98,7 @@
 
 1. **Second hôte physique** — bloque `F1-PROOF-01` et toute revendication multi-machine.
 2. **Autorisation de push** — bloque l'exécution de la CI réelle.
-3. **Exécuteur de tâches** — la file existe, mais aucun nœud ne l'assigne ni ne produit de résultat vérifié (`F1-TASK-02`).
+3. **Placement multi-nœuds et reçu signé** — l'exécuteur local existe, mais aucun ordonnanceur distribué ni vérification de reçu de bout en bout (`F1-TASK-03`).
 
 ## 7. Risques restants
 
@@ -113,7 +113,7 @@
 
 ## 8. Prochain travail prioritaire
 
-1. **`F1-TASK-02`** — brancher un exécuteur sur la file (assignation, reprise, résultat vérifié).
+1. **`F1-TASK-03`** — lier résultat, tâche, nœud et signature, puis vérifier le reçu de bout en bout.
 2. **`F1-PROOF-01`** — dès qu'un second hôte est disponible, exécuter la procédure
    et remplir ses preuves.
 3. **`F1-PROOF-02`** — exécuter la CI après autorisation de push.

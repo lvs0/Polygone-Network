@@ -40,7 +40,7 @@
 | ID | Domaine | Objectif | État vérifié | Fichiers | Dépend de | Changement attendu | Test / preuve | Critère d'acceptation | Statut | Risques |
 |---|---|---|---|---|---|---|---|---|---|---|
 | F1-TASK-01 | Exécution | Définir un modèle de tâche commun | **Livré** : `core::task` (id, propriétaire, type, entrée, ressources, échéance, états, résultat) ; file + API gateway | `crates/core/src/task.rs`, `crates/gateway/src/tasks.rs`, `routes.rs` | F1-PROTO-01 | Type de tâche (id, demandeur, entrées, ressources, échéance, état, résultat) | 15 tests de domaine + 10 tests gateway ; `VALIDATION-RESULTS.md` | Une tâche peut être créée, validée, suivie | **PARTIAL** | l'exécuteur n'est pas branché |
-| F1-TASK-02 | Exécution | Cycle de vie complet et états d'échec | Transitions, tentatives, échéance et états terminaux implémentés et testés ; pas d'exécuteur ni de reprise après crash | `core/src/task.rs`, `exec.rs` | F1-TASK-01 | États explicites + transitions + reprise après crash | 15 tests de transition et d'échec ; reprise à faire | Aucune transition implicite | **PARTIAL** | l'exécuteur reste à brancher |
+| F1-TASK-02 | Exécution | Cycle de vie complet et états d'échec | **Livré (local)** : `TaskKind::execute` pur pour `echo`/`blake3` ; la gateway attache un exécuteur, assigne, exécute, vérifie le résultat et reprend les tâches interrompues au démarrage | `crates/core/src/task.rs`, `crates/gateway/src/tasks.rs`, `lib.rs` | F1-TASK-01 | États explicites + transitions + reprise après crash | 2 tests d'exécution pure + 3 tests de magasin (succès, échec borné, reprise) | Aucune transition implicite ; échec = `failed` nommé | **TESTED (local)** | pas encore de placement multi-nœuds ni de reçu signé de bout en bout |
 | F1-TASK-03 | Résultats | Vérifier l'intégrité et l'origine d'un résultat | `TaskResult` recalcule le hash BLAKE3, exige le nœud assigné et refuse un résultat futur ; reçu signé non relié de bout en bout | `core/src/task.rs`, `core/src/receipt.rs` | F1-TASK-02 | Lier résultat, tâche, nœud, signature, doublons | Tests : résultat altéré, producteur étranger et résultat futur refusés | Résultat accepté seulement si complet et signé | **PARTIAL** | aucun producteur réel |
 | F1-API-01 | API produit | Contrats stables pour `identity`, `nodes`, `resources`, `network`, `tasks`, `usage`, `settings`, `events` | API tâches livrée (créer, lire, annuler) ; socket daemon et gateway existent ; autres domaines absents | `daemon/src/socket.rs`, `crates/gateway` | F1-TASK-01 | Contrats documentés + implémentation progressive | 10 tests de contrat pour les tâches | Un client externe peut lire/agir sans types internes | **PARTIAL** | figer trop tôt |
 | F1-EVT-01 | Événements | Changements observables sans polling | Aucun bus ; le client interroge | `daemon`, `gateway` | F1-API-01 | Flux d'événements borné (état, ressource, tâche, erreur) | Test de souscription + ordre + perte | Une UI reçoit les changements sans boucle de polling | NOT_STARTED | backpressure, doublons |
@@ -92,12 +92,11 @@ F1-RES-03 (politique CPU)─┘                                      │
                                                                  └─> F1-SVC-01 / F1-SVC-03
 ```
 
-**Prochaine tâche technique précise** : `F1-TASK-02` (brancher un exécuteur
-réel sur la file), parce qu'elle est réalisable sur une seule machine et que
-le protocole est désormais versionné et négocié. `F1-TASK-01` est livrée pour
-la file ; après l'exécuteur viendra la vérification de bout en bout
-(`F1-TASK-03`). `F1-PROOF-01` et `F1-PROOF-02` restent prioritaires mais
-bloquées par l'environnement (second hôte, autorisation de push).
+**Prochaine tâche technique précise** : `F1-TASK-03` (lier résultat, tâche,
+nœud et signature, et vérifier le reçu de bout en bout), parce que l'exécuteur
+local produit désormais un résultat BLAKE3 vérifiable. `F1-PROOF-01` et
+`F1-PROOF-02` restent prioritaires mais bloquées par l'environnement (second
+hôte, autorisation de push).
 
 ---
 

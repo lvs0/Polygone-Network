@@ -513,7 +513,8 @@ impl Gateway {
         };
         match self.tasks.create(request, now_secs()).await {
             Ok(task) => {
-                HttpResponse::json(201, &json!({ "task": task, "executor_attached": false }))
+                let attached = self.tasks.executor_attached().await;
+                HttpResponse::json(201, &json!({ "task": task, "executor_attached": attached }))
             }
             Err(error) => task_error(error),
         }
@@ -537,7 +538,8 @@ impl Gateway {
         };
         match self.tasks.get(id.as_str(), now_secs()).await {
             Ok(task) => {
-                HttpResponse::json(200, &json!({ "task": task, "executor_attached": false }))
+                let attached = self.tasks.executor_attached().await;
+                HttpResponse::json(200, &json!({ "task": task, "executor_attached": attached }))
             }
             Err(error) => task_error(error),
         }
@@ -556,7 +558,8 @@ impl Gateway {
         };
         match self.tasks.cancel(id.as_str(), now_secs()).await {
             Ok(task) => {
-                HttpResponse::json(200, &json!({ "task": task, "executor_attached": false }))
+                let attached = self.tasks.executor_attached().await;
+                HttpResponse::json(200, &json!({ "task": task, "executor_attached": attached }))
             }
             Err(error) => task_error(error),
         }

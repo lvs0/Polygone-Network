@@ -10,10 +10,11 @@
 //! - un résultat dont l'intégrité est vérifiable (`BLAKE3`) et dont l'auteur
 //!   doit être le nœud assigné.
 //!
-//! **Ce module ne promet pas l'exécution.** Publier une tâche ne la fait pas
-//! tourner. Le jour où un exécuteur existe, il devra passer par ces transitions
-//! et fournir un [`TaskResult`] vérifiable ; aucune autre voie ne doit pouvoir
-//! marquer une tâche comme réussie.
+//! **L'exécution reste hors de ce module.** `TaskKind::execute` transforme une
+//! entrée en sortie, sans E/S ni permission implicite. C'est la couche qui
+//! possède le magasin (la gateway) qui attache un exécuteur, passe par ces
+//! transitions et fournit un [`TaskResult`] vérifiable ; aucune autre voie ne
+//! peut marquer une tâche comme réussie.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -76,6 +77,8 @@ pub enum TaskError {
     MissingResult,
     #[error("résultat trop grand ({size} octets, maximum {MAX_TASK_OUTPUT_BYTES})")]
     ResultTooLarge { size: usize },
+    #[error("sortie trop grande ({size} octets, maximum {max})")]
+    OutputTooLarge { size: u64, max: u64 },
     #[error("résultat produit dans le futur")]
     ResultFromFuture,
     #[error("hash de résultat incohérent : attendu {expected}, calculé {computed}")]
@@ -167,6 +170,29 @@ impl TaskKind {
             "blake3" => Some(Self::Blake3),
             _ => None,
         }
+    }
+
+    /// Exécute la famille déterministe. Aucune E/S, aucun shell, aucune
+    /// permission implicite : l'entrée est transformée en sortie, un point.
+    ///
+    /// La borne `max_output_bytes` vient des contraintes de la tâche ; elle est
+    /// vérifiée APRÈS calcul pour ne jamais produire une sortie au-delà de ce
+    /// que le demandeur a autorisé.
+    pub fn execute(self, input: &[u8], max_output_bytes: u64) -> Result<Vec<u8>, TaskError> {
+        let output = match self {
+            Self::Echo => input.to_vec(),
+            Self::Blake3 => blake3::hash(input).to_hex().as_bytes().to_vec(),
+        };
+        if output.len() as u64 > MAX_TASK_OUTPUT_BYTES {
+            return Err(TaskError::ResultTooLarge { size: output.len() });
+        }
+        if output.len() as u64 > max_output_bytes {
+            return Err(TaskError::OutputTooLarge {
+                size: output.len() as u64,
+                max: max_output_bytes,
+            });
+        }
+        Ok(output)
     }
 }
 
@@ -852,5 +878,29 @@ mod tests {
             forged.verify(),
             Err(TaskError::ResultHashMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn echo_and_blake3_are_deterministic_and_pure() {
+        assert_eq!(TaskKind::Echo.execute(b"hello", 5).unwrap(), b"hello");
+        let digest = TaskKind::Blake3.execute(b"hello", 64).unwrap();
+        assert_eq!(digest, blake3::hash(b"hello").to_hex().as_bytes());
+        assert_eq!(digest.len(), 64);
+
+        // Le calcul ne dépend d'aucun état extérieur : deux appels identiques
+        // rendent exactement les mêmes octets.
+        assert_eq!(TaskKind::Blake3.execute(b"hello", 64).unwrap(), digest);
+    }
+
+    #[test]
+    fn execution_respects_the_task_output_limit() {
+        assert_eq!(
+            TaskKind::Echo.execute(b"hello", 4),
+            Err(TaskError::OutputTooLarge { size: 5, max: 4 })
+        );
+        assert_eq!(
+            TaskKind::Blake3.execute(b"hello", 63),
+            Err(TaskError::OutputTooLarge { size: 64, max: 63 })
+        );
     }
 }

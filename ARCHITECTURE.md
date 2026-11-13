@@ -14,7 +14,7 @@
 > cette date. `gateway`, `petals` et `serverless` ont été intégrés le
 > 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
 > **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
-> `cargo test --workspace -j 2` (**502 tests, 0 échec**) pour les tests.
+> `cargo test --workspace -j 2` (**507 tests, 0 échec**) pour les tests.
 
 ---
 
@@ -106,15 +106,15 @@ polygone/
 
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
-| `core` | 13 | 2337 | — (lib) | 47 |
+| `core` | 13 | 2387 | — (lib) | 49 |
 | `client` | 33 | 15789 | `polygone` | 202 |
 | `relay` | 4 | 1675 | `polygone-relay` | 28 |
-| `gateway` | 8 | 3534 | `polygone-gateway` | 57 |
+| `gateway` | 8 | 3734 | `polygone-gateway` | 60 |
 | `petals` | 12 | 3104 | — (lib) | 19 |
 | `serverless` | 3 | 776 | — (lib) | 17 |
 | `daemon` | 17 | 10974 | `polygoned` | 132 |
 | doc-tests | — | — | — | comptés dans leur crate |
-| **Total** | **90** | **38189** | **4 binaires** | **502** |
+| **Total** | **90** | **38439** | **4 binaires** | **507** |
 
 > Base de mesure initiale du **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
@@ -127,7 +127,8 @@ polygone/
 > Re-mesuré le **2026-11-13** après `F1-RES-03` (plafond CPU par palier) et
 > `F1-SEC-02` (politique de confiance stricte) : **90 fichiers, 37 929 lignes,
 > 499 tests, 0 échec**. Puis `F1-PROTO-01` (fenêtre v1/v2 et capacités) :
-> **38 189 lignes, 502 tests, 0 échec**.
+> **38 439 lignes, 507 tests, 0 échec**. Puis `F1-TASK-02` (exécuteur local
+> `echo`/`blake3` et reprise) : compteurs inchangés, 507 tests verts.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
@@ -152,7 +153,7 @@ polygone/
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **502 tests, 0 échec**
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **507 tests, 0 échec**
 > (recompté le 2026-11-09 sur l'arbre réconcilié).
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
@@ -368,7 +369,7 @@ relay routing/drop/ignore tests.
 
 ```bash
 cargo build --release            # all 4 binaries
-cargo test --workspace           # 502 tests
+cargo test --workspace           # 507 tests
 cargo clippy --all --all-targets -- -D warnings
 ```
 

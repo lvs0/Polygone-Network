@@ -40,14 +40,15 @@
 | Documentation de fondation (13 livrables) | FAIT — audit, roadmap, statut, architecture, menace, tests, produit | `project/FOUNDATION-AUDIT.md`, `project/FOUNDATION-ROADMAP.md`, `docs/architecture/`, `docs/security/THREAT-MODEL.md`, `docs/testing/`, `product/` |
 | Modèle de tâche | FAIT — états explicites, transitions vérifiées, résultat BLAKE3, producteur imposé, bornes | `crates/core/src/task.rs` ; 15 tests ; `task::tests::lifecycle_reaches_success_in_order` |
 | File et API de tâches | FAIT — créer, lire, annuler, expirer ; persistance atomique `0600` et quarantaine | `crates/gateway/src/tasks.rs`, `routes.rs` ; 10 tests ; `docs/architecture/API-CONTRACTS.md` §2.1 |
-| Exécution d'une tâche | **NON FAIT** — aucun exécuteur ; `executor_attached: false` | — |
+| Exécution d'une tâche | FAIT (local) — `echo`/`blake3`, transitions complètes, résultat BLAKE3 vérifié, échec nommé | `TaskKind::execute`, `TaskStore::with_executor` ; 5 tests |
+| Reprise après interruption | FAIT (local) — une tâche `assigned`/`accepted`/`running` est reprise au démarrage | `TaskStore::recover` ; test de reprise sur fichier réel |
 | Publication / push | **INTERDIT** — voir §5 | — |
 
 ## 3. Prochaine action, dans l'ordre
 
-1. Traiter `F1-TASK-02` : brancher un exécuteur sur la file de tâches, avec
-   assignation, reprise après crash et résultat vérifié. Le protocole est
-   désormais versionné et négocié (`F1-PROTO-01`).
+1. Traiter `F1-TASK-03` : lier résultat, tâche, nœud et signature, puis
+   vérifier le reçu de bout en bout. L'exécuteur local (`F1-TASK-02`) produit
+   déjà un résultat BLAKE3 et reprend les tâches interrompues.
 2. Exécuter la CI GitHub Actions sur ce HEAD (pas encore vérifiée).
 3. Organiser un test entre deux machines physiques distinctes ; les tests locaux
    actuels utilisent plusieurs processus sur une seule machine.
@@ -56,8 +57,8 @@
    décompte de `project/DIRTY-REVIEW.md` (`F1-DOC-02` / `F2-DOC-02`).
 6. Ne rien pousser sans autorisation explicite.
 
-La file de tâches (`F1-TASK-01`) est livrée ; la suite est le branchement d'un
-exécuteur (`F1-TASK-02`), puis la vérification de bout en bout (`F1-TASK-03`).
+La file de tâches (`F1-TASK-01`) et l'exécuteur local (`F1-TASK-02`) sont
+livrés ; la suite est la vérification de bout en bout (`F1-TASK-03`).
 
 Les vérifications locales de stockage, migration, formatage, Clippy, tests workspace,
 documentation et smoke multi-processus ont été rejouées le 2026-11-09 ; voir

@@ -109,7 +109,8 @@ pub struct Gateway {
     /// Sérialise les écritures du fichier : deux heartbeats concurrents ne
     /// doivent pas produire un fichier entrelacé.
     persist_lock: Arc<tokio::sync::Mutex<()>>,
-    /// Tâches créées via l'API produit. Aucun exécuteur n'y est branché.
+    /// Tâches créées via l'API produit. Un fichier de tâches configure un
+    /// exécuteur local ; sans fichier, le magasin reste inerte.
     pub tasks: tasks::TaskStore,
     /// Instant de démarrage, en secondes Unix : sert à un uptime mesuré.
     pub started_at: u64,
@@ -165,7 +166,13 @@ impl Gateway {
             nodes: Arc::new(RwLock::new(nodes)),
             pings: Arc::new(RwLock::new(HashMap::new())),
             nodes_file,
-            tasks: tasks::TaskStore::new(tasks_file),
+            // Un fichier de tâches signale un usage réel : l'exécuteur local
+            // est attaché. Sans fichier (tests, gateway jetable), le magasin
+            // reste inerte et `executor_attached` dit la vérité.
+            tasks: match tasks_file {
+                Some(path) => tasks::TaskStore::with_executor(Some(path), "gateway-local"),
+                None => tasks::TaskStore::new(None),
+            },
             persist_lock: Arc::new(tokio::sync::Mutex::new(())),
             started_at: now_secs(),
         }
@@ -262,6 +269,10 @@ impl Gateway {
             );
         }
         let gateway = Self::with_state_files(site_dir, nodes_file, tasks_file);
+        let recovered = gateway.tasks.recover(now_secs()).await;
+        if recovered > 0 {
+            info!("⬡ gateway : {recovered} tâche(s) reprise(s) après arrêt");
+        }
         let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
         loop {
             let (stream, peer) = match listener.accept().await {

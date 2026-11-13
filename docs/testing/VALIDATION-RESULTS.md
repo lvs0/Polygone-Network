@@ -184,3 +184,47 @@ version ; `v: 3` est refusé par `unsupported_version` sans fermer la connexion.
 
 Limite : le relais garde son propre handshake `AUTH_INIT v1`, hors de cette
 négociation ; une future v3 exigera d'élargir la fenêtre et les tests.
+
+---
+
+## 8. Incrément `F1-TASK-02` (volet local) — 2026-11-13
+
+Même hôte Linux unique, branche `reconcile/2026-11`, arbre de la session 8.
+
+| Commande | Résultat | Code de sortie | Portée |
+|---|---|---:|---|
+| `cargo fmt --all -- --check` | aucun écart | **0** | tout le workspace |
+| `cargo clippy --workspace --all-targets -- -D warnings` | aucun avertissement | **0** | tout le workspace |
+| `cargo test --workspace` | **507 réussis, 0 échec** (doc-tests inclus) | **0** | L0–L2 local |
+| `node scripts/check-docs.mjs --tests 507` | documents cohérents, 85 Markdown couverts | **0** | documentation |
+| `cargo test -p polygone-client --test doc_index` | 1 réussi, 0 échec | **0** | index documentaire |
+| `gitleaks git .` | historique complet, aucune fuite | **0** | historique Git |
+| `gitleaks dir` (copie hors `target/`, `.git/`) | aucune fuite | **0** | arbre de travail |
+
+Mesures : 90 fichiers Rust, **38 439** lignes, 4 binaires, 507 tests.
+
+### 8.1 Ce qui est réellement exécuté
+
+`TaskKind::execute` est une transformation pure et bornée : `echo` rend
+l'entrée, `blake3` rend son empreinte hexadécimale, et `max_output_bytes` est
+vérifié après calcul. Aucun shell, aucune E/S, aucun réseau.
+
+`TaskStore::with_executor(file, node)` attache un exécuteur local :
+`published → assigned → accepted → running → succeeded|failed`. Le résultat
+exige un producteur identique au nœud assigné et un hash BLAKE3 recalculé.
+`TaskStore::new(file)` reste inerte ; c'est ce mode que les tests de la file
+utilisent pour observer `published`.
+
+### 8.2 Reprise et honnêteté de l'API
+
+Au démarrage, `TaskStore::recover` reprend les tâches laissées dans
+`published`, `assigned`, `accepted` ou `running`, en utilisant le nœud déjà
+assigné comme producteur. Un échec de calcul devient `failed` avec son motif,
+jamais une tâche bloquée en `running`.
+
+La gateway attache l'exécuteur lorsqu'un fichier de tâches est configuré ;
+`executor_attached` vaut alors `true` dans `POST`, `GET` et la liste. Sans
+fichier, il reste `false` et la tâche reste `published`.
+
+Limite : exécution locale et mono-nœud ; le reçu signé de bout en bout
+(`F1-TASK-03`) et le placement distribué restent absents.

@@ -1,10 +1,11 @@
 //! Magasin de tâches de la gateway : création, lecture, annulation, persistance.
 //!
-//! **Ce que ce magasin ne fait pas** : exécuter. Une tâche créée ici est
-//! validée puis publiée ; elle reste `published` tant qu'aucun exécuteur ne
-//! l'assigne. L'API ne peut donc jamais la marquer `succeeded` : le résultat
-//! exige un nœud assigné et un hash vérifié, deux choses qu'aucune route HTTP
-//! ne fabrique.
+//! **Deux modes explicites.** Un magasin ouvert avec [`TaskStore::new`] reste
+//! inerte : une tâche est validée puis publiée et y reste `published`. Un
+//! magasin ouvert avec [`TaskStore::with_executor`] attache un exécuteur local :
+//! il assigne, exécute les familles déterministes `echo`/`blake3`, vérifie le
+//! hash du résultat et persiste l'état final. Aucune route HTTP ne fabrique un
+//! résultat : elle lit celui que l'exécuteur a produit.
 //!
 //! La persistance est atomique (temporaire, `sync_all`, `rename`, fsync du
 //! répertoire, `0600`). Un échec d'écriture annule la création : une tâche
@@ -18,7 +19,7 @@ use std::sync::Arc;
 
 use polygone_core::task::{
     MAX_TASK_DEADLINE_HORIZON_SECS, TaskConstraints, TaskId, TaskKind, TaskPermissions, TaskRecord,
-    TaskRequirements, TaskSpec, TaskState,
+    TaskRequirements, TaskResult, TaskSpec, TaskState,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -148,15 +149,17 @@ pub struct TaskPage {
     pub total: usize,
     pub limit: usize,
     pub offset: usize,
-    /// Toujours `false` dans cet incrément : aucun exécuteur n'est branché.
-    /// Ce champ existe pour que l'interface ne présente pas une file comme un
-    /// calcul en cours.
+    /// Vrai si ce magasin exécute réellement les tâches qu'il publie. Reste
+    /// faux pour un magasin de test ou de lecture seule, afin qu'une interface
+    /// ne présente jamais une file comme un calcul en cours.
     pub executor_attached: bool,
 }
 
 struct Inner {
     tasks: HashMap<String, TaskRecord>,
     file: Option<PathBuf>,
+    /// Nœud qui exécute les tâches, ou `None` pour un magasin inerte.
+    executor: Option<String>,
 }
 
 /// Magasin partageable (clones partagent le même état).
@@ -166,15 +169,36 @@ pub struct TaskStore {
 }
 
 impl TaskStore {
-    /// Ouvre un magasin ; sans fichier, l'état est en mémoire seulement.
+    /// Ouvre un magasin **inerte** ; sans fichier, l'état est en mémoire
+    /// seulement. Les tâches y restent `published` : aucun exécuteur.
     pub fn new(file: Option<PathBuf>) -> Self {
+        Self::open(file, None)
+    }
+
+    /// Ouvre un magasin qui exécute réellement les tâches publiées sous
+    /// l'identité `node`. Les tâches laissées dans un état intermédiaire par un
+    /// arrêt brutal sont reprises par [`TaskStore::recover`].
+    pub fn with_executor(file: Option<PathBuf>, node: impl Into<String>) -> Self {
+        Self::open(file, Some(node.into()))
+    }
+
+    fn open(file: Option<PathBuf>, executor: Option<String>) -> Self {
         let tasks = match file.as_deref() {
             Some(path) => load(path),
             None => HashMap::new(),
         };
         Self {
-            inner: Arc::new(Mutex::new(Inner { tasks, file })),
+            inner: Arc::new(Mutex::new(Inner {
+                tasks,
+                file,
+                executor,
+            })),
         }
+    }
+
+    /// Vrai si ce magasin exécute les tâches au lieu de seulement les publier.
+    pub async fn executor_attached(&self) -> bool {
+        self.inner.lock().await.executor.is_some()
     }
 
     pub async fn len(&self) -> usize {
@@ -215,14 +239,21 @@ impl TaskStore {
             .and_then(|_| task.publish(now))
             .map_err(|error| StoreError::Invalid(error.to_string()))?;
 
-        inner
-            .tasks
-            .insert(task.spec.id.as_str().to_string(), task.clone());
+        let id = task.spec.id.as_str().to_string();
+        inner.tasks.insert(id.clone(), task.clone());
+
+        // L'exécuteur est local et déterministe : la tâche quitte `published`
+        // dans le même appel. Si l'écriture finale échoue, elle est retirée
+        // comme toute création non durable.
+        if let Some(node) = inner.executor.clone() {
+            execute_record(&mut task, &node, now);
+            inner.tasks.insert(id.clone(), task.clone());
+        }
 
         if let Some(path) = inner.file.clone()
             && let Err(error) = persist(&path, &inner.tasks)
         {
-            inner.tasks.remove(task.spec.id.as_str());
+            inner.tasks.remove(&id);
             return Err(StoreError::Persistence(error));
         }
         Ok(task)
@@ -275,7 +306,7 @@ impl TaskStore {
             total,
             limit,
             offset,
-            executor_attached: false,
+            executor_attached: inner.executor.is_some(),
         })
     }
 
@@ -298,6 +329,92 @@ impl TaskStore {
         }
         inner.tasks.insert(id.to_string(), task.clone());
         Ok(task)
+    }
+
+    /// Reprend les tâches laissées dans un état non terminal par un arrêt
+    /// brutal : les publie ou reprend leur cycle, puis les exécute. Sans
+    /// exécuteur, ne fait rien et rend `0`.
+    pub async fn recover(&self, now: u64) -> usize {
+        let mut inner = self.inner.lock().await;
+        let Some(node) = inner.executor.clone() else {
+            return 0;
+        };
+        let swept = sweep_expired(&mut inner.tasks, now);
+        let mut ids: Vec<String> = inner
+            .tasks
+            .iter()
+            .filter(|(_, task)| {
+                matches!(
+                    task.state,
+                    TaskState::Published
+                        | TaskState::Assigned
+                        | TaskState::Accepted
+                        | TaskState::Running
+                )
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        ids.sort();
+
+        let mut changed = 0;
+        for id in ids {
+            let Some(task) = inner.tasks.get_mut(&id) else {
+                continue;
+            };
+            let before = task.state;
+            execute_record(task, &node, now);
+            if task.state != before {
+                changed += 1;
+            }
+        }
+        if swept || changed > 0 {
+            persist_locked(&inner);
+        }
+        changed
+    }
+}
+
+/// Fait avancer une tâche jusqu'à `succeeded` ou `failed`.
+///
+/// Le producteur est le nœud assigné s'il existe déjà (reprise d'une tâche
+/// interrompue), sinon le nœud qui exécute. Un échec de calcul devient un état
+/// `failed` explicite, jamais une panique ni une tâche bloquée en `running`.
+fn execute_record(task: &mut TaskRecord, node: &str, now: u64) {
+    let transition = match task.state {
+        TaskState::Published => task
+            .assign(node, now)
+            .and_then(|_| task.accept(now))
+            .and_then(|_| task.start(now)),
+        TaskState::Assigned => task.accept(now).and_then(|_| task.start(now)),
+        TaskState::Accepted => task.start(now),
+        TaskState::Running => Ok(()),
+        _ => return,
+    };
+    if let Err(error) = transition {
+        let _ = task.fail(error.to_string(), now);
+        return;
+    }
+
+    let producer = task
+        .assigned_node
+        .clone()
+        .unwrap_or_else(|| node.to_string());
+    let max_output = task.spec.constraints.permissions.max_output_bytes;
+    let prepared = task
+        .spec
+        .kind
+        .execute(&task.spec.input, max_output)
+        .and_then(|output| TaskResult::new(output, producer, now));
+
+    match prepared {
+        Ok(result) => {
+            if let Err(error) = task.complete(result, now) {
+                let _ = task.fail(error.to_string(), now);
+            }
+        }
+        Err(error) => {
+            let _ = task.fail(error.to_string(), now);
+        }
     }
 }
 
@@ -463,6 +580,75 @@ mod tests {
         assert_eq!(task.created_at, NOW);
         assert!(task.result.is_none());
         assert_eq!(store.len().await, 1);
+    }
+
+    #[tokio::test]
+    async fn executor_completes_an_echo_task_with_a_verified_result() {
+        let store = TaskStore::with_executor(None, "node-local");
+        assert!(store.executor_attached().await);
+
+        let task = store.create(request(), NOW).await.unwrap();
+        assert_eq!(task.state, TaskState::Succeeded);
+        assert_eq!(task.attempts, 1);
+        assert_eq!(task.assigned_node.as_deref(), Some("node-local"));
+
+        let result = task.result.expect("un résultat vérifié");
+        assert_eq!(result.output, b"hello");
+        assert_eq!(result.producer, "node-local");
+        result.verify().expect("le hash doit être recalculé");
+    }
+
+    #[tokio::test]
+    async fn executor_computes_blake3_and_respects_the_output_limit() {
+        let store = TaskStore::with_executor(None, "node-local");
+        let mut hash = request();
+        hash.kind = "blake3".into();
+        hash.input_hex = "616263".into();
+        let task = store.create(hash, NOW).await.unwrap();
+        assert_eq!(task.state, TaskState::Succeeded);
+        let output = task.result.unwrap().output;
+        assert_eq!(output.len(), 64, "BLAKE3 hexadécimal : {output:?}");
+        assert!(output.iter().all(u8::is_ascii_hexdigit));
+
+        let mut too_small = request();
+        too_small.max_output_bytes = 2;
+        let failed = store.create(too_small, NOW + 1).await.unwrap();
+        assert_eq!(failed.state, TaskState::Failed);
+        assert!(failed.result.is_none());
+        assert!(
+            failed
+                .last_error
+                .as_deref()
+                .is_some_and(|error| error.contains("trop grande")),
+            "l'échec doit nommer la borne : {:?}",
+            failed.last_error
+        );
+    }
+
+    #[tokio::test]
+    async fn executor_recovers_an_interrupted_task() {
+        let (dir, path) = temp_path("recovery");
+        let interrupted = {
+            let store = TaskStore::new(Some(path.clone()));
+            let task = store.create(request(), NOW).await.unwrap();
+            let mut interrupted = task.clone();
+            interrupted.assign("crashed-node", NOW + 1).unwrap();
+            let mut on_disk = HashMap::new();
+            on_disk.insert(interrupted.spec.id.as_str().to_string(), interrupted);
+            persist(&path, &on_disk).unwrap();
+            task
+        };
+
+        let store = TaskStore::with_executor(Some(path.clone()), "recovering-node");
+        assert_eq!(store.recover(NOW + 2).await, 1);
+        let recovered = store
+            .get(interrupted.spec.id.as_str(), NOW + 2)
+            .await
+            .unwrap();
+        assert_eq!(recovered.state, TaskState::Succeeded);
+        assert_eq!(recovered.assigned_node.as_deref(), Some("crashed-node"));
+        assert_eq!(recovered.result.unwrap().producer, "crashed-node");
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
