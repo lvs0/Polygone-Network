@@ -117,8 +117,8 @@ polygone/
 
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
-| `core` | 15 | 3653 | — (lib) | 77 |
-| `client` | 33 | 16517 | `polygone` | 213 |
+| `core` | 15 | 3655 | — (lib) | 77 |
+| `client` | 33 | 16786 | `polygone` | 217 |
 | `relay` | 4 | 1675 | `polygone-relay` | 28 |
 | `gateway` | 9 | 4275 | `polygone-gateway` | 64 |
 | `petals` | 12 | 3104 | — (lib) | 19 |
@@ -126,7 +126,7 @@ polygone/
 | `fabric` | 8 | 3026 | `polygone-fabric` | 32 |
 | `daemon` | 17 | 10974 | `polygoned` | 132 |
 | doc-tests | — | — | — | comptés dans leur crate |
-| **Total** | **101** | **44000** | **5 binaires** | **582** |
+| **Total** | **101** | **44271** | **5 binaires** | **586** |
 
 > Base de mesure initiale du **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
@@ -154,6 +154,10 @@ polygone/
 > **2026-11-15 (audit Akash, intégration)** : `crates/core/src/evidence.rs`
 > (preuve canonique `polygone.evidence.v1`, 17 tests, **non câblée**) porte la
 > mesure à **101 fichiers, 44 000 lignes, 582 tests, 0 échec**.
+> **2026-11-19 (production, mandat opérateur)** : câblage de la preuve L1
+> (`net::persist_l1_evidence`, ADR-0003, 4 tests round-trip/disjonction/refus/sujet)
+> et preuve deux hôtes (`docs/proofs/P0-DEUX-HOTES-2026-11-19.md`) :
+> **101 fichiers, 44 271 lignes, 586 tests, 0 échec**.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
@@ -178,9 +182,8 @@ polygone/
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **582 tests, 0 échec**
-> (recompté le 2026-11-15 après le rapport de diagnostic agrégé et le modèle
-> Device Reuse).
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **586 tests, 0 échec**
+> (recompté le 2026-11-19 après le câblage de la preuve L1 et la preuve deux hôtes).
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is

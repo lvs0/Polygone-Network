@@ -1,9 +1,13 @@
 # P0 — validation sur deux machines physiques
 
-> Procédure prête, **non exécutée** : une seule machine était disponible le
-> 2026-11-09. Ce document est le protocole à rejouer tel quel ; il se termine par
-> le tableau de preuves à remplir. Tant que ce tableau est vide, la mission P0
-> n'est **pas** validée sur deux machines — les tests locaux ne le remplacent pas.
+> **Instantané daté — 2026-11-19.** Le protocole ci-dessous a été exécuté à cette
+> date sur Hope ↔ cue-sandbox ; il reste la procédure de référence à rejouer.
+
+> **Exécutée le 2026-11-19** sur Hope ↔ cue-sandbox (WAN Tailscale, deux noyaux
+> distincts, horloges à 0 s d'écart) : voir `docs/proofs/P0-DEUX-HOTES-2026-11-19.md`
+> (tableau §7 rempli, §9.4 coché, limitations explicites — LAN/NAT non testés).
+> Ce document reste le protocole à rejouer tel quel ; les tests locaux ne
+> remplacent pas une exécution sur deux hôtes.
 
 ## 1. Ce que le test doit établir
 
@@ -126,9 +130,9 @@ polygone ecouter --relay <IP_R>:7000
 
 ## 9. Volet Compute — protocole à rejouer (2026-11-14)
 
-**Statut : toujours non exécuté.** Le second hôte Linux avec shell manque. Les
-commandes ci-dessous sont prêtes ; le tableau §7 doit être complété avant toute
-revendication de validation physique.
+**Statut : exécuté le 2026-11-19** (Hope ↔ cue-sandbox, WAN Tailscale) — preuve :
+`docs/proofs/P0-DEUX-HOTES-2026-11-19.md`. Les commandes ci-dessous restent le
+protocole de référence ; le tableau §7 est rempli dans la preuve.
 
 ### 9.1 Préparation
 
