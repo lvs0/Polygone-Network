@@ -1,0 +1,31 @@
+[package]
+name = "polygone-fabric"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "Polygone Fabric — laboratoire de placement et d'exécution signée (hors produit)"
+publish = false
+
+[features]
+default = []
+# Le binaire n'est construit que sur demande explicite : aucun chemin produit.
+lab = []
+
+[lib]
+name = "polygone_fabric"
+path = "src/lib.rs"
+
+[[bin]]
+name = "polygone-fabric"
+path = "src/main.rs"
+required-features = ["lab"]
+
+[dependencies]
+polygone-core = { path = "../core" }
+anyhow.workspace = true
+blake3.workspace = true
+clap.workspace = true
+hex = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -8,6 +8,7 @@ members = [
     "crates/gateway",
     "crates/petals",
     "crates/serverless",
+    "crates/fabric",
 ]
 
 [workspace.package]

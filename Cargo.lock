@@ -3274,6 +3274,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "polygone-fabric"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "clap",
+ "hex",
+ "polygone-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "polygone-gateway"
 version = "2.0.0"
 dependencies = [
