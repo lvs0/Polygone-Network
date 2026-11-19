@@ -227,6 +227,9 @@ mod tests {
         assert!(bw.alloc_mbps <= 100); // sanity
     }
 
+    // sysfs Linux (/sys/class/net/lo/statistics) : sur macOS les compteurs
+    // passent par netstat -ibn (lo0), pas par read_counters.
+    #[cfg(target_os = "linux")]
     #[test]
     fn read_counters_on_lo() {
         let (rx, tx) = read_counters("lo").unwrap();
