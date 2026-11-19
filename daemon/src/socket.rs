@@ -1908,6 +1908,19 @@ pub fn serve_with_timeout_at(
     while !shutdown.load(Ordering::Relaxed) {
         match listener.accept() {
             Ok((stream, _addr)) => {
+                // BSD/macOS : le socket accepté HÉRITE du O_NONBLOCK du
+                // listener (Linux ne le fait pas). Sans ce reset, la première
+                // lecture sans données rend WouldBlock immédiatement et la
+                // connexion est fermée comme « inactive » avant la première
+                // requête — le client voit un Broken pipe. Reproductible sur
+                // runner CI macOS (tests node::tests, 2026-11-19).
+                if let Err(e) = stream.set_nonblocking(false) {
+                    log::error!(
+                        "socket: impossible de repasser le socket accepté en bloquant : {}",
+                        e
+                    );
+                    continue;
+                }
                 let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                 // Le garde possède la décrémentation : plus aucun `fetch_sub`
                 // manuel dans ce chemin, donc plus d'oubli possible.
