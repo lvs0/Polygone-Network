@@ -1,6 +1,7 @@
 # API-CONTRACTS — contrats d'interface existants
 
-> Date : **2026-11-09**, HEAD `e2936a3`. Ce document décrit **ce qui est
+> Date : **2026-11-13**, HEAD `f6382e6` + reçu de résultat signé (`F1-TASK-03`).
+> Ce document décrit **ce qui est
 > implémenté**. Une interface absente est listée comme absente, pas comme
 > « prévue ».
 >
@@ -132,6 +133,7 @@ borné (`MAX_BODY_BYTES`). Réponses JSON, erreurs en texte ou JSON.
 | Méthode | Chemin | Corps | Réponse 200 | Erreurs |
 |---|---|---|---|---|
 | GET | `/api/v1/network/status` | — | `{nodes, active, latency_ms_median?, uptime_seconds}` | 500 |
+| GET | `/api/v1/diagnostics` | — | rapport agrégé (voir §2.2) | — |
 | GET | `/api/v1/services` | — | `{services: [{name, state, since}]}` | — |
 | POST | `/api/v1/pair/request` | `{device_name, kem_public_key_hex, sign_public_key_hex}` | `{token, expires_in_seconds: 300}` | 400 (champ/clé invalide), 429 (trop d'appairages) |
 | POST | `/api/v1/pair/accept` | `{token}` | `{ok: true}` | 400 (token malformé), 404 (inconnu/expiré/déjà utilisé) |
@@ -176,13 +178,36 @@ Ce que l'API HTTP peut faire :
 - `false` : magasin inerte (tests, gateway sans fichier de tâches). La tâche
   reste `published` ; l'API ne peut jamais la marquer `succeeded`.
 - `true` : un exécuteur local est attaché (gateway avec fichier de tâches).
-  Il assigne la tâche, exécute `echo`/`blake3`, vérifie le hash BLAKE3 et le
-  producteur, puis persiste `succeeded` ou `failed`. `POST` renvoie donc l'état
-  final, et `cancel` répond 409 sur une tâche déjà terminale.
+  Il assigne la tâche, exécute `echo`/`blake3`, signe le résultat en ML-DSA-65,
+  vérifie le hash BLAKE3, le `NodeId` du producteur et la signature, puis
+  persiste `succeeded` ou `failed`. `POST` renvoie donc l'état final, et
+  `cancel` répond 409 sur une tâche déjà terminale.
 
 Dans les deux modes, aucune route HTTP ne fabrique un résultat : elle lit celui
 que l'exécuteur a produit, ou constate qu'il n'y en a pas. La reprise après
 arrêt brutal est faite au démarrage de la gateway (`TaskStore::recover`).
+
+Un résultat a cette forme :
+
+```json
+{
+  "task_id": "task_…",
+  "output": "68656c6c6f",
+  "output_hash": "…",
+  "producer": "<NodeId dérivé de la clé>",
+  "producer_public_key_hex": "…",
+  "produced_at": 1800000000,
+  "signature_hex": "…"
+}
+```
+
+La signature ML-DSA-65 couvre le payload canonique
+`polygone-task-result-v1\n<task_id>\n<producer>\n<output_hash>\n<produced_at>`.
+Le vérificateur exige : `task_id` égal à la tâche, hash recalculé, `producer`
+égal au `NodeId` dérivé de `producer_public_key_hex`, et signature valide. Un
+résultat non signé, altéré, destiné à une autre tâche ou signé par une autre
+clé est refusé ; la tâche reste `running` puis passe à `failed` si l'échec
+vient de l'exécuteur.
 
 Contraintes de la première famille (`echo`, `blake3`) : déterministes, sans
 réseau ni écriture disque ; une demande de permission correspondante est
@@ -193,6 +218,61 @@ temporaire + `sync_all` + `rename` + fsync du répertoire, permissions `0600`.
 Un fichier illisible est déplacé en `<nom>.corrupt-<horodatage>-<pid>`, jamais
 supprimé. Un échec d'écriture annule la création : aucune tâche non durable
 n'est reconnue.
+
+La clé de signature de l'exécuteur vit dans `gateway-signing.json`, à côté du
+fichier de tâches, avec les mêmes garanties atomiques et `0600`. Elle est
+rechargée au démarrage : une tâche reprise est signée par le même `NodeId`. Si
+la clé a changé, la reprise refuse explicitement de signer sous l'ancienne
+identité et marque la tâche `failed` avec le motif.
+
+### 2.2 Diagnostics — `/api/v1/diagnostics` (`beta`)
+
+Rapport agrégé **en lecture seule**, destiné à une UI de supervision. Il ne
+remplace ni `polygoned status` ni `polygone doctor`.
+
+| Champ | Contenu | Garantie |
+|---|---|---|
+| `v` | `polygone-diagnostics-v1` | un client vérifie la forme, pas la version du binaire |
+| `generated_at`, `gateway.uptime_seconds` | secondes Unix, uptime mesuré | — |
+| `gateway.nodes_persisted`, `tasks_persisted` | vrai si un fichier est configuré | la mémoire seule ne se présente pas comme durable |
+| `network.nodes`, `active` | nœuds connus, nœuds vus ≤ 300 s | `active` n'est pas `nodes` |
+| `network.latency_measured`, `latency_unmeasured` | nœuds avec et sans RTT | une latence absente n'est pas un zéro |
+| `network.latency_ms_median` | médiane des seules mesures, ou `null` | `null` = aucune mesure |
+| `tasks.total`, `by_state` | comptage, **les 10 états présents** | un état à zéro est explicite, pas omis |
+| `tasks.executor_attached` | vrai si exécution locale réelle | — |
+| `daemon.available` | `false` avec motif | la gateway n'interroge pas le socket du daemon |
+| `refusals.available` | `false` avec motif | aucun compteur inventé |
+| `limitations` | portée explicitement locale | — |
+
+**Aucune clé** (`signing_key_hex`) n'apparaît dans ce rapport : il agrège des
+compteurs, pas des identités. Un test le vérifie explicitement.
+
+La console `web/node.html` consomme cette route (panneau « Diagnostic
+agrégé ») ; si elle répond 404 (gateway antérieure) ou pas du tout, le panneau
+affiche « — » et le dit, sans zéro de remplissage.
+
+Les compteurs de refus et les réserves restent dans le daemon
+(`refusals_request` du protocole socket). Les dupliquer ici donnerait un second
+chiffre à maintenir, que la gateway ne peut pas vérifier.
+
+### 2.3 Device Reuse — proposition de rôles (`beta`, CLI seulement)
+
+`polygone doctor` ajoute une section « Rôles proposés (Device Reuse) », calculée
+par `polygone_core::reuse::suggest_roles` à partir **des mesures du daemon**
+(`cpu_cores`, `ram_capacity.measured`, `storage_capacity.measured`,
+`gpu_free_vram_mb`). Aucun rôle n'est activé, réservé ni annoncé au réseau.
+
+| Rôle | Seuil mesuré | Refus nommé |
+|---|---|---|
+| `relais` | ≥ 1 cœur, ≥ 256 Mio de RAM | « RAM mesurée insuffisante » |
+| `supervision` | ≥ 128 Mio de RAM | idem |
+| `stockage` | ≥ 20 Gio libres | « stockage libre non mesuré » si absent |
+| `calcul léger` | ≥ 2 cœurs, ≥ 2 Gio de RAM | batterie < 20 %, ≥ 80 °C, activité utilisateur, cœurs ou RAM insuffisants |
+
+Une contrainte non mesurée (batterie, température, activité) est écrite
+« contrainte non évaluée » : elle ne devient jamais un feu vert. Aucun champ de
+ce modèle n'est exposé par HTTP, et il n'existe pas de rôle distribué :
+l'appartenance au réseau n'est pas modifiée par cette proposition.
 
 ---
 
@@ -255,11 +335,13 @@ Les commandes de diagnostic (`doctor`, `verite`, `ecosysteme`) affichent
 | `nodes` (liste enrichie, permissions par nœud) | partiel via gateway (nœuds appairés) |
 | `resources` (capacités détaillées par ressource) | partiel via `status_response` |
 | `network` (pairs, connexions, découverte) | partiel via gateway et CLI |
-| `tasks` (créer, suivre, annuler, résultat) | **partiel** : création, lecture et annulation via gateway ; aucun exécuteur, donc aucun résultat produit par l'API |
+| `tasks` (créer, suivre, annuler, résultat) | **partiel** : création, lecture, annulation et résultat signé en local via gateway ; aucun placement multi-nœuds ni historique |
 | `storage` (quotas, réservations, blocs) | partiel ; pas d'API |
 | `usage` (historique, consommation) | **absent** |
 | `settings` (lire/écrire la config via API) | absent ; fichier TOML |
 | `events` (flux de changements) | **absent** ; polling uniquement |
+| `diagnostics` (supervision agrégée) | **partiel** : rapport local `/api/v1/diagnostics` ; pas de flux, pas de métriques historiques |
+| `device reuse` (rôles par appareil) | **partiel** : proposition CLI fondée sur les mesures du daemon ; aucun rôle activé, aucune API |
 
 Toute UI qui afficherait ces domaines aujourd'hui devrait inventer les données.
 C'est interdit par la règle du projet.

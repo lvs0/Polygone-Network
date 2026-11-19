@@ -228,3 +228,75 @@ fichier, il reste `false` et la tâche reste `published`.
 
 Limite : exécution locale et mono-nœud ; le reçu signé de bout en bout
 (`F1-TASK-03`) et le placement distribué restent absents.
+
+---
+
+## 9. Incrément `F1-TASK-03` (volet local) — 2026-11-13
+
+Même hôte Linux unique, branche `reconcile/2026-11`, arbre de la session 9.
+
+| Commande | Résultat | Code de sortie | Portée |
+|---|---|---:|---|
+| `cargo fmt --all -- --check` | aucun écart | **0** | tout le workspace |
+| `cargo clippy --workspace --all-targets -- -D warnings` | aucun avertissement | **0** | tout le workspace |
+| `cargo test --workspace` | **512 réussis, 0 échec** (doc-tests inclus) | **0** | L0–L2 local |
+| `node scripts/check-docs.mjs --tests 512` | documents cohérents, 85 Markdown couverts | **0** | documentation |
+| `cargo test -p polygone-client --test doc_index` | 1 réussi, 0 échec | **0** | index documentaire |
+| `gitleaks git .` | historique complet, aucune fuite | **0** | historique Git |
+| `gitleaks dir` (copie hors `target/`, `.git/`) | aucune fuite | **0** | arbre de travail |
+
+Mesures : 90 fichiers Rust, **38 876** lignes, 4 binaires, 512 tests.
+
+### 9.1 Signature et liaison
+
+La signature ML-DSA-65 couvre exactement
+`polygone-task-result-v1\n<task_id>\n<producer>\n<output_hash>\n<produced_at>`.
+Le vérificateur recalcule le hash BLAKE3, dérive le `NodeId` de
+`producer_public_key_hex`, exige l'égalité avec `producer`, puis vérifie la
+signature. `TaskRecord::complete` exige en plus `result.task_id == task.id`.
+
+Un résultat non signé échoue avec `MissingSignature` ; une clé étrangère avec
+`ProducerKeyMismatch` ; une autre tâche avec `TaskIdMismatch` ; un hash altéré
+avec `ResultHashMismatch` ; une signature altérée avec `InvalidSignature`.
+
+### 9.2 Clé persistante et reprise
+
+La gateway persiste la paire de clés dans `gateway-signing.json`, à côté du
+fichier de tâches, en `0600` atomique. Au redémarrage, la même clé est
+rechargée : une tâche reprise est signée par le même `NodeId`. Si la clé chargée
+diffère de l'identité assignée, `TaskStore::recover` marque la tâche `failed`
+avec le motif au lieu de signer sous une identité empruntée.
+
+### 9.3 Portée
+
+La vérification est locale : le reçu est renvoyé par `GET /api/v1/tasks/{id}`
+et vérifiable avec `TaskResult::verify`, mais aucun tiers ne le consomme encore,
+et le placement multi-nœuds reste absent. C'est une preuve de bout en bout sur
+un seul hôte, pas une preuve distribuée.
+
+---
+
+## Addendum 2026-11-15 — supervision agrégée et Device Reuse (session 10)
+
+Exécuté sur `reconcile/2026-11`, après l'ajout de
+`crates/gateway/src/diagnostics.rs` et `crates/core/src/reuse.rs`.
+
+| Commande | Résultat | Code de sortie | Portée |
+|---|---|---:|---|
+| `cargo fmt --all -- --check` | aucun écart | **0** | tout le workspace |
+| `cargo test -p polygone-core reuse::` | **8 réussis, 0 échec** | **0** | modèle de rôles Device Reuse |
+| `cargo test -p polygone-gateway diagnostics` | **2 réussis, 0 échec** | **0** | rapport agrégé |
+| `cargo test -p polygone-client --bin polygone doctor` | **8 réussis, 0 échec** | **0** | diagnostic CLI |
+| `cargo test --workspace --no-fail-fast` | **565 réussis, 0 échec** | **0** | L0–L2 local |
+
+Mesures associées : **100 fichiers Rust, 43 350 lignes**, 8 membres de
+workspace, 5 binaires (dont 1 lab opt-in).
+
+Ce que ce lot prouve : la gateway agrège des données qu'elle mesure réellement
+(nœuds, actifs, latences présentes/absentes, états de tâche) et déclare
+explicitement `available: false` pour ce qu'elle ne mesure pas (daemon, refus).
+Un test vérifie qu'aucune clé de signature n'est recopiée.
+
+Ce que ce lot ne prouve pas : aucun flux d'événements, aucun historique de
+métriques, aucun rôle Device Reuse activé, aucun test entre deux machines
+physiques.

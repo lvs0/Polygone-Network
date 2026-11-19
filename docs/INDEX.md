@@ -8,7 +8,7 @@
 > deux documents P0 du 2026-11-09 (`PROTOCOL-RELAY-AUTH.md`,
 > `P0-DEUX-MACHINES.md`, `MISSION-P0-RAPPORT-2026-11-09.md`,
 > `adr/0001-authentification-du-relais.md`), le total attendu est **85 fichiers
-> Markdown** (l'ADR de réconciliation canonique du 2026-11-09 et les sept preuves
+> Markdown** (90 avec les trois notes de consolidation/P0 du 2026-11-14 ; l'ADR de réconciliation canonique du 2026-11-09 et les sept preuves
 > modales du 2026-11-10 s'y ajoutent).
 >
 > **Règle de date :** une date de contenu ou de nom de fichier est indiquée
@@ -34,10 +34,14 @@
 | Fichier | Titre | Date du document | Statut | Thème | Justification / preuve |
 |---|---|---|---|---|---|
 | `docs/INDEX.md` | Index documentaire | 2026-11-04 | autorité | Inventaire documentaire | Présent index ; couverture vérifiée automatiquement par `crates/client/tests/doc_index.rs`. |
-| `docs/architecture/API-CONTRACTS.md` | Contrats d'API existants | 2026-11-09 | autorité | Contrats / interfaces | Décrit uniquement les interfaces implémentées (socket daemon v1, gateway `/api/v1`, relais) et marque explicitement les domaines absents (tâches, usage, événements). |
+| `docs/architecture/API-CONTRACTS.md` | Contrats d'API existants | 2026-11-15 | autorité | Contrats / interfaces | Décrit uniquement les interfaces implémentées (socket daemon v1, gateway `/api/v1` dont diagnostics et rôles Device Reuse, relais) et marque explicitement les domaines absents (usage, événements, réglages). |
 | `docs/architecture/COMPONENT-MAP.md` | Carte des composants | 2026-11-09 | autorité | Architecture / inventaire | Mesures par crate (fichiers, lignes, tests) et responsabilités ; les composants sans appelant de production sont signalés. |
 | `docs/architecture/DATA-FLOWS.md` | Flux de données réels | 2026-11-09 | autorité | Architecture / flux | Décrit les flux identité, messages, relais, ledger, calcul, blocs et gateway, avec les échecs observés ; liste les flux absents. |
 | `docs/architecture/SYSTEM-ARCHITECTURE.md` | Architecture système canonique | 2026-11-09 | autorité | Architecture / socle | Décrit les couches, la topologie, les états, la persistance et les frontières de confiance du code au HEAD `e2936a3`. |
+| `docs/prototypes/FABRIC-2026-11-14.md` | Prototype fabric — calcul bidirectionnel | 2026-11-14 | daté | Prototype / calcul | Tranche expérimentale non intégrée au produit : 32 tests dédiés, 544 tests workspace, limites explicites (loopback, pas de TLS, pas de sandbox). |
+| `docs/prototypes/TRACEABILITY-2026-11-14.md` | Matrice de traçabilité des concepts | 2026-11-14 | daté | Prototype / traçabilité | Associe chaque concept à sa source, son implémentation et son état ; Babel reste non implémenté (`DEC-028`). |
+| `docs/prototypes/FABRIC-DECISION-2026-11-14.md` | Décision de consolidation Compute | 2026-11-14 | daté | Décision / Compute | Décision C : Fabric reste un lab opt-in, sans transport ni sandbox dans le produit ; cible B = porter le planificateur seul après mesures réelles. |
+| `docs/prototypes/BABEL-RESEARCH-2026-11-14.md` | Recherche Babel et décision requise | 2026-11-14 | daté | Recherche / Babel | Sépare les trois interprétations retrouvées (adressage total, CAS + calcul, reconstruction générative) ; aucune implémentation avant `DEC-028`. |
 | `docs/security/THREAT-MODEL.md` | Modèle de menace du socle | 2026-11-09 | brouillon | Sécurité / menace | Auto-évaluation citant les protections testées et les risques résiduels ; aucun audit externe, donc pas « autorité ». |
 | `docs/testing/TEST-STRATEGY.md` | Stratégie de test et niveaux de preuve | 2026-11-09 | autorité | Tests / portes qualité | Définit L0–L5, ce que chaque niveau prouve et ne prouve pas, les contre-épreuves exigées et les trous connus. |
 | `docs/testing/VALIDATION-RESULTS.md` | Résultats de validation du 2026-11-09 | 2026-11-09 | daté | Tests / preuves d'exécution | **Instantané daté** des commandes, codes de sortie et limites ; il ne décrit pas seul l'état courant. |
@@ -49,7 +53,8 @@
 | `docs/FOUNDER_VISION.md` | Registre exhaustif des exigences du fondateur | 2026-11-04 | autorité | Vision et exigences | Fait foi pour la liste des exigences et leur état 1–7 ; dérivé du corpus et des documents de vision, sans remplacer `VISION.md` pour le périmètre. |
 | `docs/HERMES-FICHE-REPRISE-2026-08-12.md` | Fiche de reprise Hermes | 2026-08-12 | brouillon | Reprise / feuille de route | L'en-tête dit « Draft de travail » et précise que la fiche n'engage pas le projet sans confirmation ; `VISION.md` racine prime. |
 | `docs/HIDE-SPEC.md` | Spécification Hide | 2026-08-09 | brouillon | Proxy Hide / SOCKS5 | Spécification de réintroduction ; le périmètre livré doit être confronté à `ETAT-REEL.md` et au code avant toute promesse produit. |
-| `docs/P0-DEUX-MACHINES.md` | Validation P0 sur deux machines physiques | 2026-11-09 | brouillon | Réseau / preuve physique | Procédure de test prête mais **non exécutée** (une seule machine disponible) ; elle se termine par un tableau de preuves à remplir et ne vaut pas validation tant qu'il est vide. |
+| `docs/P0-DEUX-MACHINES.md` | Validation P0 sur deux machines physiques | 2026-11-14 | brouillon | Réseau / preuve physique | Procédure messagerie + Compute prête mais **non exécutée** (une seule machine disponible) ; le tableau de preuves reste vide et ne vaut pas validation. |
+| `docs/P0-COMPUTE-SECURITY-2026-11-14.md` | Sécurité Compute P0 — E2E, sandbox, vérification | 2026-11-14 (corrigé le 15) | daté | Sécurité / Compute | Instantané des preuves : chiffrement ML-KEM/AES-GCM des tâches et grants, 12 tests sandbox réels, plafond mémoire par cgroup (`MemorySwapMax=0`) + `RLIMIT_AS`, quota CPU mesuré (4,2x), vérification L1 opt-in ; validation physique et quorum non faits. |
 | `docs/adr/0001-authentification-du-relais.md` | ADR-0001 — Authentification du relais | 2026-11-09 | autorité | Sécurité / décision d'architecture | Décision acceptée et implémentée : identité dérivée de la clé de signature, preuve de possession KEM + ML-DSA, slot non volable, alternatives écartées et conséquences négatives (graphe visible, rotation = changement d'identité) déclarées. |
 | `docs/decisions/ADR-0001-base-canonique-et-reconciliation.md` | ADR-0001 — Base canonique et réconciliation des lignées (dépôt) | 2026-11-09 | autorité | Décision d'architecture / historique Git | Tranche la décision ouverte `D1` : base `Polygone-real/main`, contenu `realign/v2` rejoué, annexe listant les 65 conflits `add/add` et leur arbitrage. Preuve : `comm -23` sur les deux arbres, 0 fichier perdu. |
 | `docs/MISSION-P0-RAPPORT-2026-11-09.md` | Mission P0 — rapport de preuves | 2026-11-09 | daté | Réseau / preuves d'exécution | Instantané d'une exécution : 450 tests verts, parcours réel à trois processus, et liste explicite de ce qui n'a pas été vérifié (deux machines physiques, NAT, version de protocole). |

@@ -4,7 +4,7 @@
 > (journal des vérifications) : il dit **où en est la mission, quelle est la
 > prochaine action, et comment la prouver.**
 > Règle : aucune ligne `FAIT` sans commande et sortie associées.
-> Dernière mise à jour : 2026-11-13 (plafond CPU, confiance stricte et protocole v2, session 7).
+> Dernière mise à jour : 2026-11-14 (ajout du prototype `fabric` ; session 9 + addendum).
 
 ## 1. Où travailler
 
@@ -41,24 +41,27 @@
 | Modèle de tâche | FAIT — états explicites, transitions vérifiées, résultat BLAKE3, producteur imposé, bornes | `crates/core/src/task.rs` ; 15 tests ; `task::tests::lifecycle_reaches_success_in_order` |
 | File et API de tâches | FAIT — créer, lire, annuler, expirer ; persistance atomique `0600` et quarantaine | `crates/gateway/src/tasks.rs`, `routes.rs` ; 10 tests ; `docs/architecture/API-CONTRACTS.md` §2.1 |
 | Exécution d'une tâche | FAIT (local) — `echo`/`blake3`, transitions complètes, résultat BLAKE3 vérifié, échec nommé | `TaskKind::execute`, `TaskStore::with_executor` ; 5 tests |
-| Reprise après interruption | FAIT (local) — une tâche `assigned`/`accepted`/`running` est reprise au démarrage | `TaskStore::recover` ; test de reprise sur fichier réel |
+| Reçu de résultat signé | FAIT (local) — signature ML-DSA-65 sur `task_id + producer + output_hash + produced_at` ; `NodeId` dérivé de la clé ; résultat non signé, altéré, étranger ou d'une autre tâche refusé | `TaskResult::verify`, `TaskRecord::complete` ; 20 tests `task` |
+| Clé d'exécuteur persistante | FAIT — `gateway-signing.json` à côté de `tasks.json`, atomique `0600`, rechargée au démarrage | `load_or_create_executor_keypair` ; test de rechargement et de permissions |
+| Reprise après interruption | FAIT (local) — une tâche `assigned`/`accepted`/`running` est reprise au démarrage ; une identité différente refuse de signer | `TaskStore::recover` ; 2 tests de reprise sur fichier réel |
 | Publication / push | **INTERDIT** — voir §5 | — |
 
 ## 3. Prochaine action, dans l'ordre
 
-1. Traiter `F1-TASK-03` : lier résultat, tâche, nœud et signature, puis
-   vérifier le reçu de bout en bout. L'exécuteur local (`F1-TASK-02`) produit
-   déjà un résultat BLAKE3 et reprend les tâches interrompues.
-2. Exécuter la CI GitHub Actions sur ce HEAD (pas encore vérifiée).
-3. Organiser un test entre deux machines physiques distinctes ; les tests locaux
+1. Traiter `F1-API-01` : stabiliser les contrats des domaines encore absents
+   (identity, resources, settings, events).
+2. Traiter `F1-OBS-01` : rapport de diagnostic agrégé, sans secret.
+3. Exécuter la CI GitHub Actions sur ce HEAD (pas encore vérifiée).
+4. Organiser un test entre deux machines physiques distinctes ; les tests locaux
    actuels utilisent plusieurs processus sur une seule machine.
-4. Rejouer Gitleaks sur l'arbre final immédiatement avant toute publication.
-5. Terminer la revue des fichiers `a_examiner` de Polygone-real et corriger le
+5. Rejouer Gitleaks sur l'arbre final immédiatement avant toute publication.
+6. Terminer la revue des fichiers `a_examiner` de Polygone-real et corriger le
    décompte de `project/DIRTY-REVIEW.md` (`F1-DOC-02` / `F2-DOC-02`).
-6. Ne rien pousser sans autorisation explicite.
+7. Ne rien pousser sans autorisation explicite.
 
-La file de tâches (`F1-TASK-01`) et l'exécuteur local (`F1-TASK-02`) sont
-livrés ; la suite est la vérification de bout en bout (`F1-TASK-03`).
+La file de tâches (`F1-TASK-01`), l'exécuteur local (`F1-TASK-02`) et le reçu
+signé vérifié de bout en bout (`F1-TASK-03`) sont livrés. Le placement
+multi-nœuds et les événements restent absents.
 
 Les vérifications locales de stockage, migration, formatage, Clippy, tests workspace,
 documentation et smoke multi-processus ont été rejouées le 2026-11-09 ; voir
@@ -96,3 +99,117 @@ make migrate-proof                   # migration peers.json v1 → v2
   `~/bin/gitleaks`.
 - Disque à ~92 % : les builds supplémentaires coûtent cher, `make clean` est à
   éviter sans sauvegarde.
+
+## 7. Addendum 2026-11-14 — prototype `polygone-fabric`
+
+Tranche verticale expérimentale de calcul bidirectionnel, **non intégrée au
+produit**. Détail, limites et mesures :
+[`docs/prototypes/FABRIC-2026-11-14.md`](../docs/prototypes/FABRIC-2026-11-14.md).
+Matrice concept → source → état :
+[`docs/prototypes/TRACEABILITY-2026-11-14.md`](../docs/prototypes/TRACEABILITY-2026-11-14.md).
+
+- `cargo test -p polygone-fabric` : **32 réussis, 0 échec**.
+- `cargo test --workspace --no-fail-fast` : **544 réussis, 0 échec** (512
+  existants + 32 nouveaux).
+- `cargo clippy -p polygone-fabric --all-targets -- -D warnings` : exit 0.
+- `cargo fmt --all -- --check` : exit 0.
+- Smoke TCP réel entre deux processus : `verified: true`, 27 ms observés,
+  37 ms mur, serveur 3 364 Kio RSS. **Loopback uniquement.**
+- Babel : **non implémenté**. `ADR-014` / `DEC-028` restent ouvertes ; le module
+  `store` est un CAS expérimental, pas Babel.
+- Décision produit à prendre : intégrer cette piste à `polygone compute` ou la
+  retirer. Ne pas exposer un second chemin de calcul dans le produit.
+
+**Limites non résolues** : pas de TLS, pas d'authentification de la demande,
+pas d'anti-rejeu, pas de sandbox, pas de découverte mesh, pas de daemon, pas de
+UI, aucun test entre deux machines physiques.
+
+## 8. Consolidation Compute — 2026-11-14
+
+- **Décision : C** — `polygone-fabric` reste un laboratoire opt-in, invisible
+  dans le produit. Cible **B** : porter uniquement le planificateur de coût dans
+  Compute, après mesure réelle de RTT/débit. Détail :
+  [`docs/prototypes/FABRIC-DECISION-2026-11-14.md`](../docs/prototypes/FABRIC-DECISION-2026-11-14.md).
+- Garde-fou appliqué : `publish = false`, binaire derrière `--features lab`,
+  `cargo build --release` ne construit plus `polygone-fabric`.
+- Sécurité Compute rejouée : grants signés/routés, cache anti-rejeu et rejeu
+  réel via relais **verts**. À cette date, les 3 tests sandbox étaient
+  **skippés** à cause d'un probe systemd défectueux ; le §9 corrige le probe et
+  apporte les preuves réelles.
+- **Validation physique : bloquée.** Un seul hôte Linux avec shell ; l'iPhone
+  actif sur Tailscale ne peut pas exécuter le binaire. `docs/P0-DEUX-MACHINES.md`
+  reste non validé.
+- **Babel** : recherche documentaire versée dans
+  [`docs/prototypes/BABEL-RESEARCH-2026-11-14.md`](../docs/prototypes/BABEL-RESEARCH-2026-11-14.md).
+  `DEC-028` reste ouverte ; aucun code Babel ajouté.
+
+## 9. P0 sécurité Compute — 2026-11-14
+
+- **E2E implémenté** : `kem_hello` signé → `kem_offer` signé → `req` scellé
+  ML-KEM-1024 + AES-256-GCM → `grant` scellé avec la même clé. Le relais ne lit
+  plus la tâche ni la sortie ; un grant en clair est refusé. Preuve :
+  [`docs/P0-COMPUTE-SECURITY-2026-11-14.md`](../docs/P0-COMPUTE-SECURITY-2026-11-14.md).
+- Tests : `net::tests::` **46 réussis** ; `exec::tests::` **12 réussis** ; workspace
+  **554 réussis, 0 échec**.
+- **Sandbox réelle** : les 12 tests `exec::tests::` s'exécutent (le probe
+  systemd utilise désormais une unité unique). Timeout 1 s → arrêt en 1,296 s ;
+  `$HOME/.polygone` bloqué ; réseau privé `lo` seulement ; unités échouées
+  nettoyées.
+- **Correction mémoire (2026-11-15)** : l'affirmation « `MemoryMax` non
+  appliqué » était fausse. La sonde manquait `MemorySwapMax=0` et le swap
+  absorbait l'allocation. Mesure discriminante : 16 Mo survivent sous 32 Mo,
+  96 Mo touchés sont tués, 96 Mo sans plafond survivent. `MemorySwapMax=0` est
+  désormais posé ; `RLIMIT_AS` reste en seconde barrière.
+- **Quota CPU mesuré (2026-11-15)** : 48 Mio SHA-256, 3,11 s à 100 % → 13,04 s à
+  10 % (**4,2x** ; seconde mesure 2,63 s → 13,06 s, **5,0x**).
+- **Vérification** : tout grant porte `verification: producer-signed` et la
+  limite « signature ≠ justesse ». **L1 est implémenté en opt-in**
+  (`--verifier-local` avec `--executer`) : le demandeur recalcule la tâche
+  localement, le grant est annoté `recompute.*` avec les deux BLAKE3, une
+  divergence conserve L0 et fait échouer la commande. Quorum (L2) et TEE (L3)
+  restent absents.
+- **Rotation et révocation (2026-11-15)** : le `node_id` dérive de la clé de
+  signature, donc une rotation **change l'adresse** ; un grant signé par la
+  nouvelle clé ne peut pas revendiquer l'ancien `node_id` (test
+  `net::tests::key_rotation_changes_the_node_id_and_old_grants_stay_with_the_old_key`).
+  Limite mesurée : la révocation est **locale**, l'ancienne clé reste valide
+  pour l'ancien `node_id` ; aucune liste de révocation n'est distribuée.
+  L'interruption en cours de session reste non testée (exige le déploiement
+  deux hôtes).
+- **Reprise** : `project/AUTONOMOUS_EXECUTION.md` porte l'état complet.
+- **Bloqué** : toujours un seul hôte Linux avec shell ; aucun test physique
+  Compute. Planificateur non porté faute de RTT/débit inter-hôtes.
+- **Non commencé** : endpoint JSON/PWA de supervision, Device Reuse. Aucun
+  compteur simulé n'a été ajouté.
+- **Release : non.** Les critères P0 ne sont pas satisfaits.
+
+## 10. Supervision agrégée et Device Reuse — 2026-11-15 (session 10)
+
+- **`GET /api/v1/diagnostics`** : rapport agrégé en lecture seule
+  (`crates/gateway/src/diagnostics.rs`). Réseau mesuré (actifs sur 300 s,
+  latences mesurées vs non mesurées, médiane `null` sans mesure), comptage des
+  tâches avec **les 10 états présents**, `executor_attached`, persistance
+  déclarée. Les sections `daemon` et `refusals` sont `available: false` avec un
+  motif : la gateway n'interroge pas le socket du daemon, elle n'invente donc
+  ni réserve ni compteur de refus. Aucune clé de signature n'est recopiée.
+- **Device Reuse** : `polygone_core::reuse::suggest_roles` propose `relais`,
+  `supervision`, `stockage`, `calcul léger` à partir des mesures du daemon ;
+  `polygone doctor` affiche la section « Rôles proposés ». Une mesure absente
+  (batterie, température, activité, stockage) est écrite « contrainte non
+  évaluée » et ne devient jamais un feu vert. **Aucun rôle n'est activé.**
+- Preuves : `cargo test -p polygone-core reuse::` **8 réussis** ;
+  `cargo test -p polygone-gateway diagnostics` **2 réussis** ;
+  `cargo test -p polygone-client --bin polygone doctor` **8 réussis** ;
+  `cargo test --workspace --no-fail-fast` **565 réussis, 0 échec**.
+- Mesure : **100 fichiers Rust, 43 350 lignes**, 565 tests (voir
+  `ARCHITECTURE.md`).
+- **Console PWA** (`web/node.html`, `web/dashboard.js`) : panneau « Diagnostic
+  agrégé » alimenté par la même route. Une gateway antérieure (404) ou
+  injoignable laisse toutes les valeurs à « — » ; aucun zéro n'est affiché.
+  Vérifié par `node --check web/dashboard.js` et par un appel HTTP réel
+  (`curl /api/v1/diagnostics`) sur un socket TCP.
+- **Ce qui reste absent** : flux d'événements (bus), historique de métriques,
+  réglages par API, et toute activation réelle d'un rôle.
+- **Bloqué, inchangé** : deux hôtes physiques, quorum L2, TEE L3, intervention
+  de session deux hôtes, `DEC-028` (Babel). Planificateur toujours non porté :
+  aucun RTT/débit inter-hôtes mesuré.

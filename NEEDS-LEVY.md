@@ -23,6 +23,14 @@
 | 9 | Faut-il **supprimer** les dossiers sources après consolidation, ou les garder en archive froide ? | Garder (non destructif) |
 | 10 | Le **nom** « Polygone » et la marque sont-ils figés ? | Oui, sauf indication |
 
+## Décisions techniques (ajout 2026-11-15)
+
+| # | Question | Options | Ce que ça bloque |
+|---:|---|---|---|
+| 15 | **Preuve canonique** : `polygone.evidence.v1` doit-il devenir un fichier persisté (`evidence.draft.json` + `.sha256`) ? | Oui, avec ADR / non, rester en mémoire | Une primitive existe et est testée (`crates/core/src/evidence.rs`), mais écrire une preuve sur disque est un format persisté : ADR requis (§9.6 de `project/AUTONOMOUS_EXECUTION.md`). Sans décision : aucune preuve n'est écrite. |
+| 16 | **Attribution de faute** quand deux mesures divergent (`Divergent`) : producteur, demandeur, partagée, ou aucune ? | Producteur / demandeur / partagée / indéterminée | Le type `Comparison` nomme le fait (`output_differs`, `committed_hash_disagrees`) mais ne dit pas qui doit payer. Toute politique de réputation en dépend. |
+| 17 | **Relais en cours de mise à jour** : la reprise après redémarrage est prouvée ; la reprise *pendant* une mise à jour binaire ne l'est pas. | Tester maintenant / plus tard | Un test de reprise après mise à jour exige de figer un binaire antérieur comme fixture, donc une décision de stockage de cette fixture. |
+
 ## Faits à confirmer
 
 | # | Fait | Où c'est incertain |

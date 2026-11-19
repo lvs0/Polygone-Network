@@ -3,8 +3,10 @@
 > *For contributors. Read [`ECOSYSTEM.md`](./ECOSYSTEM.md) first to
 > understand what we are building. This document is about how.*
 >
-> **Status 2026-11-04** : this document describes the **real** workspace
-> (**7 members**, 4 binaries). The previous `src/` monolith (libp2p, HTTP
+> **Status 2026-11-14** : this document describes the **real** workspace
+> (**8 members**, 4 product binaries + 1 lab opt-in, including the experimental
+> `fabric` crate). The
+> previous `src/` monolith (libp2p, HTTP
 > relay, 4-tab TUI) was archived to `archive/2026-07-src/` — it is not built,
 > not tested, not the product. The code is the source of truth; this document
 > follows it.
@@ -14,11 +16,12 @@
 > cette date. `gateway`, `petals` et `serverless` ont été intégrés le
 > 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
 > **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
-> `cargo test --workspace -j 2` (**507 tests, 0 échec**) pour les tests.
+> `cargo test --workspace -j 2` (**554 tests, 0 échec**, mesure du 2026-11-15)
+> pour les tests.
 
 ---
 
-## 1. Workspace layout — 7 members, 4 binaries
+## 1. Workspace layout — 8 members, 4 product binaries + 1 lab
 
 ```
 polygone/
@@ -85,6 +88,14 @@ polygone/
 │   │   ├── request.rs            Shamir split, reassemble (tests négatifs)
 │   │   └── quorum.rs             seuil de votes (jamais appelé par le CLI)
 │   │
+│   ├── fabric/                   lab opt-in — `polygone-fabric` (feature lab)
+│   │   ├── model.rs              capacités, enveloppe, périmètres
+│   │   ├── planner.rs            placement local/distant
+│   │   ├── transport.rs          NDJSON TCP + nœuds mémoire
+│   │   ├── engine.rs             vérification, reprise
+│   │   ├── learning.rs           EWMA locale
+│   │   └── store.rs              CAS BLAKE3 (explicitement pas Babel)
+│   │
 │   └── (daemon lives at repo root, see §7)
 │
 ├── daemon/                       the system daemon — one binary: `polygoned`
@@ -106,15 +117,16 @@ polygone/
 
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
-| `core` | 13 | 2387 | — (lib) | 49 |
-| `client` | 33 | 15789 | `polygone` | 202 |
+| `core` | 15 | 3653 | — (lib) | 77 |
+| `client` | 33 | 16517 | `polygone` | 213 |
 | `relay` | 4 | 1675 | `polygone-relay` | 28 |
-| `gateway` | 8 | 3734 | `polygone-gateway` | 60 |
+| `gateway` | 9 | 4275 | `polygone-gateway` | 64 |
 | `petals` | 12 | 3104 | — (lib) | 19 |
 | `serverless` | 3 | 776 | — (lib) | 17 |
+| `fabric` | 8 | 3026 | `polygone-fabric` | 32 |
 | `daemon` | 17 | 10974 | `polygoned` | 132 |
 | doc-tests | — | — | — | comptés dans leur crate |
-| **Total** | **90** | **38439** | **4 binaires** | **507** |
+| **Total** | **101** | **44000** | **5 binaires** | **582** |
 
 > Base de mesure initiale du **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
@@ -128,7 +140,20 @@ polygone/
 > `F1-SEC-02` (politique de confiance stricte) : **90 fichiers, 37 929 lignes,
 > 499 tests, 0 échec**. Puis `F1-PROTO-01` (fenêtre v1/v2 et capacités) :
 > **38 439 lignes, 507 tests, 0 échec**. Puis `F1-TASK-02` (exécuteur local
-> `echo`/`blake3` et reprise) : compteurs inchangés, 507 tests verts.
+> `echo`/`blake3` et reprise), puis `F1-TASK-03` (reçu ML-DSA-65 lié à la
+> tâche, au producteur et à la clé) : **38 876 lignes, 512 tests, 0 échec**.
+> **2026-11-14** : ajout du prototype `crates/fabric` (8 fichiers, 3 026 lignes,
+> 32 tests, puis P0 E2E/sandbox). Puis le 2026-11-15 la vérification L1 (recalcul
+> local) et les mesures de quota CPU/mémoire. Total mesuré : **98 fichiers, 42 573 lignes, 5 binaires (dont 1
+> lab opt-in), 554 tests,
+> 0 échec**. Les 512 tests antérieurs restent verts ; les 32 nouveaux couvrent
+> le placement, le TCP loopback, la vérification et le stockage expérimental.
+> **2026-11-15 (session 10)** : `crates/core/src/reuse.rs` (Device Reuse,
+> 8 tests) et `crates/gateway/src/diagnostics.rs` (rapport agrégé, 2 tests)
+> portent la mesure à **100 fichiers, 43 350 lignes, 565 tests, 0 échec**.
+> **2026-11-15 (audit Akash, intégration)** : `crates/core/src/evidence.rs`
+> (preuve canonique `polygone.evidence.v1`, 17 tests, **non câblée**) porte la
+> mesure à **101 fichiers, 44 000 lignes, 582 tests, 0 échec**.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
@@ -153,8 +178,9 @@ polygone/
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **507 tests, 0 échec**
-> (recompté le 2026-11-09 sur l'arbre réconcilié).
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **582 tests, 0 échec**
+> (recompté le 2026-11-15 après le rapport de diagnostic agrégé et le modèle
+> Device Reuse).
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is
@@ -368,8 +394,8 @@ relay routing/drop/ignore tests.
 ## 10. Build
 
 ```bash
-cargo build --release            # all 4 binaries
-cargo test --workspace           # 507 tests
+cargo build --release            # 4 binaires produit (fabric : --features lab)
+cargo test --workspace           # 554 tests
 cargo clippy --all --all-targets -- -D warnings
 ```
 

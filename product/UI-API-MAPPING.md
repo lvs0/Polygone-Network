@@ -1,15 +1,16 @@
 # UI-API-MAPPING — chaque écran face à ses données réelles
 
-> Date : **2026-11-09**, HEAD `e2936a3`. Règle absolue : **aucun indicateur
+> Date : **2026-11-13**, HEAD `f6382e6`. Règle absolue : **aucun indicateur
 > simulé**. Un écran dont la donnée n'existe pas est marqué `BLOQUÉ`, avec la
 > tâche qui le débloque.
 >
 > Sources de données disponibles : socket daemon (`status_response`,
 > `refusals_response`), gateway (`/api/v1/*`), fichiers locaux (identité,
 > `peers.json`, config TOML), CLI (`doctor`, `verite`, `ecosysteme`).
-> L'API de tâches existe pour créer, lire et annuler une tâche ; elle ne
-> l'exécute pas. Il n'existe **aucune** API d'historique, de consommation, de
-> réglages ni d'événements.
+> L'API de tâches existe pour créer, lire et annuler une tâche ; avec un
+> fichier de tâches, elle l'exécute localement et renvoie un résultat signé.
+> Il n'existe **aucune** API d'historique, de consommation, de réglages ni
+> d'événements.
 
 ---
 
@@ -67,23 +68,25 @@ des agrégats) ; historique des changements de profil.
 
 ---
 
-## 4. Compute — **PARTIEL** : file de tâches réelle, exécution absente
+## 4. Compute — **PARTIEL** : file et exécution locale, placement absent
 
 | Élément | Donnée | Source | État |
 |---|---|---|---|
 | Tâches publiées / annulées / expirées | `tasks[]`, `total` | `GET /api/v1/tasks` | réel : `created`…`published`, `cancelled`, `expired` |
-| Soumettre une tâche | `task`, `executor_attached: false` | `POST /api/v1/tasks` | réel : validation + publication, **pas** d'exécution |
+| Soumettre une tâche | `task`, `executor_attached` | `POST /api/v1/tasks` | réel : validation + publication ; exécution signée si `executor_attached: true` |
 | Suivre une tâche | `task` | `GET /api/v1/tasks/{id}` | réel |
 | Annuler une tâche | `task` | `POST /api/v1/tasks/{id}/cancel` | réel, refusé si terminal |
-| Tâches assignées / en cours / terminées | — | — | **BLOQUÉ** : aucun exécuteur (`F1-TASK-02`) |
-| Résultat et vérification | modèle `TaskResult` + hash BLAKE3 | — | **BLOQUÉ** : aucun producteur réel (`F1-TASK-03`) |
+| Tâches terminées / échouées | `state`, `result` | `GET /api/v1/tasks/{id}` | réel en local : l'exécuteur assigne, exécute et persiste l'état final |
+| Résultat et vérification | `task_id`, `output`, `output_hash`, `producer`, `producer_public_key_hex`, `signature_hex` | `TaskResult` renvoyé par l'API | réel : signature ML-DSA-65 et `NodeId` dérivé de la clé |
 | Nœuds disponibles pour un calcul | VRAM libre, cœurs | daemon `status` | partiel : capacité locale, pas de sélection |
 | Capacités IA | backends Ollama | CLI `petals models` | local uniquement |
 
-Un écran « file de tâches » peut être construit sur ces quatre routes, à
-condition d'afficher `executor_attached: false` et de ne jamais présenter une
-tâche `published` comme en cours. Les écrans « progression » et « résultat »
-restent bloqués par `F1-TASK-02` et `F1-TASK-03`.
+Un écran « file de tâches » peut être construit sur ces quatre routes. Il doit
+afficher `executor_attached` : `false` signifie qu'une tâche reste `published`,
+`true` qu'elle est exécutée et signée localement. L'écran « résultat » peut
+afficher le reçu signé et le faire vérifier. L'écran « progression » reste
+bloqué par l'absence d'événements (`F1-EVT-01`) : l'API n'expose que l'état
+courant, pas un avancement en temps réel.
 
 ---
 

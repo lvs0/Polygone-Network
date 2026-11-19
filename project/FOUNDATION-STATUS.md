@@ -1,8 +1,9 @@
 # FOUNDATION-STATUS — Polygone Foundation 1.0
 
-> Date : **2026-11-13**. Branche `reconcile/2026-11`, HEAD `e2936a3` plus le
+> Date : **2026-11-13**. Branche `reconcile/2026-11`, HEAD `f6382e6` plus le
 > correctif de persistance du ledger, la file de tâches, le plafond CPU, la
-> politique de confiance et la négociation de protocole décrits ci-dessous.
+> politique de confiance, la négociation de protocole et le reçu de résultat
+> signé décrits ci-dessous.
 >
 > Niveaux utilisés, sans exception :
 > **PASS** = testé et vérifié ; **PARTIAL** = fonctionne partiellement ou
@@ -26,12 +27,12 @@
 | Partage | Limites contrôlées par le propriétaire | **PARTIAL** | moyenne | paliers, marges, pause, retrait, `shrinking` ; pool CPU plafonné par `max_cpu_percent` (`F1-RES-03`, FND-04 corrigé) ; aucun quota CPU OS posé (`enforced = 0`) |
 | Réservations | Allocation cohérente et persistante | **PASS** | haute | ledger : reserve/release/renew/expire, concurrence sous un mutex, redémarrage, **écriture atomique** (nouveau) |
 | Exécution | Tâche distribuée réellement exécutée | **PARTIAL** | moyenne | exécuteur local attaché : `echo`/`blake3`, transitions complètes, résultat BLAKE3 vérifié, reprise après arrêt ; pas encore de placement multi-nœuds |
-| Résultats | Résultats récupérables et vérifiables | **PARTIAL** | moyenne | résultat local BLAKE3 vérifié et producteur imposé ; reçu signé non encore lié de bout en bout (`F1-TASK-03`) |
+| Résultats | Résultats récupérables et vérifiables | **PASS** (local) | haute | résultat signé ML-DSA-65, hash BLAKE3 recalculé, `NodeId` dérivé de la clé et `task_id` liés ; reçu vérifié de bout en bout en local (`F1-TASK-03`) ; pas de placement multi-nœuds |
 | Sécurité | Modèle de menace et protections documentés | **PARTIAL** | moyenne | `docs/security/THREAT-MODEL.md` + protections testées ; TOFU par défaut, mode strict disponible (`POLYGONE_TRUST_POLICY`, `F1-SEC-02`) ; aucun audit externe |
-| API | Contrats stables et utilisables par un client | **PARTIAL** | haute | socket daemon v1/v2 négocié (réponse dans la version du pair), HTTP gateway v1 et API tâches (créer, lire, annuler) ; usage/événements/réglages absents |
+| API | Contrats stables et utilisables par un client | **PARTIAL** | haute | socket daemon v1/v2 négocié (réponse dans la version du pair), HTTP gateway v1, API tâches (créer, lire, annuler) et diagnostics agrégés ; usage/événements/réglages absents |
 | Événements | États et changements observables | **FAIL** | haute | aucun bus ; seulement du polling (`status`, `refusals`, gateway) |
-| Diagnostic | Journaux et métriques exploitables | **PARTIAL** | moyenne | `doctor`, `verite`, `ecosysteme`, compteurs de refus ; pas de métriques ni d'export agrégé |
-| Tests | Suites unitaires et intégration validées | **PASS** (local) | haute | 507 tests workspace, exit 0 ; portée locale explicitement limitée |
+| Diagnostic | Journaux et métriques exploitables | **PARTIAL** | haute | `doctor`, `verite`, `ecosysteme`, compteurs de refus, et depuis le 2026-11-15 un rapport agrégé `GET /api/v1/diagnostics` (réseau, tâches, sections indisponibles motivées) ; pas d'historique ni de métriques exportées |
+| Tests | Suites unitaires et intégration validées | **PASS** (local) | haute | 512 tests workspace, exit 0 ; portée locale explicitement limitée |
 | CI | Pipeline reproductible | **NOT VERIFIED** | — | structure vérifiée par `check-ci-honesty.mjs` ; runner jamais exécuté |
 | Dépendances | Audit effectué | **NOT VERIFIED** | — | aucun `cargo audit`/SBOM dans ce lot |
 | Secrets | Vérification effectuée | **PASS** (local) | moyenne | Gitleaks 2026-11-13 : historique (281 commits) et copie de l'arbre hors `target/`/`.git/`, aucune fuite |
@@ -70,7 +71,7 @@
 
 ## 4. Ce qui est réellement testé
 
-- 507 tests Rust workspace sur Linux, 0 échec (dont 27 pour le modèle et l'exécution des tâches, 13 pour le magasin et l'API, 2 pour le plafond CPU, 3 pour la politique de confiance et 4 pour la négociation de protocole).
+- 512 tests Rust workspace sur Linux, 0 échec (dont 20 pour le modèle et l'exécution des tâches, 13 pour le magasin de tâches, 2 pour le plafond CPU, 3 pour la politique de confiance et 4 pour la négociation de protocole).
 - Formatage et Clippy en erreur sur tout le workspace (voir
   `docs/testing/VALIDATION-RESULTS.md` pour les codes de sortie exacts).
 - Parcours réseau local : relais + deux pairs, handshake signé, refus d'identité
@@ -86,7 +87,7 @@
 - Aucun test entre deux machines physiques.
 - Aucune exécution de la CI GitHub Actions sur cet arbre.
 - Aucun audit de dépendances ni SBOM.
-- API de tâches : l'exécuteur local produit un résultat pour `echo`/`blake3`, mais il n'existe ni placement multi-nœuds ni reçu signé vérifié de bout en bout.
+- API de tâches : l'exécuteur local produit un résultat signé pour `echo`/`blake3` et le vérifie de bout en bout ; il n'existe toujours ni placement multi-nœuds ni historique de tâches.
 - Pas d'historique / consommation / réglages / événements.
 - `serverless`, `petals::PipelinePlan` et la réputation ne sont pas câblés au produit.
 - Politique CPU appliquée au pool réservable, mais aucun quota CPU OS n'est posé (`enforced = 0`) : c'est une limite de partage, pas une contrainte noyau.
@@ -98,7 +99,7 @@
 
 1. **Second hôte physique** — bloque `F1-PROOF-01` et toute revendication multi-machine.
 2. **Autorisation de push** — bloque l'exécution de la CI réelle.
-3. **Placement multi-nœuds et reçu signé** — l'exécuteur local existe, mais aucun ordonnanceur distribué ni vérification de reçu de bout en bout (`F1-TASK-03`).
+3. **Placement multi-nœuds** — l'exécuteur local signe et vérifie ses résultats, mais aucun ordonnanceur distribué ne choisit un producteur distant.
 
 ## 7. Risques restants
 
@@ -113,13 +114,26 @@
 
 ## 8. Prochain travail prioritaire
 
-1. **`F1-TASK-03`** — lier résultat, tâche, nœud et signature, puis vérifier le reçu de bout en bout.
-2. **`F1-PROOF-01`** — dès qu'un second hôte est disponible, exécuter la procédure
+1. **`F1-API-01`** — stabiliser les contrats des domaines encore absents (identity, resources, settings, events).
+2. **`F1-OBS-01`** — exporter un rapport de diagnostic agrégé, sans secret.
+3. **`F1-PROOF-01`** — dès qu'un second hôte est disponible, exécuter la procédure
    et remplir ses preuves.
-3. **`F1-PROOF-02`** — exécuter la CI après autorisation de push.
-4. **`F1-OBS-01`** — exporter un rapport de diagnostic agrégé, sans secret.
+4. **`F1-PROOF-02`** — exécuter la CI après autorisation de push.
 
 ---
+
+## 8 bis. Incrément 2026-11-15 — supervision agrégée et Device Reuse
+
+| Élément | Fichier | Preuve |
+|---|---|---|
+| `GET /api/v1/diagnostics` : réseau mesuré, 10 états de tâche, sections indisponibles motivées, aucune clé | `crates/gateway/src/diagnostics.rs`, `routes.rs` | 2 tests : agrégation mesurée sans clé, et absence de latence/refus inventés |
+| Comptage par état, tous états présents | `crates/gateway/src/tasks.rs` | `counts_by_state` ; test `diagnostics_never_invents_a_latency_or_a_refusal_count` (10 entrées) |
+| Proposition de rôles fondée sur des mesures | `crates/core/src/reuse.rs` | 8 tests (petit appareil, stockage non mesuré, batterie, température, activité, ordre stable) |
+| Rôles affichés par `polygone doctor` | `crates/client/src/main.rs` | `doctor_proposes_device_reuse_roles_from_measured_capacity` |
+| Suite workspace | — | **565 réussis, 0 échec** |
+
+Aucun rôle n'est activé : ce lot ne change ni l'appartenance au réseau ni les
+réservations. Le rapport de diagnostic ne remplace pas `polygoned status`.
 
 ## 9. Verdict global
 
@@ -132,6 +146,7 @@ finaux) et trois capacités structurantes sont absentes ou partielles
 
 La fondation actuelle permet de construire une application **de lecture et de
 contrôle local** (état du nœud, ressources, pairs connus, identité, pause,
-diagnostic) et une **file de tâches locale** (créer, lire, annuler). Elle ne
-permet pas encore une application de **calcul distribué** : l'exécuteur
-(`F1-TASK-02`), le résultat vérifié (`F1-TASK-03`) et les événements manquent.
+diagnostic) et une **file de tâches locale** (créer, lire, annuler, exécuter
+`echo`/`blake3`, vérifier un résultat signé). Elle ne permet pas encore une
+application de **calcul distribué** : le placement multi-nœuds et les
+événements manquent, même si le résultat local est désormais signé et vérifié.

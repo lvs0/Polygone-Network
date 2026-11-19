@@ -40,14 +40,26 @@ On ne promet pas ce qu'on ne tient pas. On documente les limites noir sur blanc.
 3. **Docs** : mettez à jour `README.md`, `docs/cli.md`, `CHANGELOG.md` si visible utilisateur
 4. **Clippy** : `cargo clippy --workspace --all-targets -- -D warnings` doit passer
 5. **Style** : Rust 2021 edition, `rustfmt` standard, fichiers < 500 lignes si possible
+6. **Discipline d'exécution** : lire le module et ses contrats avant d'écrire,
+prouver par une commande datée, réserver le mot « multi-machine » aux deux
+hôtes physiques — voir `project/AUTONOMOUS_EXECUTION.md` §9 (couche
+d'exécution ; ce fichier ne la duplique pas).
 
-### Architecture (4 crates)
+### Architecture (8 membres, 5 binaires)
 
-| Crate | Rôle | Ne pas casser |
-|-------|------|---------------|
-| `crates/core` | Crypto pure (ML-KEM, ML-DSA, AES-GCM, BLAKE3, Shamir) | API publique, tests crypto |
+La liste faisant foi est `Cargo.toml` (`members`) et le tableau mesuré de
+[`ARCHITECTURE.md`](ARCHITECTURE.md). Ne pas recopier un nombre ici : il a déjà
+dérivé (ce fichier annonçait 4 crates alors que le workspace en compte 8).
+
+| Membre | Rôle | Ne pas casser |
+|--------|------|---------------|
+| `crates/core` | Crypto pure, enveloppes, tâche, reçu, preuve canonique | API publique, tests crypto |
 | `crates/client` | Produit `polygone` (TUI + CLI + hide + petals + compute) | Commandes utilisateur, UX |
 | `crates/relay` | Relay aveugle (stateless, drop) | Routage, pas de stockage |
+| `crates/gateway` | `polygone-gateway` — HTTP loopback, API `/api/v1`, site/PWA | Routes, contrats `API-CONTRACTS.md` |
+| `crates/petals` | Planner d'inférence local (bibliothèque) | Aucun appel réseau implicite |
+| `crates/serverless` | Split/reassemble + quorum (bibliothèque) | Seuil 4-of-7 |
+| `crates/fabric` | Lab opt-in (`--features lab`), non publié | Ne pas activer par défaut |
 | `daemon` | `polygoned` — allocation ressources + policy GlowUp | Config, allocation, status |
 
 ### Règles non-négociables

@@ -363,3 +363,78 @@ Preuves : `echo_and_blake3_are_deterministic_and_pure`,
 
 Limites : l'exécution est locale et mono-nœud ; aucun reçu signé n'est encore
 vérifié de bout en bout (`F1-TASK-03`), et le placement distribué reste absent.
+
+## Reçu de résultat signé — 2026-11-13 (session 9)
+
+`F1-TASK-03` (volet local) : un résultat signe sa tâche, son producteur, son
+hash et son instant, et la gateway vérifie cette signature avant d'accepter
+`complete`.
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | exit 0 |
+| `cargo test --workspace` | **512 réussis, 0 échec**, exit 0 |
+| `node scripts/check-docs.mjs --tests 512` | documents cohérents, 85 Markdown couverts, exit 0 |
+| `cargo test -p polygone-client --test doc_index` | 1/1, exit 0 |
+| `gitleaks git .` | historique complet, aucune fuite |
+| `gitleaks dir` (arbre hors `target/`, `.git/`) | aucune fuite |
+
+Le payload signé est
+`polygone-task-result-v1\n<task_id>\n<producer>\n<output_hash>\n<produced_at>`.
+`TaskResult::verify` recalcule le hash, exige `producer == NodeId(clé publique)`
+et vérifie la signature ML-DSA-65. `TaskRecord::complete` refuse en plus un
+`task_id` différent. Un résultat non signé, une clé étrangère, une tâche
+étrangère, un résultat futur ou un hash altéré sont refusés ; l'état de la
+tâche ne passe pas à `succeeded`.
+
+La clé de l'exécuteur est persistée dans `gateway-signing.json`, à côté de
+`tasks.json`, en `0600` atomique. Elle est rechargée au redémarrage, donc une
+tâche reprise est signée par le même `NodeId`. Si la clé a changé, la reprise
+échoue explicitement au lieu de signer sous une identité qui n'est plus la
+sienne.
+
+Preuves : `complete_rejects_an_unsigned_result`,
+`complete_rejects_a_result_signed_by_another_key`,
+`complete_rejects_a_result_for_another_task`,
+`executor_completes_an_echo_task_with_a_verified_result`,
+`recovery_refuses_to_sign_for_another_identity`,
+`executor_key_is_created_private_and_reloaded`.
+
+Limites : la vérification est locale et le reçu n'est pas encore consommé par
+un tiers ; le placement multi-nœuds reste absent.
+
+## Supervision agrégée et Device Reuse — 2026-11-15 (session 10)
+
+`F1-OBS-01` (volet gateway) et le volet « proposition de rôles » de Device
+Reuse. Aucun compteur simulé, aucun rôle activé.
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo test -p polygone-core reuse::` | **8 réussis, 0 échec** |
+| `cargo test -p polygone-gateway diagnostics` | **2 réussis, 0 échec** |
+| `cargo test -p polygone-client --bin polygone doctor` | **8 réussis, 0 échec** |
+| `cargo test --workspace --no-fail-fast` | **565 réussis, 0 échec**, exit 0 |
+
+`GET /api/v1/diagnostics` agrège : nœuds connus, nœuds actifs (≤ 300 s),
+latences mesurées et non mesurées, médiane `null` sans mesure, répartition des
+10 états de tâche, `executor_attached`, persistance déclarée, et deux sections
+`available: false` motivées (`daemon`, `refusals`). Un test vérifie qu'aucune
+clé de signature (`signing_key_hex`) n'apparaît dans le corps, et qu'un nœud
+sans mesure ne produit pas `0`.
+
+`polygone_core::reuse::suggest_roles` rend quatre propositions motivées
+(`relais`, `supervision`, `stockage`, `calcul léger`) ; `polygone doctor` les
+affiche à partir des mesures du daemon. Une contrainte non mesurée est
+« contrainte non évaluée » ; un stockage non mesuré refuse le rôle de stockage.
+
+La console `web/node.html` affiche ce rapport dans un panneau « Diagnostic
+agrégé » ; `node --check web/dashboard.js` sort 0, et la route a été appelée
+sur un socket TCP réel (`curl http://127.0.0.1:18088/api/v1/diagnostics` →
+réponse `polygone-diagnostics-v1`, `node.html` → 200). Une gateway sans cette
+route laisse le panneau à « — ».
+
+Limites : la gateway ne parle pas au socket du daemon (pas de réserves ni de
+compteurs de refus dans ce rapport) ; aucun flux d'événements ni historique ;
+aucun rôle distribué ; toujours un seul hôte Linux avec shell.
