@@ -118,15 +118,15 @@ polygone/
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
 | `core` | 15 | 3655 | — (lib) | 77 |
-| `client` | 33 | 16830 | `polygone` | 217 |
+| `client` | 33 | 16842 | `polygone` | 217 |
 | `relay` | 4 | 1675 | `polygone-relay` | 28 |
-| `gateway` | 9 | 4275 | `polygone-gateway` | 64 |
+| `gateway` | 13 | 5551 | `polygone-gateway` | 89 |
 | `petals` | 12 | 3104 | — (lib) | 19 |
 | `serverless` | 3 | 776 | — (lib) | 17 |
 | `fabric` | 8 | 3026 | `polygone-fabric` | 32 |
-| `daemon` | 17 | 10991 | `polygoned` | 132 |
+| `daemon` | 17 | 11224 | `polygoned` | 133 |
 | doc-tests | — | — | — | comptés dans leur crate |
-| **Total** | **101** | **44332** | **5 binaires** | **586** |
+| **Total** | **105** | **45853** | **5 binaires** | **612** |
 
 > Base de mesure initiale du **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
@@ -163,6 +163,14 @@ polygone/
 > **aucun fichier Rust modifié** — 24 ajouts documentaires/scripts de septembre) :
 > **101 fichiers, 44 332 lignes, 586 tests, 0 échec** ; clippy workspace RC=0,
 > `check-ci-honesty` OK, gitleaks 313 commits sans fuite.
+> **2026-11-19 (nuit, prototype `prototype-complet`)** : domaines locaux
+> F1-API-01 livrés (`local.rs`, `relay.rs`, `events.rs`, 6 routes, contrats
+> §2.4), capacité `ledger` additive du daemon, bus d'événements borné
+> (F1-EVT-01), hooks d'événements de tâches, 3 écrans web. Mesure :
+> **105 fichiers, 45 853 lignes, 612 tests, 0 échec** (+4 fichiers gateway,
+> +1 521 lignes ; +25 tests gateway dont 14 tests de contrat `local_api.rs`,
+> +1 test ledger daemon). Clippy workspace `-D warnings` RC=0. Smoke vivant
+> daemon + gateway : tâches signées, événements, 503 daemon absent, refus relayés.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et

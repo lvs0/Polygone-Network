@@ -47,6 +47,7 @@ terminée par `\n` ; une réponse = une ligne JSON.
 | `release` | `id?`, `allocation_id: string` | `released` |
 | `renew` | `id?`, `allocation_id: string` | `renewed` ou `alloc_denied` (`unknown_allocation`) |
 | `refusals_request` | `id?` | `refusals_response` |
+| `ledger_request` | `id?` | `ledger_response` — capacité `ledger` requise (voir §1.6) |
 
 `storage_gb` absent = **0 octet**, jamais « illimité ».
 
@@ -63,6 +64,14 @@ terminée par `\n` ; une réponse = une ligne JSON.
 | `pong` | `id?` |
 | `error` | `code`, `message` |
 | `refusals_response` | `counts: {raison: nombre}` |
+| `ledger_response` | `grants: [LedgerEntry]`, `reserved_ram_bytes`, `reserved_cpu_cores`, `reserved_storage_bytes`, `refusals: {raison: nombre}` |
+
+`LedgerEntry` = `{allocation_id, cores, ram_bytes, storage_bytes, expires_at?}`.
+Forme normalisée : un bail legacy (triplet d'avant les baux) est publié avec les
+mêmes champs, `expires_at` omis. **Réservations actives seulement** : le ledger
+évince les baux libérés ou expirés ; `ledger_response` n'est PAS un historique
+de consommation et ne prétend pas l'être. `grants` est trié par `allocation_id`
+(deux instantanés du même état produisent le même JSON).
 
 `Capacity` = `{measured, reservable, enforced}`. `enforced = 0` signifie
 « licence, pas quota appliqué ». Un client ne doit jamais lire `reservable`
@@ -137,6 +146,12 @@ borné (`MAX_BODY_BYTES`). Réponses JSON, erreurs en texte ou JSON.
 | GET | `/api/v1/network/status` | — | `{nodes, active, latency_ms_median?, uptime_seconds}` | 500 |
 | GET | `/api/v1/diagnostics` | — | rapport agrégé (voir §2.2) | — |
 | GET | `/api/v1/services` | — | `{services: [{name, state, since}]}` | — |
+| GET | `/api/v1/identity` | — | identité publique locale (voir §2.4) | 404 (`identity_absent`), 500 (`identity_unreadable`) |
+| GET | `/api/v1/daemon` | — | résumé du `hello` daemon (voir §2.4) | 503 (`daemon_absent`), 502 (`daemon_protocol`) |
+| GET | `/api/v1/resources` | — | `status_response` relayé tel quel (voir §2.4) | 503 (`daemon_absent`), 502 (`daemon_protocol`, `daemon_refused`) |
+| GET | `/api/v1/settings` | — | `{config, source, path}` lecture seule (voir §2.4) | 500 (`config_invalid`, `config_unreadable`) |
+| GET | `/api/v1/usage` | — | `ledger_response` relayé tel quel (voir §2.4) | 503 (`daemon_absent`), 501 (`ledger_unsupported`), 502 |
+| GET | `/api/v1/events?since=&limit=&kind=` | — | page d'événements bornée (voir §2.4) | 400 (`invalid_since`, `invalid_limit`, `invalid_kind`, `unknown_parameter`) |
 | POST | `/api/v1/pair/request` | `{device_name, kem_public_key_hex, sign_public_key_hex}` | `{token, expires_in_seconds: 300}` | 400 (champ/clé invalide), 429 (trop d'appairages) |
 | POST | `/api/v1/pair/accept` | `{token}` | `{ok: true}` | 400 (token malformé), 404 (inconnu/expiré/déjà utilisé) |
 | GET | `/api/v1/pair/qr/{token}` | — | `{deep_link: "polygone://pair/<token>"}` | 404 |
@@ -278,6 +293,109 @@ l'appartenance au réseau n'est pas modifiée par cette proposition.
 
 ---
 
+### 2.4 Domaines locaux F1-API-01 (`beta`, livrés le 2026-11-19)
+
+Six routes de lecture, testées par `crates/gateway/tests/local_api.rs`
+(14 tests de contrat) et les tests unitaires de `local.rs` / `events.rs`.
+Chemins injectables (`Gateway::with_local`) : les tests ne lisent jamais `$HOME`.
+
+**`GET /api/v1/identity`** — identité publique du nœud local.
+
+```json
+{
+  "pseudo": "vox-…",
+  "node_id": "<BLAKE3(ctx || clé publique ML-DSA-65), ADR-0002>",
+  "kem_pk_hex": "…",
+  "sign_pk_hex": "…",
+  "revoked_sign_pk_hex": [],
+  "rotated_at_unix": null
+}
+```
+
+- Source : `~/.polygone/identity.json`. Les champs `*_sk_hex` du fichier ne
+  sont **même pas désérialisés** par la gateway : un secret ne peut pas fuiter
+  par un champ qu'on n'a jamais lu.
+- `node_id: null` si la clé publique est illisible (dérivation impossible) —
+  jamais un identifiant inventé. `rotated_at_unix: null` = jamais rotée.
+- Fichier absent → 404 `identity_absent` (+ hint). Illisible → 500
+  `identity_unreadable`. Créer/restaurer/révoquer une identité reste à la CLI.
+
+**`GET /api/v1/daemon`** — résumé du `hello`, négocié à la connexion :
+
+```json
+{
+  "daemon_version": "2.1.0",
+  "platform": "linux",
+  "tier": "balanced",
+  "protocol_version": 2,
+  "capabilities": ["refusals", "renew", "storage_capacity", "cpu_tier_cap", "ledger"]
+}
+```
+
+`protocol_version` est la version RETENUE par la négociation, pas le maximum
+annoncé. Daemon absent → 503 `daemon_absent` ; fil illisible → 502
+`daemon_protocol`.
+
+**`GET /api/v1/resources`** — `status_response` du daemon relayé **tel quel** :
+mêmes champs, mêmes omissions (`gpu_free_vram_mb`, `storage_capacity`…), mêmes
+unités, enveloppe `type`/`id` comprise. La parité est garantie par les types
+partagés (`polygoned::socket::Reply`) et vérifiée contre un vrai daemon par le
+test de contrat (seuls `seq`, `uptime_secs`, `timestamp` — variant dans le
+temps — et `id` — écho de corrélation par connexion — sont exclus de la
+comparaison). Daemon absent → 503 `daemon_absent`, **jamais des zéros**.
+
+**`GET /api/v1/settings`** — configuration du daemon en **lecture seule** :
+
+```json
+{ "config": { "tier": "balanced", "memory_limit_enabled": true, "…": "…" },
+  "source": "file",
+  "path": "/home/…/.config/polygone/daemon.toml" }
+```
+
+- `source: "file"` ou `"defaults"` (fichier absent → defaults produit, ceux
+  que le daemon appliquerait lui-même au démarrage).
+- `config.tier` est publié dans le vocabulaire du fil (`balanced`,
+  `performance`…), pas la forme PascalCase de l'enum Rust.
+- Fichier présent mais invalide → 500 `config_invalid` : jamais de repli
+  silencieux sur des defaults qui masqueraient une config cassée.
+- Aucune écriture via cette route (F1-SEC-02) : les modifications restent à
+  la CLI `polygone`.
+
+**`GET /api/v1/usage`** — `ledger_response` relayé tel quel (voir §1.2) :
+réservations **actives**, agrégats réservés, refus par motif. La capacité
+`ledger` est vérifiée avant la demande : un daemon antérieur → 501
+`ledger_unsupported` (pas un ledger vide — vide et inconnu ne sont pas la
+même information). Daemon absent → 503. Pas d'historique : le ledger évince
+les baux libérés/expirés, l'API ne prétend pas les conserver.
+
+**`GET /api/v1/events?since=&limit=&kind=`** — flux borné à curseur
+(F1-EVT-01). Choix assumé : polling à curseur plutôt que SSE/WebSocket — la
+couche HTTP est volontairement minimale (une requête, une réponse, fermeture).
+
+```json
+{ "events": [ { "id": 12, "at": 1800000000, "kind": "task_created",
+                "data": { "id": "task_…", "state": "succeeded" } } ],
+  "next_since": 12, "gap": false, "dropped_total": 0,
+  "capacity": 512, "latest_id": 12 }
+```
+
+- **Ordre** : ids monotones croissants attribués à l'émission. `since` exclu,
+  `next_since` à rejouer (dernier id servi, ou dernier id connu si page vide).
+- **Perte** : anneau de 512 événements ; au débordement les plus anciens sont
+  évincés (`dropped_total` cumulatif). Un curseur plus vieux que la fenêtre
+  retenue → `gap: true`. La perte est signalée, jamais masquée.
+- **Backpressure** : le serveur n'attend jamais le client ; `limit` plafonné
+  à 500 (défaut 100), `kind` filtre optionnel. Paramètre inconnu ou invalide
+  → 400, jamais ignoré.
+- **Kinds réels émis** : `gateway_up`, `task_created`, `task_cancelled`,
+  `task_resumed`, `task_expired`, `pair_request` (sans le jeton, secret),
+  `pair_accepted`, `node_seen`, `ping_issued` (sans le challenge),
+  `rtt_measured`, `resources` (quand le `seq` du daemon change, sonde 5 s),
+  `daemon_up` / `daemon_absent` (transitions de joignabilité). Aucun
+  événement décoratif ou simulé.
+
+---
+
 ## 3. Relais TCP — handshake et trames (`stable` pour le handshake v1)
 
 **Handshake** (documenté en détail dans
@@ -333,15 +451,15 @@ Les commandes de diagnostic (`doctor`, `verite`, `ecosysteme`) affichent
 
 | Domaine attendu par une UI | État |
 |---|---|
-| `identity` (créer, restaurer, révoquer via API) | absent ; seulement CLI |
+| `identity` (créer, restaurer, révoquer via API) | **lecture publique livrée** (`GET /api/v1/identity`, §2.4) ; créer/restaurer/révoquer : CLI seulement |
 | `nodes` (liste enrichie, permissions par nœud) | partiel via gateway (nœuds appairés) |
-| `resources` (capacités détaillées par ressource) | partiel via `status_response` |
+| `resources` (capacités détaillées par ressource) | **relayé tel quel** (`GET /api/v1/resources`, §2.4) ; pas de capacités par processus |
 | `network` (pairs, connexions, découverte) | partiel via gateway et CLI |
 | `tasks` (créer, suivre, annuler, résultat) | **partiel** : création, lecture, annulation et résultat signé en local via gateway ; aucun placement multi-nœuds ni historique |
 | `storage` (quotas, réservations, blocs) | partiel ; pas d'API |
-| `usage` (historique, consommation) | **absent** |
-| `settings` (lire/écrire la config via API) | absent ; fichier TOML |
-| `events` (flux de changements) | **absent** ; polling uniquement |
+| `usage` (historique, consommation) | **partiel** : réservations actives + refus via `GET /api/v1/usage` (§2.4) ; l'historique de consommation n'est pas enregistré |
+| `settings` (lire/écrire la config via API) | **lecture seule livrée** (`GET /api/v1/settings`, §2.4) ; écriture : CLI (F1-SEC-02) |
+| `events` (flux de changements) | **livré** : flux borné à curseur `GET /api/v1/events` (§2.4, F1-EVT-01) ; pas de SSE/WebSocket |
 | `diagnostics` (supervision agrégée) | **partiel** : rapport local `/api/v1/diagnostics` ; pas de flux, pas de métriques historiques |
 | `device reuse` (rôles par appareil) | **partiel** : proposition CLI fondée sur les mesures du daemon ; aucun rôle activé, aucune API |
 
@@ -380,14 +498,14 @@ lire/agir sans types internes ».
 
 | Domaine | Prochain pas | Test de contrat | Dépendance |
 |---|---|---|---|
-| `identity` | `GET /api/v1/identity` : lecture locale de sa propre identité publique (`node_id`, clés publiques ML-KEM-1024 / ML-DSA-65, empreinte). Jamais la clé privée. Source actuelle : `~/.polygone/identity.json` 0600, `LocalIdentity` (`crates/client/src/identity.rs`), rotation `polygone-key-rotation-v1` | la réponse ne contient aucun matériel secret (même règle que F1-OBS-01) ; empreinte conforme ADR-0002 | — |
+| `identity` | **FAIT (2026-11-19)** : `GET /api/v1/identity` (§2.4). Prochain pas : écritures (créer/restaurer/révoquer) via API, après F1-SEC-02 | `local_api.rs` : aucun matériel secret publié, node_id conforme ADR-0002, absence → 404 | — |
 | `nodes` | Révocation d'un pair par API (aujourd'hui locale seulement) | révocation → l'appairage suivant refuse ; grant signé par la clé révoquée refusé | décision protocole (révocation distribuée, §6 P0 restant) |
-| `resources` | `GET /api/v1/resources` relayant `status_response` **à l'identique** (mêmes champs, mêmes omissions `Option`, mêmes capacités `measured/reservable/enforced`) | daemon absent → 503 explicite, **jamais des zéros** ; parité de schéma avec `status_response` | socket local (§1) |
+| `resources` | **FAIT (2026-11-19)** : `GET /api/v1/resources` + `GET /api/v1/daemon` (§2.4). Prochain pas : capacités par processus (non mesurées aujourd'hui) | `local_api.rs` : parité champ par champ avec un vrai daemon (omissions comprises), absence → 503 jamais des zéros | socket local (§1) — acquis |
 | `network` | Graphe de routage du relais + débit par pair exposés | valeurs issues de mesures réelles, `null` si non mesuré | mesures RTT/débit inter-hôtes (mission en cours, Cue sandbox) |
 | `tasks` | Ordonnanceur multi-nœuds (placement) | placement fondé sur RTT/débit mesurés ; reçu signé vérifié par le demandeur | mesures inter-hôtes + F1-TASK-01..03 (faits) |
-| `usage` | Historique borné dérivé du ledger d'allocations (ticket F1-USG à ouvrir) | aucun compteur rétroactif inventé ; bornes et éviction testées | resources exposé |
-| `settings` | `GET /api/v1/settings` lecture seule (champs non secrets de la config TOML), puis écriture bornée | une écriture ne peut jamais dépasser les plafonds du palier sans décision produit explicite ; champ secret absent de la lecture | — |
-| `events` | **F1-EVT-01** : flux borné (état, ressource, tâche, erreur) | souscription + ordre + perte + backpressure | F1-API-01 (ce ticket) |
+| `usage` | **FAIT (2026-11-19)** : `GET /api/v1/usage` = instantané du ledger (capacité `ledger` additive, §1). Prochain pas : historique borné de consommation (ticket F1-USG à ouvrir — le ledger n'enregistre pas les baux clos) | `local_api.rs` + `client.rs` : parité socket, allocation/release reflétées, daemon ancien → 501 pas un ledger vide | resources exposé — acquis |
+| `settings` | **FAIT (2026-11-19)** : `GET /api/v1/settings` lecture seule (§2.4). Prochain pas : écriture bornée (F1-SEC-02) | `local_api.rs` : defaults produit si absent, config invalide → 500 jamais masquée, vocabulaire tier du fil | — |
+| `events` | **FAIT (2026-11-19)** : F1-EVT-01, flux borné à curseur `GET /api/v1/events` (§2.4), 13 kinds réels. Prochain pas : kinds erreur détaillés quand les services publieront leurs erreurs | `events.rs` + `local_api.rs` : ordre monotone, gap à l'éviction, rejeu curseur, plafond de page, paramètres invalides → 400 | F1-API-01 — acquis |
 
 **Sources revérifiées le 2026-11-19 sur `8307094`** : table de routage
 `crates/gateway/src/routes.rs` (1263 lignes ; `/api/*` inconnu → 404 JSON sans
@@ -397,3 +515,11 @@ release, renew, refusals_request) et `Reply` (l.318 : hello, status_response,
 alloc_granted, alloc_denied, renewed, released, pong, error, refusals_response) ;
 `crates/client/src/identity.rs` ; `daemon/src/main.rs` (`--config`,
 `--gen-config`). Complément écran par écran : `product/UI-API-MAPPING.md`.
+
+**Mise à jour 2026-11-19 (prototype, branche `prototype-complet`)** : les pas
+`identity`, `resources`, `usage`, `settings`, `events` sont LIVRÉS et testés
+(§2.4 ; `Request`/`Reply` portent désormais `ledger_request`/`ledger_response`,
+capacité `ledger` annoncée dans le `hello`). Restent ouverts : révocation de
+pair par API (`nodes`), graphe de routage + débit (`network`, dépend des
+mesures inter-hôtes), placement multi-nœuds (`tasks`), écritures d'identité et
+de réglages (F1-SEC-02), historique de consommation (F1-USG à ouvrir).

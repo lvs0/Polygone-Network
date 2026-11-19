@@ -178,6 +178,10 @@ struct Inner {
 #[derive(Clone)]
 pub struct TaskStore {
     inner: Arc<Mutex<Inner>>,
+    /// Bus d'événements optionnel (F1-EVT-01) : chaque transition réelle
+    /// (création, annulation, reprise, expiration) y est publiée. `None` =
+    /// magasin de test silencieux, jamais un bus fantôme.
+    events: Option<crate::events::EventBus>,
 }
 
 impl TaskStore {
@@ -209,7 +213,47 @@ impl TaskStore {
                 file,
                 executor,
             })),
+            events: None,
         }
+    }
+
+    /// Attache le bus d'événements de la gateway. Les clones du magasin
+    /// partagent le même bus : une transition n'est publiée qu'une fois.
+    pub fn with_events(mut self, events: crate::events::EventBus) -> Self {
+        self.events = Some(events);
+        self
+    }
+
+    fn emit(&self, kind: &str, data: serde_json::Value) {
+        if let Some(bus) = &self.events {
+            bus.emit(kind, data);
+        }
+    }
+
+    /// Balaye les échéances comme `sweep_expired`, en publiant un événement
+    /// `task_expired` par tâche réellement expirée. L'ordre des ids suit la
+    /// table ; le bus réattribue ses propres ids monotones.
+    fn sweep_and_emit(&self, inner: &mut Inner, now: u64) -> bool {
+        let expiring: Vec<String> = inner
+            .tasks
+            .iter()
+            .filter(|(_, task)| task.is_expired_at(now))
+            .map(|(id, _)| id.clone())
+            .collect();
+        let swept = sweep_expired(&mut inner.tasks, now);
+        for id in expiring {
+            if inner
+                .tasks
+                .get(&id)
+                .is_some_and(|task| task.state == TaskState::Expired)
+            {
+                self.emit(
+                    "task_expired",
+                    serde_json::json!({ "id": id, "state": "expired" }),
+                );
+            }
+        }
+        swept
     }
 
     /// Vrai si ce magasin exécute les tâches au lieu de seulement les publier.
@@ -236,7 +280,7 @@ impl TaskStore {
     /// « aucune tâche ». Les tâches expirées sont balayées avant le comptage.
     pub async fn counts_by_state(&self, now: u64) -> BTreeMap<String, usize> {
         let mut inner = self.inner.lock().await;
-        let swept = sweep_expired(&mut inner.tasks, now);
+        let swept = self.sweep_and_emit(&mut inner, now);
         let mut counts: BTreeMap<String, usize> = TaskState::ALL
             .into_iter()
             .map(|state| (state.as_str().to_string(), 0))
@@ -258,7 +302,7 @@ impl TaskStore {
         now: u64,
     ) -> Result<TaskRecord, StoreError> {
         let mut inner = self.inner.lock().await;
-        let swept = sweep_expired(&mut inner.tasks, now);
+        let swept = self.sweep_and_emit(&mut inner, now);
         if inner.tasks.len() >= MAX_TASKS {
             if swept {
                 persist_locked(&inner);
@@ -297,12 +341,16 @@ impl TaskStore {
             inner.tasks.remove(&id);
             return Err(StoreError::Persistence(error));
         }
+        self.emit(
+            "task_created",
+            serde_json::json!({ "id": task.spec.id.as_str(), "state": task.state.as_str() }),
+        );
         Ok(task)
     }
 
     pub async fn get(&self, id: &str, now: u64) -> Result<TaskRecord, StoreError> {
         let mut inner = self.inner.lock().await;
-        let swept = sweep_expired(&mut inner.tasks, now);
+        let swept = self.sweep_and_emit(&mut inner, now);
         let task = inner.tasks.get(id).cloned().ok_or(StoreError::NotFound)?;
         if swept {
             persist_locked(&inner);
@@ -322,7 +370,7 @@ impl TaskStore {
             return Err(StoreError::Invalid("limit hors bornes".into()));
         }
         let mut inner = self.inner.lock().await;
-        let swept = sweep_expired(&mut inner.tasks, now);
+        let swept = self.sweep_and_emit(&mut inner, now);
 
         let mut tasks: Vec<TaskRecord> = inner
             .tasks
@@ -355,7 +403,7 @@ impl TaskStore {
     /// durable : un échec de persistance laisse la tâche inchangée.
     pub async fn cancel(&self, id: &str, now: u64) -> Result<TaskRecord, StoreError> {
         let mut inner = self.inner.lock().await;
-        sweep_expired(&mut inner.tasks, now);
+        self.sweep_and_emit(&mut inner, now);
 
         let mut task = inner.tasks.get(id).cloned().ok_or(StoreError::NotFound)?;
         task.cancel(now)
@@ -369,6 +417,10 @@ impl TaskStore {
             }
         }
         inner.tasks.insert(id.to_string(), task.clone());
+        self.emit(
+            "task_cancelled",
+            serde_json::json!({ "id": id, "state": task.state.as_str() }),
+        );
         Ok(task)
     }
 
@@ -380,7 +432,7 @@ impl TaskStore {
         let Some(executor) = inner.executor.clone() else {
             return 0;
         };
-        let swept = sweep_expired(&mut inner.tasks, now);
+        let swept = self.sweep_and_emit(&mut inner, now);
         let mut ids: Vec<String> = inner
             .tasks
             .iter()
@@ -406,6 +458,10 @@ impl TaskStore {
             execute_record(task, &executor, now);
             if task.state != before {
                 changed += 1;
+                self.emit(
+                    "task_resumed",
+                    serde_json::json!({ "id": id, "state": task.state.as_str() }),
+                );
             }
         }
         if swept || changed > 0 {

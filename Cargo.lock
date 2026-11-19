@@ -3293,16 +3293,20 @@ version = "2.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "dirs 5.0.1",
  "env_logger",
  "hex",
  "image",
  "log",
  "polygone-core",
+ "polygoned",
  "qrcode",
  "rand 0.8.7",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "toml",
 ]
 
 [[package]]

@@ -267,3 +267,33 @@ Mandat : « Contine en tt autonomie sur Polygone ». Le disque fait foi.
 (→ planificateur de coût) ; sinon F1-API-01 premier pas implémentable sans
 dépendance : `GET /api/v1/identity` ou `GET /api/v1/resources` (+ tests de
 contrat, §8). LAN/NAT et quorum L2 restent bloqués (physique / second opérateur).
+
+## 13. Prototype complet — 2026-11-19 (nuit, autonomie)
+
+Mandat : « Build le prototype entier et tu pourras t'arrêter ». Périmètre
+déduit des docs produit (`PRODUCT-FOUNDATION`, `PRODUCT-READINESS`,
+`UI-API-MAPPING`), pas inventé. Branche `prototype-complet` depuis `b63e3a8`.
+
+| Élément | État | Preuve |
+|---|---|---|
+| Protocole daemon étendu | **FAIT** — `ledger_request`/`ledger_response` additifs, capacité `ledger` annoncée au `hello`, `Ledger::snapshot()` trié et normalisé (legacy → même forme, `expires_at` omis) ; ancien daemon → `unknown_type`, jamais un faux ledger vide | `daemon/src/socket.rs`, `client.rs` ; test `test_ledger_reflete_allocations_releases_et_capacite` (allocation → bail visible → release → vide) |
+| `GET /api/v1/identity` | **FAIT** — identité publique locale, `node_id` dérivé ADR-0002 ; les champs `*_sk_hex` ne sont même pas désérialisés ; absente → 404, illisible → 500 | `local.rs`, test « aucun matériel secret publié » + smoke vivant (pseudo réel, node_id = CLI `polygone id`) |
+| `GET /api/v1/daemon` + `/resources` | **FAIT** — relais du `hello` et du `status_response` **par les types partagés** (`polygoned`), parité champ par champ prouvée contre un vrai daemon (omissions comprises) ; absent → 503 `daemon_absent`, jamais des zéros | `relay.rs`, test `relais_daemon_parite_complete_sur_un_vrai_daemon` + smoke vivant |
+| `GET /api/v1/settings` | **FAIT** — lecture seule, `source: file\|defaults`, tier au vocabulaire du fil ; config invalide → 500 explicite, jamais de defaults masquant une casse | `local.rs`, 6 tests + smoke vivant (fichier isolé `tier=performance` lu, daemon aligné) |
+| `GET /api/v1/usage` | **FAIT** — ledger actif + refus relayés ; capacité vérifiée avant demande (ancien daemon → 501) ; pas d'historique inventé | test parité socket + smoke vivant (refus `policy_shrinking: 3` relayés, RAM hôte saturée) |
+| `GET /api/v1/events` (F1-EVT-01) | **FAIT (flux borné)** — anneau 512, ids monotones, curseur `since`, `gap` signalé, `dropped_total`, plafond 500, filtre `kind`, 400 sur paramètre inconnu ; 13 kinds réels ; sonde daemon 5 s (`resources` sur changement de `seq`, `daemon_up`/`daemon_absent` sur transition) ; push SSE/WebSocket NON fait (polling à curseur assumé, documenté) | `events.rs` (5 tests), `local_api.rs` (ordre, gap, rejeu, filtre, 400) + smoke vivant |
+| Événements de tâches | **FAIT** — `task_created`/`cancelled`/`resumed`/`expired` émis par le magasin aux transitions réelles ; jetons d'appairage et challenges JAMAIS dans le bus | `tasks.rs` (`with_events`, `sweep_and_emit`), test « création de tâche publie un événement réel » |
+| Écrans | **FAIT** — `node.html` étendu (identité, daemon, ressources mesurée/réservable/appliquée, réglages lecture seule), `compute.html` (tâches echo/blake3 signées, annulation), `activity.html` (flux à curseur + bandeau gap, ledger actif, refus) ; nav étendue, coque PWA `polygone-v3` | `web/*.js` + smoke vivant : pages 200, tâches exécutées signées, événements affichables |
+| Smoke test bout-en-bout | **FAIT** — daemon + gateway réels en HOME isolé : identité réelle sans secret, relais alignés, tâches `echo`/`blake3` `succeeded` signées ML-DSA-65, événements `gateway_up`/`daemon_up`/`resources`/`task_created`, daemon tué → 503 sur les 3 relais + 1 événement `daemon_absent`, identity/settings restent 200 | journal `~/.hermes/cache/scratch/proto-smoke/`, sortie du 19/11 |
+| Gates | fmt OK ; clippy workspace `-D warnings` **RC=0** ; **612 tests / 25 suites / 0 échec** (workspace complet, `--no-fail-fast`) ; check-docs RC=0 (96 documents) ; check-ci-honesty RC=0 ; gitleaks avant push | logs `proto-clippy2.log`, `proto-test-full2.log`, `proto-docs.log`, `proto-honesty.log` |
+| Contrats + docs | `API-CONTRACTS.md` §1 (ledger), §2 (6 routes), **§2.4** (contrats détaillés), §6/§8 à jour ; `UI-API-MAPPING` §9 (écrans livrés) ; `PRODUCT-READINESS` verdict levé pour l'activité ; roadmap F1-API-01 PARTIAL (locaux faits), F1-EVT-01 PARTIAL (push non fait), F2-PROD-01 DONE | diffs du commit |
+
+**Reste ouvert (honnête)** : `nodes` révocation par API, `network`
+routage/débit (mesures inter-hôtes, Cue hors ligne), `tasks` placement
+multi-nœuds, écritures identité/réglages (F1-SEC-02), historique de
+consommation (F1-USG à ouvrir — le ledger n'enregistre pas les baux clos),
+livraison push d'événements. LAN/NAT et quorum L2 : physiques / second
+opérateur, hors autonomie.
+
+**Prochaine action** : fusionner la PR du prototype après CI verte, puis
+F1-OBS-01 (diagnostic exportable sans secret).

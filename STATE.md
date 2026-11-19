@@ -7,13 +7,13 @@
 
 | Champ | Valeur vérifiée |
 |---|---|
-| Branche | `main` = `639a520` (PR #4 + #5 fusionnées le 2026-11-19 ; `f1-api-01-contrats` et `reconcile/2026-11` conservées) |
+| Branche | `prototype-complet` (depuis `main` = `b63e3a8`) — prototype F1-API-01/F1-EVT-01 + écrans ; PR en cours |
 | Réconciliation | **FAITE** — merge `78e9447` (deux parents `c13cdf6` + `23d27ac`), PR #4 **MERGED** 2026-11-19T16:07:42Z, `github/main` = `8307094`, arbre identique à `78e9447` (`git diff` vide) |
 | Arbitrage | ADR-0004 **accepté** : 20 conflits + 11 auto-fusions inspectées → version canonique partout ; 24 ajouts purs de septembre en couche historique (bandeaux + INDEX) ; 2 fichiers mock exclus ; **0 fichier Rust modifié** (`git diff c13cdf6 78e9447 -- '*.rs'` = 0) |
-| Gates locaux | fmt 0 ; clippy workspace 0 ; **586 tests / 24 suites / 0 échec** (`--no-fail-fast`, TMPDIR=/tmp, -j 2) ; check-docs 96 documents ; check-ci-honesty OK ; gitleaks **313 commits, 0 fuite** |
+| Gates locaux | fmt 0 ; clippy workspace `-D warnings` 0 ; **612 tests / 25 suites / 0 échec** (`--no-fail-fast`, TMPDIR=/tmp, -j 2) ; check-docs 96 documents ; check-ci-honesty OK ; gitleaks avant push (voir §13 STATUS) |
 | CI arbre fusionné | **VERTE** run 44558244332 (ubuntu ✓ macos ✓ smoke ✓ ; canari Windows échec attendu non bloquant) |
-| F1-API-01 | contrats documentés : `docs/architecture/API-CONTRACTS.md` **§8** (8 domaines, prochain pas + test de contrat + dépendance) ; implémentation non commencée |
-| ARCHITECTURE | re-mesuré : 101 fichiers, **44 332 lignes** (client 16 830, daemon 10 991) ; compteur 44 271 périmé depuis `8352c5c`, corrigé |
+| F1-API-01 | **domaines locaux LIVRÉS** (2026-11-19, prototype) : `identity`, `daemon`, `resources`, `settings`, `usage`, `events` — contrats `API-CONTRACTS.md` §2.4 + §8 à jour ; restent nodes/network/tasks distribués (voir STATUS §13) |
+| ARCHITECTURE | re-mesuré (prototype) : **105 fichiers, 45 853 lignes, 612 tests** (gateway 13/5 551/89, daemon 17/11 224/133, client 33/16 842/217) |
 | Cue SSH | toujours intermittent (sonde arrière-plan active) ; mesures RTT/débit **non faites** ; ne pas ouvrir l'URL Tailscale SSH check |
 | Retour arrière | `git revert -m 1 8307094` sur main (ADR-0004 §7) ; aucun force-push, histoires préservées |
 

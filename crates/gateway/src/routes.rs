@@ -141,6 +141,14 @@ impl Gateway {
             ("GET", "/api/v1/services") => {
                 HttpResponse::json(200, &json!({ "services": SERVICES }))
             }
+            // Domaines locaux F1-API-01 : identité publique, daemon, ressources,
+            // réglages lecture seule, usage (ledger), événements bornés.
+            ("GET", "/api/v1/identity") => self.identity(),
+            ("GET", "/api/v1/daemon") => self.daemon_hello().await,
+            ("GET", "/api/v1/resources") => self.resources().await,
+            ("GET", "/api/v1/settings") => self.settings(),
+            ("GET", "/api/v1/usage") => self.usage().await,
+            ("GET", "/api/v1/events") => self.events_page(&request.query),
             ("POST", "/api/v1/pair/request") => self.pair_request(&request.body).await,
             ("POST", "/api/v1/pair/accept") => self.pair_accept(&request.body).await,
             ("POST", "/api/v1/nodes/heartbeat") => self.heartbeat(&request.body).await,
@@ -217,6 +225,10 @@ impl Gateway {
             created_at: now,
         };
         pairs.insert(token.clone(), pair);
+        // Le jeton est un secret porteur de capacité : il ne va JAMAIS dans
+        // le bus d'événements, seul le nom d'appareil est public.
+        self.events
+            .emit("pair_request", json!({ "device_name": device_name }));
 
         HttpResponse::json(
             200,
@@ -253,16 +265,21 @@ impl Gateway {
             Some(node_id) => node_id,
             None => return HttpResponse::text(400, "clé publique ML-DSA-65 invalide"),
         };
+        let device_name = pair.device_name.clone();
         self.nodes.write().await.insert(
             node_id.clone(),
             NodeInfo {
-                id: node_id,
+                id: node_id.clone(),
                 services: vec!["msg".into()],
                 device_name: Some(pair.device_name),
                 signing_key_hex: Some(pair.sign_public_key_hex),
                 last_seen: now,
                 latency_ms: None,
             },
+        );
+        self.events.emit(
+            "pair_accepted",
+            json!({ "node_id": node_id, "device_name": device_name }),
         );
 
         HttpResponse::json(200, &json!({ "ok": true }))
@@ -356,6 +373,10 @@ impl Gateway {
             nodes.clone()
         };
         self.persist_nodes(&snapshot).await;
+        self.events.emit(
+            "node_seen",
+            json!({ "node_id": request.node_id, "last_seen": now }),
+        );
 
         HttpResponse::json(
             200,
@@ -403,6 +424,9 @@ impl Gateway {
             nodes.clone()
         };
         self.persist_nodes(&snapshot).await;
+        // Le challenge est à usage unique : il ne va pas dans le bus.
+        self.events
+            .emit("ping_issued", json!({ "node_id": request.node_id }));
 
         HttpResponse::json(
             200,
@@ -475,6 +499,10 @@ impl Gateway {
             nodes.clone()
         };
         self.persist_nodes(&snapshot).await;
+        self.events.emit(
+            "rtt_measured",
+            json!({ "node_id": request.node_id, "rtt_ms": request.rtt_ms }),
+        );
 
         HttpResponse::json(200, &json!({ "ok": true, "latency_ms": request.rtt_ms }))
     }
@@ -502,6 +530,120 @@ impl Gateway {
             Some(node) => HttpResponse::json(200, &json!(node)),
             None => HttpResponse::json(404, &json!({ "error": "nœud inconnu" })),
         }
+    }
+
+    /// `GET /api/v1/identity` — identité publique locale (F1-API-01).
+    ///
+    /// Lecture seule de `~/.polygone/identity.json`, champs publics seulement.
+    /// Absente → 404 explicite ; illisible → 500 explicite. Jamais de secret,
+    /// jamais d'identité inventée.
+    fn identity(&self) -> HttpResponse {
+        match crate::local::read_public_identity(&self.local.identity_file) {
+            Ok(value) => HttpResponse::json(200, &value),
+            Err(crate::local::LocalError::Absent) => HttpResponse::json(
+                404,
+                &json!({
+                    "error": "identity_absent",
+                    "hint": "lancer polygone une fois pour créer l'identité locale"
+                }),
+            ),
+            Err(crate::local::LocalError::Unreadable(detail))
+            | Err(crate::local::LocalError::ConfigInvalid(detail)) => HttpResponse::json(
+                500,
+                &json!({ "error": "identity_unreadable", "detail": detail }),
+            ),
+        }
+    }
+
+    /// `GET /api/v1/daemon` — résumé du `hello` : version, plateforme, tier,
+    /// protocole négocié, capacités. Relais pur, mêmes erreurs typées.
+    async fn daemon_hello(&self) -> HttpResponse {
+        match crate::relay::hello(self.local.daemon_socket.clone()).await {
+            Ok(info) => HttpResponse::json(200, &json!(info)),
+            Err(error) => relay_error_response(error),
+        }
+    }
+
+    /// `GET /api/v1/resources` — `status_response` du daemon relayé TEL QUEL :
+    /// mêmes champs, mêmes omissions, mêmes unités. Le test de contrat compare
+    /// cette réponse à celle du socket sur un vrai daemon.
+    async fn resources(&self) -> HttpResponse {
+        match crate::relay::status(self.local.daemon_socket.clone()).await {
+            Ok(value) => HttpResponse::json(200, &value),
+            Err(error) => relay_error_response(error),
+        }
+    }
+
+    /// `GET /api/v1/settings` — configuration du daemon en LECTURE SEULE.
+    /// Fichier absent → defaults produit avec `source: "defaults"`. Fichier
+    /// invalide → 500 explicite, jamais de repli silencieux. Les écritures
+    /// restent à la CLI (F1-SEC-02) : cette route ne mute rien.
+    fn settings(&self) -> HttpResponse {
+        match crate::local::read_settings(&self.local.config_file) {
+            Ok(value) => HttpResponse::json(200, &value),
+            Err(crate::local::LocalError::ConfigInvalid(detail)) => {
+                HttpResponse::json(500, &json!({ "error": "config_invalid", "detail": detail }))
+            }
+            Err(crate::local::LocalError::Unreadable(detail)) => HttpResponse::json(
+                500,
+                &json!({ "error": "config_unreadable", "detail": detail }),
+            ),
+            Err(crate::local::LocalError::Absent) => HttpResponse::json(
+                500,
+                &json!({ "error": "config_unreadable", "detail": "fichier absent après lecture" }),
+            ),
+        }
+    }
+
+    /// `GET /api/v1/usage` — instantané du ledger : réservations ACTIVES,
+    /// agrégats réservés, refus par motif. Pas un historique : le ledger
+    /// évince les baux libérés/expirés, et cette route ne prétend pas le
+    /// contraire. Daemon sans capacité `ledger` → 501.
+    async fn usage(&self) -> HttpResponse {
+        match crate::relay::usage(self.local.daemon_socket.clone()).await {
+            Ok(value) => HttpResponse::json(200, &value),
+            Err(error) => relay_error_response(error),
+        }
+    }
+
+    /// `GET /api/v1/events?since=&limit=&kind=` — flux borné à curseur
+    /// (F1-EVT-01). Ordre monotone, perte signalée par `gap`, backpressure
+    /// côté client. Paramètres invalides ou inconnus → 400, jamais ignorés.
+    fn events_page(&self, query: &str) -> HttpResponse {
+        use crate::events::{EVENTS_DEFAULT_LIMIT, EVENTS_MAX_LIMIT};
+        let mut since: u64 = 0;
+        let mut limit = EVENTS_DEFAULT_LIMIT;
+        let mut kind: Option<String> = None;
+        for pair in query.split('&').filter(|part| !part.is_empty()) {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            match key {
+                "since" => match value.parse::<u64>() {
+                    Ok(parsed) => since = parsed,
+                    Err(_) => {
+                        return HttpResponse::json(400, &json!({ "error": "invalid_since" }));
+                    }
+                },
+                "limit" => match value.parse::<usize>() {
+                    Ok(parsed) => limit = parsed.clamp(1, EVENTS_MAX_LIMIT),
+                    Err(_) => {
+                        return HttpResponse::json(400, &json!({ "error": "invalid_limit" }));
+                    }
+                },
+                "kind" => {
+                    if value.is_empty() || value.len() > 64 {
+                        return HttpResponse::json(400, &json!({ "error": "invalid_kind" }));
+                    }
+                    kind = Some(value.to_string());
+                }
+                _ => {
+                    return HttpResponse::json(
+                        400,
+                        &json!({ "error": "unknown_parameter", "parameter": key }),
+                    );
+                }
+            }
+        }
+        HttpResponse::json(200, &json!(self.events.page(since, limit, kind.as_deref())))
     }
 
     /// Crée une tâche validée et publiée. La réponse dit explicitement qu'aucun
@@ -583,6 +725,32 @@ fn task_error(error: StoreError) -> HttpResponse {
         status,
         &json!({ "error": code, "message": error.to_string() }),
     )
+}
+
+/// Traduit une erreur du relais daemon en réponse HTTP stable. Chaque cas
+/// a son statut et son code : l'interface distingue « daemon absent » (503),
+/// « protocole inattendu » (502), « capacité non supportée » (501) et « refus
+/// explicite du daemon » (502). Jamais de 200 vide qui se lirait comme zéro.
+fn relay_error_response(error: crate::relay::RelayError) -> HttpResponse {
+    use crate::relay::RelayError;
+    let (status, body) = match error {
+        RelayError::Absent(detail) => (503, json!({ "error": "daemon_absent", "detail": detail })),
+        RelayError::Protocol(detail) => {
+            (502, json!({ "error": "daemon_protocol", "detail": detail }))
+        }
+        RelayError::Unsupported => (
+            501,
+            json!({
+                "error": "ledger_unsupported",
+                "hint": "ce daemon n'annonce pas la capacité ledger"
+            }),
+        ),
+        RelayError::Refused { code, message } => (
+            502,
+            json!({ "error": "daemon_refused", "code": code, "message": message }),
+        ),
+    };
+    HttpResponse::json(status, &body)
 }
 
 /// Analyse `state`, `limit` et `offset`. Toute clé inconnue, dupliquée ou
