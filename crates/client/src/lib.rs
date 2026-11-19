@@ -13,16 +13,31 @@
 //! - [`calc`] — le cache de calcul : la clé porte la **version du calculateur**
 //!   (`BLAKE3(version ‖ entrée)`), le résultat est un bloc vérifié par son hash.
 //!
-//! Le reste du client (net, tui, hide, exec…) vit encore dans le binaire ; l'y
-//! déplacer serait un incrément à part entière, pas une conséquence de celui-ci.
+//! Le sous-système compute/réseau (`identity`, `msg`, `exec`, `net`,
+//! `reputation`) est exposé ici depuis l'incrément « prototype complet »
+//! (2026-11-19) : le gateway réutilise le chemin d'exécution distante **prouvé**
+//! sur deux hôtes (`net::borrow_compute`, preuve P0-DEUX-HOTES-2026-11-19)
+//! sans le réécrire. Le binaire `polygone` garde ses copies privées ; aucun
+//! comportement du binaire ne change. `tui` et `hide` restent dans le binaire.
+//!
+//! `testutil` (verrou global d'état des tests) est exposé en `cfg(test)` pour
+//! que les sous-modules de test de `net`/`exec` compilent aussi côté lib.
 
 pub mod blocks;
 pub mod calc;
 pub mod ecosystem;
+pub mod exec;
+pub mod identity;
 pub mod mesh;
+pub mod msg;
+pub mod net;
 pub mod node;
 pub mod node_isolation;
 pub mod pause;
 pub mod profile;
 pub mod refusal;
+pub mod reputation;
 pub mod uninstall;
+
+#[cfg(test)]
+mod testutil;

@@ -558,6 +558,36 @@ impl TaskResult {
     }
 }
 
+/// Reçu d'une exécution distante (chemin compute prouvé deux hôtes, ADR-0003).
+///
+/// Contrairement à [`TaskResult`], ce reçu n'est pas une signature ML-DSA
+/// détachée recalculable ici : le grant du producteur est signé au niveau
+/// transport et vérifié contre l'ancre de confiance TOFU (`peers.json`) PAR
+/// `polygone_client::net::borrow_compute` avant déchiffrement. Le reçu atteste
+/// donc un résultat déjà vérifié en amont, avec son niveau honnête
+/// (`producer-signed` = L0, `recomputed-local` = L1). Aucune signature n'est
+/// fabriquée ni rejouée ici ; le producteur reste le nœud distant assigné.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteReceipt {
+    /// Nœud producteur distant (node_id, ancre TOFU vérifiée en amont).
+    pub producer: String,
+    /// Relais ayant acheminé la tâche (mode relais, pas de P2P direct).
+    pub relay: String,
+    /// Commande déterministe exécutée à distance.
+    pub command: String,
+    /// Sortie du producteur.
+    pub output: String,
+    /// Niveau : `producer-signed` (L0) ou `recomputed-local` (L1).
+    pub verification: String,
+    /// Limite honnête du niveau — ne jamais la masquer.
+    pub verification_limit: String,
+    /// Le recalcul local L1 a reproduit la sortie (false si L0 ou divergence).
+    pub recomputed: bool,
+    /// Preuve L1 persistée (ADR-0003), si recalcul local effectué.
+    #[serde(default)]
+    pub evidence_path: Option<String>,
+}
+
 /// Une tâche et son état courant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskRecord {
@@ -569,6 +599,10 @@ pub struct TaskRecord {
     pub assigned_node: Option<String>,
     pub result: Option<TaskResult>,
     pub last_error: Option<String>,
+    /// Reçu d'exécution distante (None pour une tâche locale). Additif :
+    /// les tâches existantes et leurs tests restent inchangés.
+    #[serde(default)]
+    pub remote_receipt: Option<RemoteReceipt>,
 }
 
 impl TaskRecord {
@@ -584,6 +618,7 @@ impl TaskRecord {
             assigned_node: None,
             result: None,
             last_error: None,
+            remote_receipt: None,
         })
     }
 
@@ -667,6 +702,32 @@ impl TaskRecord {
         }
         self.advance(TaskState::Succeeded, now)?;
         self.result = Some(result);
+        Ok(())
+    }
+
+    /// Termine une tâche distante avec un reçu déjà vérifié en amont (TOFU).
+    ///
+    /// Invariants : le producteur du reçu est le nœud assigné, et le niveau de
+    /// vérification est porté tel quel — « signé » (L0) n'est jamais présenté
+    /// comme « vérifié » (L1). Pas de re-vérification ML-DSA ici : la signature
+    /// transport du grant a été vérifiée contre `peers.json` par
+    /// `borrow_compute` avant déchiffrement (voir [`RemoteReceipt`]).
+    pub fn complete_remote(&mut self, receipt: RemoteReceipt, now: u64) -> Result<(), TaskError> {
+        if receipt.producer.trim().is_empty() {
+            return Err(TaskError::InvalidProducer(receipt.producer));
+        }
+        let assigned = self
+            .assigned_node
+            .as_deref()
+            .ok_or(TaskError::MissingAssignment)?;
+        if receipt.producer != assigned {
+            return Err(TaskError::ProducerMismatch {
+                producer: receipt.producer,
+                assigned: assigned.to_string(),
+            });
+        }
+        self.advance(TaskState::Succeeded, now)?;
+        self.remote_receipt = Some(receipt);
         Ok(())
     }
 

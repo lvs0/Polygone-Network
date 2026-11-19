@@ -542,6 +542,7 @@ async fn connect_inner(relay: &str, identity: &LocalIdentity) -> Result<TcpStrea
     Ok(stream)
 }
 
+#[allow(dead_code)] // Utilisé par hide.rs (binaire) ; net est exposé en lib pour le compute.
 pub(crate) async fn connect_relay(relay: &str, identity: &LocalIdentity) -> Result<TcpStream> {
     connect(relay, identity).await
 }
@@ -2184,7 +2185,8 @@ fn sanitize_name(name: &str) -> String {
 pub const STREAM_CHUNK: usize = 16 * 1024;
 
 /// Build a `stream` envelope carrying `payload` (already encrypted bytes).
-pub fn stream_envelope(session: &str, from: &str, to: &str, payload: &[u8]) -> NetEnvelope {
+#[allow(dead_code)] // Helper envelope utilisé par hide.rs (binaire) ; interne à la lib.
+pub(crate) fn stream_envelope(session: &str, from: &str, to: &str, payload: &[u8]) -> NetEnvelope {
     NetEnvelope {
         kind: "fragment".into(),
         from: from.to_string(),
@@ -2206,7 +2208,8 @@ pub fn stream_envelope(session: &str, from: &str, to: &str, payload: &[u8]) -> N
 /// Build a `grant` envelope — the exit node's encrypted answer to a hide
 /// `req`. Only the requester (who holds the session key) can decrypt it;
 /// the relay sees opaque bytes and cannot forge it.
-pub fn grant_envelope(session: &str, from: &str, to: &str, payload: &[u8]) -> NetEnvelope {
+#[allow(dead_code)] // Helper envelope utilisé par hide.rs (binaire) ; interne à la lib.
+pub(crate) fn grant_envelope(session: &str, from: &str, to: &str, payload: &[u8]) -> NetEnvelope {
     NetEnvelope {
         kind: "fragment".into(),
         from: from.to_string(),
@@ -2226,7 +2229,8 @@ pub fn grant_envelope(session: &str, from: &str, to: &str, payload: &[u8]) -> Ne
 }
 
 /// Serialize an envelope to the NDJSON wire line (helper used by hide tasks).
-pub fn envelope_line(env: &NetEnvelope) -> Result<String> {
+#[allow(dead_code)] // Helper envelope utilisé par hide.rs (binaire) ; interne à la lib.
+pub(crate) fn envelope_line(env: &NetEnvelope) -> Result<String> {
     Ok(format!("{}\n", serde_json::to_string(env)?))
 }
 

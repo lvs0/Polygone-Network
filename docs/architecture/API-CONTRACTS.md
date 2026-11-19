@@ -159,7 +159,7 @@ borné (`MAX_BODY_BYTES`). Réponses JSON, erreurs en texte ou JSON.
 | POST | `/api/v1/nodes/ping` | `{node_id, timestamp, signature_hex}` | `{ok, challenge, expires_in_seconds: 30}` | 400, 403, 404 |
 | POST | `/api/v1/nodes/pong` | `{node_id, timestamp, challenge, rtt_ms, signature_hex}` | `{ok, latency_ms}` | 400 (borne), 403, 404, 409 (sans ping / expiré / rejoué) |
 | GET | `/api/v1/node/{id}` | — | `NodeInfo` | 404 |
-| POST | `/api/v1/tasks` | `{owner, kind, input_hex?, cpu_cores?, ram_bytes?, storage_bytes?, gpu_vram_bytes?, deadline_in_seconds?, max_attempts?, allow_network?, allow_filesystem_write?, max_output_bytes?}` | 201 `{task, executor_attached}` | 400 (`invalid_task`), 429 (`too_many_tasks`), 500 (`task_storage_failure`) |
+| POST | `/api/v1/tasks` | `{owner, kind, input_hex?, cpu_cores?, ram_bytes?, storage_bytes?, gpu_vram_bytes?, deadline_in_seconds?, max_attempts?, allow_network?, allow_filesystem_write?, max_output_bytes?, target_node?, relay?, verify_local?}` | 201 `{task, executor_attached}` | 400 (`invalid_task`), 429 (`too_many_tasks`), 500 (`task_storage_failure`) |
 | GET | `/api/v1/tasks?state=&limit=&offset=` | — | `{tasks, total, limit, offset, executor_attached}` | 400 (`invalid_task`) |
 | GET | `/api/v1/tasks/{id}` | — | `{task, executor_attached}` | 404 (`task_not_found`) |
 | POST | `/api/v1/tasks/{id}/cancel` | `{}` (corps ignoré) | `{task, executor_attached}` | 404 (`task_not_found`), 409 (`invalid_transition`) |
@@ -241,6 +241,41 @@ fichier de tâches, avec les mêmes garanties atomiques et `0600`. Elle est
 rechargée au démarrage : une tâche reprise est signée par le même `NodeId`. Si
 la clé a changé, la reprise refuse explicitement de signer sous l'ancienne
 identité et marque la tâche `failed` avec le motif.
+
+**Exécution distante (`target_node`).** Si le corps porte `target_node`
+(NodeId hexadécimal 32 d'un pair approuvé, ancre TOFU `peers.json`) et `relay`
+(`host:port`), la tâche n'est pas exécutée par l'exécuteur local : le gateway
+emprunte du calcul au pair via le relais, par le chemin compute prouvé sur deux
+hôtes physiques (tâche chiffrée ML-KEM-768, grant ML-DSA-65 vérifié contre
+l'ancre TOFU avant déchiffrement). `verify_local` (défaut `false`) demande le
+recalcul local L1 de la même commande déterministe. Le verrou du magasin est
+relâché pendant l'appel réseau (≤ 40 s) ; une annulation ou expiration
+concurrente prime sur le résultat distant.
+
+Le reçu distant (`remote_receipt`) porte un niveau de vérification **honnête** :
+
+| `verification` | Sens | `recomputed` |
+|---|---|---|
+| `producer-signed` (L0) | grant signé par le producteur ; la signature prouve l'auteur, pas la justesse du calcul | `false` |
+| `recomputed-local` (L1) | le demandeur a recalculé la commande déterministe et retrouvé la même sortie ; preuve persistée (ADR-0003, `evidence_path`) | `true` |
+
+Aucune route ne fabrique un reçu de succès : pair non approuvé ou inconnu, refus
+du producteur, timeout, grant illisible ou divergence de recalcul → `failed`
+(fail-closed), jamais `succeeded`. Le multi-producteur / quorum L2 reste différé
+(ADR-0003) ; le transport est en mode relais (LAN/NAT non prouvé). Forme du reçu :
+
+```json
+{
+  "producer": "<NodeId>",
+  "relay": "host:port",
+  "command": "echo hello",
+  "output": "hello\n",
+  "verification": "recomputed-local",
+  "verification_limit": "…",
+  "recomputed": true,
+  "evidence_path": "~/.polygone/evidence-….json"
+}
+```
 
 ### 2.2 Diagnostics — `/api/v1/diagnostics` (`beta`)
 
