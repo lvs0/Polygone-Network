@@ -14,6 +14,7 @@
 //! Endpoints servis (voir [`routes`]) :
 //!   GET  /                       → site officiel
 //!   GET  /api/v1/network/status  → état du réseau
+//!   GET  /api/v1/diagnostics     → rapport agrégé mesuré (tâches, réseau, limites)
 //!   GET  /api/v1/services        → état déclaré des services
 //!   POST /api/v1/pair/request    → demande d'appairage
 //!   GET  /api/v1/pair/qr/:token  → deep link d'appairage
@@ -22,11 +23,12 @@
 //!   POST /api/v1/nodes/ping      → challenge de mesure, signé
 //!   POST /api/v1/nodes/pong      → RTT mesuré, challenge à usage unique
 //!   GET  /api/v1/node/:id        → info d'un nœud
-//!   POST /api/v1/tasks           → création d'une tâche publiée (non exécutée)
+//!   POST /api/v1/tasks           → création d'une tâche ; exécution signée si un fichier de tâches est configuré
 //!   GET  /api/v1/tasks           → liste filtrée et paginée
 //!   GET  /api/v1/tasks/:id       → détail d'une tâche
 //!   POST /api/v1/tasks/:id/cancel→ annulation
 
+pub mod diagnostics;
 pub mod http;
 pub mod routes;
 pub mod static_files;
@@ -170,7 +172,23 @@ impl Gateway {
             // est attaché. Sans fichier (tests, gateway jetable), le magasin
             // reste inerte et `executor_attached` dit la vérité.
             tasks: match tasks_file {
-                Some(path) => tasks::TaskStore::with_executor(Some(path), "gateway-local"),
+                Some(path) => {
+                    let keypair = match tasks::load_or_create_executor_keypair(&path) {
+                        Ok(keypair) => keypair,
+                        Err(error) => {
+                            // Ne jamais réutiliser une clé dont on ne peut pas
+                            // prouver la cohérence. Une clé éphémère permet
+                            // d'exécuter, mais les tâches seront explicites sur
+                            // l'impossibilité de signer sous une ancienne
+                            // identité.
+                            log::error!(
+                                "gateway : clé d'exécuteur indisponible ({error}) — clé éphémère"
+                            );
+                            polygone_core::sign::generate_keypair().expect("ML-DSA-65 keygen")
+                        }
+                    };
+                    tasks::TaskStore::with_executor(Some(path), keypair)
+                }
                 None => tasks::TaskStore::new(None),
             },
             persist_lock: Arc::new(tokio::sync::Mutex::new(())),

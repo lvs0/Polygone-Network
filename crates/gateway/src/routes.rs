@@ -134,6 +134,10 @@ impl Gateway {
                 let status = self.snapshot().await;
                 HttpResponse::json(200, &json!(status))
             }
+            ("GET", "/api/v1/diagnostics") => {
+                let report = self.diagnostics().await;
+                HttpResponse::json(200, &json!(report))
+            }
             ("GET", "/api/v1/services") => {
                 HttpResponse::json(200, &json!({ "services": SERVICES }))
             }

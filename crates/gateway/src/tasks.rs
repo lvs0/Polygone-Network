@@ -3,20 +3,24 @@
 //! **Deux modes explicites.** Un magasin ouvert avec [`TaskStore::new`] reste
 //! inerte : une tâche est validée puis publiée et y reste `published`. Un
 //! magasin ouvert avec [`TaskStore::with_executor`] attache un exécuteur local :
-//! il assigne, exécute les familles déterministes `echo`/`blake3`, vérifie le
-//! hash du résultat et persiste l'état final. Aucune route HTTP ne fabrique un
-//! résultat : elle lit celui que l'exécuteur a produit.
+//! il assigne, exécute les familles déterministes `echo`/`blake3`, signe le
+//! résultat avec sa clé ML-DSA-65, vérifie hash et signature, puis persiste
+//! l'état final. Aucune route HTTP ne fabrique un résultat : elle lit celui que
+//! l'exécuteur a produit.
 //!
 //! La persistance est atomique (temporaire, `sync_all`, `rename`, fsync du
 //! répertoire, `0600`). Un échec d'écriture annule la création : une tâche
 //! n'est jamais reconnue si elle n'est pas durable. Un fichier illisible est
 //! mis en quarantaine, jamais supprimé.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use polygone_core::sign::{
+    KeyPair, PublicKey, SecretKey, Signer, Verifier, generate_keypair, node_id_from_sign_pk_hex,
+};
 use polygone_core::task::{
     MAX_TASK_DEADLINE_HORIZON_SECS, TaskConstraints, TaskId, TaskKind, TaskPermissions, TaskRecord,
     TaskRequirements, TaskResult, TaskSpec, TaskState,
@@ -155,11 +159,19 @@ pub struct TaskPage {
     pub executor_attached: bool,
 }
 
+#[derive(Clone)]
+struct TaskExecutor {
+    /// `NodeId` dérivé de `keypair.verifier` : le producteur signé ne peut pas
+    /// être un simple label choisi par l'appelant.
+    node: String,
+    keypair: KeyPair,
+}
+
 struct Inner {
     tasks: HashMap<String, TaskRecord>,
     file: Option<PathBuf>,
-    /// Nœud qui exécute les tâches, ou `None` pour un magasin inerte.
-    executor: Option<String>,
+    /// Exécuteur local, ou `None` pour un magasin inerte.
+    executor: Option<TaskExecutor>,
 }
 
 /// Magasin partageable (clones partagent le même état).
@@ -175,14 +187,18 @@ impl TaskStore {
         Self::open(file, None)
     }
 
-    /// Ouvre un magasin qui exécute réellement les tâches publiées sous
-    /// l'identité `node`. Les tâches laissées dans un état intermédiaire par un
-    /// arrêt brutal sont reprises par [`TaskStore::recover`].
-    pub fn with_executor(file: Option<PathBuf>, node: impl Into<String>) -> Self {
-        Self::open(file, Some(node.into()))
+    /// Ouvre un magasin qui exécute réellement les tâches publiées et signe
+    /// leurs résultats avec `keypair`. Le `NodeId` du producteur est dérivé de
+    /// la clé publique, jamais fourni comme un label libre. Les tâches laissées
+    /// dans un état intermédiaire par un arrêt brutal sont reprises par
+    /// [`TaskStore::recover`] avec la même clé.
+    pub fn with_executor(file: Option<PathBuf>, keypair: KeyPair) -> Self {
+        let node = node_id_from_sign_pk_hex(&keypair.verifier.public_key().to_hex())
+            .expect("une clé ML-DSA-65 générée dérive toujours un NodeId");
+        Self::open(file, Some(TaskExecutor { node, keypair }))
     }
 
-    fn open(file: Option<PathBuf>, executor: Option<String>) -> Self {
+    fn open(file: Option<PathBuf>, executor: Option<TaskExecutor>) -> Self {
         let tasks = match file.as_deref() {
             Some(path) => load(path),
             None => HashMap::new(),
@@ -201,12 +217,37 @@ impl TaskStore {
         self.inner.lock().await.executor.is_some()
     }
 
+    /// Vrai si les tâches survivent au redémarrage. Un magasin en mémoire
+    /// seulement ne le prétend pas.
+    pub async fn persisted(&self) -> bool {
+        self.inner.lock().await.file.is_some()
+    }
+
     pub async fn len(&self) -> usize {
         self.inner.lock().await.tasks.len()
     }
 
     pub async fn is_empty(&self) -> bool {
         self.len().await == 0
+    }
+
+    /// Répartition des tâches par état. **Tous** les états sont présents, même
+    /// à zéro : une omission se lirait comme « état inconnu » plutôt que comme
+    /// « aucune tâche ». Les tâches expirées sont balayées avant le comptage.
+    pub async fn counts_by_state(&self, now: u64) -> BTreeMap<String, usize> {
+        let mut inner = self.inner.lock().await;
+        let swept = sweep_expired(&mut inner.tasks, now);
+        let mut counts: BTreeMap<String, usize> = TaskState::ALL
+            .into_iter()
+            .map(|state| (state.as_str().to_string(), 0))
+            .collect();
+        for task in inner.tasks.values() {
+            *counts.entry(task.state.as_str().to_string()).or_insert(0) += 1;
+        }
+        if swept {
+            persist_locked(&inner);
+        }
+        counts
     }
 
     /// Crée une tâche validée et publiée, durablement si un fichier est
@@ -245,8 +286,8 @@ impl TaskStore {
         // L'exécuteur est local et déterministe : la tâche quitte `published`
         // dans le même appel. Si l'écriture finale échoue, elle est retirée
         // comme toute création non durable.
-        if let Some(node) = inner.executor.clone() {
-            execute_record(&mut task, &node, now);
+        if let Some(executor) = inner.executor.clone() {
+            execute_record(&mut task, &executor, now);
             inner.tasks.insert(id.clone(), task.clone());
         }
 
@@ -336,7 +377,7 @@ impl TaskStore {
     /// exécuteur, ne fait rien et rend `0`.
     pub async fn recover(&self, now: u64) -> usize {
         let mut inner = self.inner.lock().await;
-        let Some(node) = inner.executor.clone() else {
+        let Some(executor) = inner.executor.clone() else {
             return 0;
         };
         let swept = sweep_expired(&mut inner.tasks, now);
@@ -362,7 +403,7 @@ impl TaskStore {
                 continue;
             };
             let before = task.state;
-            execute_record(task, &node, now);
+            execute_record(task, &executor, now);
             if task.state != before {
                 changed += 1;
             }
@@ -379,10 +420,10 @@ impl TaskStore {
 /// Le producteur est le nœud assigné s'il existe déjà (reprise d'une tâche
 /// interrompue), sinon le nœud qui exécute. Un échec de calcul devient un état
 /// `failed` explicite, jamais une panique ni une tâche bloquée en `running`.
-fn execute_record(task: &mut TaskRecord, node: &str, now: u64) {
+fn execute_record(task: &mut TaskRecord, executor: &TaskExecutor, now: u64) {
     let transition = match task.state {
         TaskState::Published => task
-            .assign(node, now)
+            .assign(executor.node.clone(), now)
             .and_then(|_| task.accept(now))
             .and_then(|_| task.start(now)),
         TaskState::Assigned => task.accept(now).and_then(|_| task.start(now)),
@@ -395,16 +436,37 @@ fn execute_record(task: &mut TaskRecord, node: &str, now: u64) {
         return;
     }
 
+    // Une tâche reprise peut avoir été assignée à une autre identité. On ne
+    // signe jamais sous un nom qui n'est pas le nôtre : l'échec est explicite.
     let producer = task
         .assigned_node
         .clone()
-        .unwrap_or_else(|| node.to_string());
+        .unwrap_or_else(|| executor.node.clone());
+    if producer != executor.node {
+        let _ = task.fail(
+            format!(
+                "nœud assigné {producer} différent de l'identité de l'exécuteur {}",
+                executor.node
+            ),
+            now,
+        );
+        return;
+    }
+
     let max_output = task.spec.constraints.permissions.max_output_bytes;
     let prepared = task
         .spec
         .kind
         .execute(&task.spec.input, max_output)
-        .and_then(|output| TaskResult::new(output, producer, now));
+        .and_then(|output| {
+            TaskResult::signed(
+                task.spec.id.clone(),
+                output,
+                producer,
+                now,
+                &executor.keypair,
+            )
+        });
 
     match prepared {
         Ok(result) => {
@@ -529,6 +591,123 @@ fn persist(path: &Path, tasks: &HashMap<String, TaskRecord>) -> Result<(), Strin
     Ok(())
 }
 
+/// Nom du fichier de clé de l'exécuteur, à côté du fichier de tâches.
+pub const EXECUTOR_KEY_FILE: &str = "gateway-signing.json";
+
+#[derive(Serialize, Deserialize)]
+struct StoredExecutorKey {
+    sign_pk_hex: String,
+    sign_sk_hex: String,
+}
+
+/// Chemin de la clé de signature de l'exécuteur pour un fichier de tâches
+/// donné. La clé vit dans le même répertoire, jamais dans un chemin implicite
+/// distinct de l'état qu'elle signe.
+pub fn executor_key_path(tasks_file: &Path) -> PathBuf {
+    tasks_file.with_file_name(EXECUTOR_KEY_FILE)
+}
+
+/// Charge la paire de clés de l'exécuteur, ou la crée et la persiste si elle
+/// n'existe pas encore. Une paire incohérente est refusée : mieux vaut ne pas
+/// exécuter que signer avec une clé dont la publique ne correspond pas.
+pub fn load_or_create_executor_keypair(tasks_file: &Path) -> Result<KeyPair, String> {
+    let path = executor_key_path(tasks_file);
+    match std::fs::read(&path) {
+        Ok(bytes) => parse_executor_key(&bytes, &path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let keypair = generate_keypair().map_err(|error| error.to_string())?;
+            persist_executor_key(&path, &keypair)?;
+            Ok(keypair)
+        }
+        Err(error) => Err(format!(
+            "lecture de {} impossible : {error}",
+            path.display()
+        )),
+    }
+}
+
+fn parse_executor_key(bytes: &[u8], path: &Path) -> Result<KeyPair, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::symlink_metadata(path)
+            .map_err(|error| format!("métadonnées de {} illisibles : {error}", path.display()))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(format!(
+                "clé d'exécuteur non régulière ou lien symbolique refusé : {}",
+                path.display()
+            ));
+        }
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            return Err(format!(
+                "permissions trop larges pour la clé d'exécuteur {} : {mode:03o}",
+                path.display()
+            ));
+        }
+    }
+
+    let stored: StoredExecutorKey = serde_json::from_slice(bytes)
+        .map_err(|error| format!("clé d'exécuteur illisible : {error}"))?;
+    let public = PublicKey::from_hex(&stored.sign_pk_hex)
+        .map_err(|_| "clé publique ML-DSA-65 invalide".to_string())?;
+    let secret = SecretKey::from_hex(&stored.sign_sk_hex)
+        .map_err(|_| "clé secrète ML-DSA-65 invalide".to_string())?;
+    let keypair = KeyPair {
+        signer: Signer::from_secret(secret),
+        verifier: Verifier::from_public(public),
+    };
+    let probe = b"polygone-gateway-executor-key-probe-v1";
+    if !keypair.verifier.verify(probe, &keypair.signer.sign(probe)) {
+        return Err("paire de clés d'exécuteur incohérente".to_string());
+    }
+    Ok(keypair)
+}
+
+fn persist_executor_key(path: &Path, keypair: &KeyPair) -> Result<(), String> {
+    let body = serde_json::to_vec_pretty(&StoredExecutorKey {
+        sign_pk_hex: keypair.verifier.public_key().to_hex(),
+        sign_sk_hex: keypair.signer.secret_key().to_hex(),
+    })
+    .map_err(|error| error.to_string())?;
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let temporary = path.with_extension("json.tmp");
+    let result = (|| -> std::io::Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).truncate(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        file.write_all(&body)?;
+        file.sync_all()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        drop(file);
+        std::fs::rename(&temporary, path)?;
+        #[cfg(unix)]
+        if let Some(parent) = path.parent() {
+            std::fs::File::open(parent)?.sync_all()?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,6 +729,14 @@ mod tests {
             allow_filesystem_write: false,
             max_output_bytes: 64 * 1024,
         }
+    }
+
+    fn executor_keypair() -> KeyPair {
+        generate_keypair().unwrap()
+    }
+
+    fn executor_node(keypair: &KeyPair) -> String {
+        node_id_from_sign_pk_hex(&keypair.verifier.public_key().to_hex()).unwrap()
     }
 
     fn temp_path(label: &str) -> (PathBuf, PathBuf) {
@@ -584,23 +771,34 @@ mod tests {
 
     #[tokio::test]
     async fn executor_completes_an_echo_task_with_a_verified_result() {
-        let store = TaskStore::with_executor(None, "node-local");
+        let keypair = executor_keypair();
+        let node = executor_node(&keypair);
+        let public_key = keypair.verifier.public_key().to_hex();
+        let store = TaskStore::with_executor(None, keypair);
         assert!(store.executor_attached().await);
 
         let task = store.create(request(), NOW).await.unwrap();
         assert_eq!(task.state, TaskState::Succeeded);
         assert_eq!(task.attempts, 1);
-        assert_eq!(task.assigned_node.as_deref(), Some("node-local"));
+        assert_eq!(task.assigned_node.as_deref(), Some(node.as_str()));
 
         let result = task.result.expect("un résultat vérifié");
+        assert_eq!(result.task_id, task.spec.id);
         assert_eq!(result.output, b"hello");
-        assert_eq!(result.producer, "node-local");
-        result.verify().expect("le hash doit être recalculé");
+        assert_eq!(result.producer, node);
+        assert_eq!(result.producer_public_key_hex, public_key);
+        assert_eq!(
+            result.signature_hex.len(),
+            polygone_core::sign::SIGNATURE_SIZE * 2
+        );
+        result
+            .verify()
+            .expect("hash, nœud et signature doivent être recalculés");
     }
 
     #[tokio::test]
     async fn executor_computes_blake3_and_respects_the_output_limit() {
-        let store = TaskStore::with_executor(None, "node-local");
+        let store = TaskStore::with_executor(None, executor_keypair());
         let mut hash = request();
         hash.kind = "blake3".into();
         hash.input_hex = "616263".into();
@@ -628,26 +826,89 @@ mod tests {
     #[tokio::test]
     async fn executor_recovers_an_interrupted_task() {
         let (dir, path) = temp_path("recovery");
+        let keypair = executor_keypair();
+        let node = executor_node(&keypair);
         let interrupted = {
             let store = TaskStore::new(Some(path.clone()));
             let task = store.create(request(), NOW).await.unwrap();
             let mut interrupted = task.clone();
-            interrupted.assign("crashed-node", NOW + 1).unwrap();
+            interrupted.assign(node.clone(), NOW + 1).unwrap();
             let mut on_disk = HashMap::new();
             on_disk.insert(interrupted.spec.id.as_str().to_string(), interrupted);
             persist(&path, &on_disk).unwrap();
             task
         };
 
-        let store = TaskStore::with_executor(Some(path.clone()), "recovering-node");
+        let store = TaskStore::with_executor(Some(path.clone()), keypair);
         assert_eq!(store.recover(NOW + 2).await, 1);
         let recovered = store
             .get(interrupted.spec.id.as_str(), NOW + 2)
             .await
             .unwrap();
         assert_eq!(recovered.state, TaskState::Succeeded);
-        assert_eq!(recovered.assigned_node.as_deref(), Some("crashed-node"));
-        assert_eq!(recovered.result.unwrap().producer, "crashed-node");
+        assert_eq!(recovered.assigned_node.as_deref(), Some(node.as_str()));
+        let result = recovered.result.unwrap();
+        assert_eq!(result.producer, node);
+        result
+            .verify()
+            .expect("la reprise signe avec la même identité");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn recovery_refuses_to_sign_for_another_identity() {
+        let (dir, path) = temp_path("recovery-foreign");
+        let original = executor_keypair();
+        let node = executor_node(&original);
+        let interrupted = {
+            let store = TaskStore::new(Some(path.clone()));
+            let task = store.create(request(), NOW).await.unwrap();
+            let mut interrupted = task.clone();
+            interrupted.assign(node, NOW + 1).unwrap();
+            let mut on_disk = HashMap::new();
+            on_disk.insert(interrupted.spec.id.as_str().to_string(), interrupted);
+            persist(&path, &on_disk).unwrap();
+            task
+        };
+
+        let store = TaskStore::with_executor(Some(path.clone()), executor_keypair());
+        assert_eq!(store.recover(NOW + 2).await, 1);
+        let recovered = store
+            .get(interrupted.spec.id.as_str(), NOW + 2)
+            .await
+            .unwrap();
+        assert_eq!(recovered.state, TaskState::Failed);
+        assert!(recovered.result.is_none());
+        assert!(
+            recovered
+                .last_error
+                .as_deref()
+                .is_some_and(|error| error.contains("différent")),
+            "l'échec doit nommer l'identité : {:?}",
+            recovered.last_error
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn executor_key_is_created_private_and_reloaded() {
+        let (dir, path) = temp_path("signing-key");
+        let first = load_or_create_executor_keypair(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let key_path = executor_key_path(&path);
+            assert_eq!(
+                std::fs::metadata(&key_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let reloaded = load_or_create_executor_keypair(&path).unwrap();
+        assert_eq!(
+            first.verifier.public_key().to_hex(),
+            reloaded.verifier.public_key().to_hex(),
+            "la clé doit survivre au redémarrage"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

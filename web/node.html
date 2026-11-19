@@ -80,6 +80,18 @@
     </div>
 
     <div class="panel">
+      <h2 class="panel__title">Diagnostic agrégé</h2>
+      <dl class="kv">
+        <dt>Tâches suivies</dt><dd id="diag-tasks">—</dd>
+        <dt>Exécuteur local</dt><dd id="diag-executor">—</dd>
+        <dt>Latences mesurées</dt><dd id="diag-latency-measured">—</dd>
+        <dt>Nœuds sans mesure</dt><dd id="diag-latency-unmeasured">—</dd>
+        <dt>Compteurs du daemon</dt><dd id="diag-daemon">—</dd>
+      </dl>
+      <p class="panel__hint" id="diag-note">rapport <code>/api/v1/diagnostics</code></p>
+    </div>
+
+    <div class="panel">
       <h2 class="panel__title">Ce que cette console ne montre pas</h2>
       <ul class="limits">
         <li>Aucun contenu de message : le relais et la gateway ne le lisent pas.</li>

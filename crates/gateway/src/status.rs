@@ -68,21 +68,25 @@ impl Gateway {
     pub async fn calculate_latency_median(&self) -> Option<u64> {
         let nodes = self.nodes.read().await;
         let mut latencies: Vec<u64> = nodes.values().filter_map(|node| node.latency_ms).collect();
-
-        if latencies.is_empty() {
-            return None;
-        }
-
-        latencies.sort();
-        let len = latencies.len();
-        let median = if len.is_multiple_of(2) {
-            (latencies[len / 2 - 1] + latencies[len / 2]) / 2
-        } else {
-            latencies[len / 2]
-        };
-
-        Some(median)
+        median_of(&mut latencies)
     }
+}
+
+/// Médiane d'une liste de mesures, ou `None` si elle est vide.
+///
+/// Une absence de mesure n'est pas un zéro : l'appelant reçoit `None` et doit
+/// publier `null`, jamais `0`.
+pub fn median_of(values: &mut [u64]) -> Option<u64> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_unstable();
+    let len = values.len();
+    Some(if len.is_multiple_of(2) {
+        (values[len / 2 - 1] + values[len / 2]) / 2
+    } else {
+        values[len / 2]
+    })
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
    Lit les routes réelles de la gateway :
      GET /api/v1/network/status  → nodes, active, latency_ms_median, uptime
      GET /api/v1/services        → état déclaré des services
+     GET /api/v1/diagnostics     → rapport agrégé (tâches, latences mesurées)
    Quand la gateway ne répond pas, toutes les mesures restent « — ».
    Aucune valeur plausible n'est inventée : une console qui ment est pire
    qu'une console qui dit « je ne sais pas ».
@@ -13,6 +14,7 @@
 
   const STATUS_URL = "/api/v1/network/status";
   const SERVICES_URL = "/api/v1/services";
+  const DIAGNOSTICS_URL = "/api/v1/diagnostics";
   const POLL_MS = 3000;
   const DASH = "—";
 
@@ -20,6 +22,7 @@
     online: false,
     status: null,
     services: [],
+    diagnostics: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -36,6 +39,12 @@
   const elLatencyNote = $("latency-note");
   const elModules = $("modules");
   const moduleTpl = document.getElementById("module-template");
+  const elDiagTasks = $("diag-tasks");
+  const elDiagExecutor = $("diag-executor");
+  const elDiagLatencyMeasured = $("diag-latency-measured");
+  const elDiagLatencyUnmeasured = $("diag-latency-unmeasured");
+  const elDiagDaemon = $("diag-daemon");
+  const elDiagNote = $("diag-note");
 
   const shown = (value) => (Number.isFinite(value) ? String(value) : DASH);
 
@@ -102,10 +111,52 @@
     }
   }
 
+  /* Le rapport agrégé est optionnel : une gateway antérieure répond 404.
+     Dans ce cas la console affiche « — », jamais un zéro rassurant. */
+  function renderDiagnostics() {
+    const report = state.diagnostics;
+    if (!state.online || !report) {
+      elDiagTasks.textContent = DASH;
+      elDiagExecutor.textContent = DASH;
+      elDiagLatencyMeasured.textContent = DASH;
+      elDiagLatencyUnmeasured.textContent = DASH;
+      elDiagDaemon.textContent = DASH;
+      elDiagNote.textContent = state.online
+        ? "cette gateway ne publie pas /api/v1/diagnostics"
+        : "gateway injoignable : aucun diagnostic inventé";
+      return;
+    }
+
+    const tasks = report.tasks;
+    const network = report.network;
+    elDiagTasks.textContent = tasks && Number.isFinite(tasks.total) ? String(tasks.total) : DASH;
+    elDiagExecutor.textContent =
+      tasks && tasks.executor_attached === true
+        ? "attaché (local)"
+        : tasks && tasks.executor_attached === false
+          ? "absent"
+          : DASH;
+    elDiagLatencyMeasured.textContent =
+      network && Number.isFinite(network.latency_measured)
+        ? String(network.latency_measured)
+        : DASH;
+    elDiagLatencyUnmeasured.textContent =
+      network && Number.isFinite(network.latency_unmeasured)
+        ? String(network.latency_unmeasured)
+        : DASH;
+    elDiagDaemon.textContent =
+      report.refusals && report.refusals.available === true ? "exposés" : "non exposés ici";
+    elDiagNote.textContent =
+      Array.isArray(report.limitations) && report.limitations.length
+        ? report.limitations[0]
+        : `rapport ${report.v || "diagnostics"}`;
+  }
+
   function render() {
     renderBanner();
     renderStatus();
     renderServices();
+    renderDiagnostics();
   }
 
   async function fetchJson(url) {
@@ -126,10 +177,13 @@
       state.online = true;
       state.status = status;
       state.services = Array.isArray(services.services) ? services.services : [];
+      // Séparé : une gateway sans cette route reste utilisable.
+      state.diagnostics = await fetchJson(DIAGNOSTICS_URL).catch(() => null);
     } catch (error) {
       state.online = false;
       state.status = null;
       state.services = [];
+      state.diagnostics = null;
     }
     render();
   }
