@@ -8,7 +8,8 @@
 //! - une machine à états explicite, où chaque transition est nommée et où un
 //!   état terminal ne change plus ;
 //! - un résultat dont l'intégrité est vérifiable (`BLAKE3`) et dont l'auteur
-//!   doit être le nœud assigné.
+//!   doit être le nœud assigné, et la signature ML-DSA-65 doit provenir de la
+//!   clé dont ce nœud est dérivé.
 //!
 //! **L'exécution reste hors de ce module.** `TaskKind::execute` transforme une
 //! entrée en sortie, sans E/S ni permission implicite. C'est la couche qui
@@ -16,6 +17,7 @@
 //! transitions et fournit un [`TaskResult`] vérifiable ; aucune autre voie ne
 //! peut marquer une tâche comme réussie.
 
+use crate::sign::{node_id_from_sign_pk_hex, KeyPair, PublicKey, Signature, Verifier};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -85,6 +87,16 @@ pub enum TaskError {
     ResultHashMismatch { expected: String, computed: String },
     #[error("producteur du résultat ({producer}) différent du nœud assigné ({assigned})")]
     ProducerMismatch { producer: String, assigned: String },
+    #[error("résultat sans signature")]
+    MissingSignature,
+    #[error("clé publique du producteur invalide")]
+    InvalidSignatureKey,
+    #[error("clé du producteur dérive {derived}, différente du nœud annoncé {producer}")]
+    ProducerKeyMismatch { producer: String, derived: String },
+    #[error("signature de résultat invalide")]
+    InvalidSignature,
+    #[error("résultat de la tâche {result} présenté pour la tâche {task}")]
+    TaskIdMismatch { result: TaskId, task: TaskId },
     #[error("échéance non atteinte")]
     DeadlineNotReached,
     #[error("motif d'échec vide")]
@@ -335,6 +347,21 @@ pub enum TaskState {
 }
 
 impl TaskState {
+    /// Tous les états, dans l'ordre du cycle de vie. Sert aux rapports qui
+    /// doivent montrer un zéro au lieu d'omettre un état.
+    pub const ALL: [Self; 10] = [
+        Self::Created,
+        Self::Validated,
+        Self::Published,
+        Self::Assigned,
+        Self::Accepted,
+        Self::Running,
+        Self::Succeeded,
+        Self::Failed,
+        Self::Cancelled,
+        Self::Expired,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Created => "created",
@@ -403,22 +430,36 @@ impl std::fmt::Display for TaskState {
 }
 
 /// Résultat vérifiable d'une tâche.
+///
+/// Le résultat porte sa tâche, son producteur, la clé publique de ce
+/// producteur et une signature ML-DSA-65 détachée. Le hash seul prouve
+/// l'intégrité ; la signature prouve qui a produit le résultat, et le
+/// `producer` doit être exactement le `NodeId` dérivé de cette clé.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskResult {
+    /// Tâche à laquelle ce résultat répond : un résultat ne peut pas être
+    /// rejoué pour une autre tâche.
+    pub task_id: TaskId,
     #[serde(with = "hex_bytes")]
     pub output: Vec<u8>,
     /// BLAKE3 hexadécimal de `output`, calculé à la construction.
     pub output_hash: String,
-    /// Nœud qui a produit le résultat.
+    /// Nœud qui a produit le résultat, dérivé de `producer_public_key_hex`.
     pub producer: String,
+    /// Clé publique ML-DSA-65 du producteur, hexadécimale.
+    pub producer_public_key_hex: String,
     /// Instant de production, en secondes Unix.
     pub produced_at: u64,
+    /// Signature ML-DSA-65 détachée de [`TaskResult::signed_payload`].
+    pub signature_hex: String,
 }
 
 impl TaskResult {
-    /// Construit un résultat et calcule son hash ; ne fait pas confiance à un
-    /// hash fourni par l'appelant.
+    /// Construit un résultat **non signé** et calcule son hash ; ne fait pas
+    /// confiance à un hash fourni par l'appelant. Utiliser [`TaskResult::signed`]
+    /// pour un résultat acceptable par [`TaskRecord::complete`].
     pub fn new(
+        task_id: TaskId,
         output: Vec<u8>,
         producer: impl Into<String>,
         produced_at: u64,
@@ -432,14 +473,49 @@ impl TaskResult {
         }
         let output_hash = blake3::hash(&output).to_hex().to_string();
         Ok(Self {
+            task_id,
             output,
             output_hash,
             producer,
+            producer_public_key_hex: String::new(),
             produced_at,
+            signature_hex: String::new(),
         })
     }
 
-    /// Vérifie l'intégrité : hash recalculé, producteur non vide, taille bornée.
+    /// Construit et signe un résultat avec la clé de l'exécuteur.
+    pub fn signed(
+        task_id: TaskId,
+        output: Vec<u8>,
+        producer: impl Into<String>,
+        produced_at: u64,
+        keypair: &KeyPair,
+    ) -> Result<Self, TaskError> {
+        let mut result = Self::new(task_id, output, producer, produced_at)?;
+        result.sign(keypair);
+        Ok(result)
+    }
+
+    /// Signe le résultat. La clé publique est incluse pour que le vérificateur
+    /// puisse dériver le `NodeId` et refuser un producteur usurpé.
+    pub fn sign(&mut self, keypair: &KeyPair) {
+        self.producer_public_key_hex = keypair.verifier.public_key().to_hex();
+        self.signature_hex = hex::encode(keypair.signer.sign(&self.signed_payload()).as_bytes());
+    }
+
+    /// Octets canoniques signés. Le hash couvre la sortie ; la tâche, le
+    /// producteur et l'instant empêchent de rejouer le résultat ailleurs.
+    pub fn signed_payload(&self) -> Vec<u8> {
+        format!(
+            "polygone-task-result-v1\n{}\n{}\n{}\n{}",
+            self.task_id, self.producer, self.output_hash, self.produced_at
+        )
+        .into_bytes()
+    }
+
+    /// Vérifie l'intégrité **et** l'origine : hash recalculé, producteur non
+    /// vide, clé publique valide, `NodeId` dérivé égal au producteur, signature
+    /// ML-DSA-65 valide sur le payload canonique.
     pub fn verify(&self) -> Result<(), TaskError> {
         if self.output.len() as u64 > MAX_TASK_OUTPUT_BYTES {
             return Err(TaskError::ResultTooLarge {
@@ -455,6 +531,28 @@ impl TaskResult {
                 expected: self.output_hash.clone(),
                 computed,
             });
+        }
+        if self.signature_hex.trim().is_empty() {
+            return Err(TaskError::MissingSignature);
+        }
+
+        let public_key = PublicKey::from_hex(&self.producer_public_key_hex)
+            .map_err(|_| TaskError::InvalidSignatureKey)?;
+        let derived = node_id_from_sign_pk_hex(&self.producer_public_key_hex)
+            .ok_or(TaskError::InvalidSignatureKey)?;
+        if derived != self.producer {
+            return Err(TaskError::ProducerKeyMismatch {
+                producer: self.producer.clone(),
+                derived,
+            });
+        }
+
+        let signature_bytes =
+            hex::decode(self.signature_hex.trim()).map_err(|_| TaskError::InvalidSignature)?;
+        let signature = Signature::from_bytes(&signature_bytes);
+        let verifier = Verifier::from_public(public_key);
+        if !verifier.verify(&self.signed_payload(), &signature) {
+            return Err(TaskError::InvalidSignature);
         }
         Ok(())
     }
@@ -544,6 +642,12 @@ impl TaskRecord {
     /// Trois invariants : le résultat est intégre (hash recalculé), il vient du
     /// nœud assigné, et il n'est pas daté dans le futur.
     pub fn complete(&mut self, result: TaskResult, now: u64) -> Result<(), TaskError> {
+        if result.task_id != self.spec.id {
+            return Err(TaskError::TaskIdMismatch {
+                result: result.task_id,
+                task: self.spec.id.clone(),
+            });
+        }
         result.verify()?;
         if result.produced_at > now {
             return Err(TaskError::ResultFromFuture);
@@ -638,18 +742,39 @@ mod tests {
         }
     }
 
-    fn running() -> TaskRecord {
+    fn executor() -> KeyPair {
+        crate::sign::generate_keypair().unwrap()
+    }
+
+    fn executor_node(keypair: &KeyPair) -> String {
+        node_id_from_sign_pk_hex(&keypair.verifier.public_key().to_hex()).unwrap()
+    }
+
+    fn running_with(keypair: &KeyPair) -> TaskRecord {
         let mut task = TaskRecord::new(spec(), NOW).unwrap();
         task.mark_validated(NOW).unwrap();
         task.publish(NOW).unwrap();
-        task.assign("node-a", NOW).unwrap();
+        task.assign(executor_node(keypair), NOW).unwrap();
         task.accept(NOW).unwrap();
         task.start(NOW).unwrap();
         task
     }
 
+    fn signed_for(task: &TaskRecord, output: &[u8], keypair: &KeyPair, at: u64) -> TaskResult {
+        TaskResult::signed(
+            task.spec.id.clone(),
+            output.to_vec(),
+            executor_node(keypair),
+            at,
+            keypair,
+        )
+        .unwrap()
+    }
+
     #[test]
     fn lifecycle_reaches_success_in_order() {
+        let keypair = executor();
+        let node = executor_node(&keypair);
         let mut task = TaskRecord::new(spec(), NOW).unwrap();
         assert_eq!(task.state, TaskState::Created);
 
@@ -657,14 +782,21 @@ mod tests {
         assert_eq!(task.state, TaskState::Validated);
         task.publish(NOW + 2).unwrap();
         assert_eq!(task.state, TaskState::Published);
-        task.assign("node-a", NOW + 3).unwrap();
+        task.assign(node.clone(), NOW + 3).unwrap();
         assert_eq!(task.state, TaskState::Assigned);
         assert_eq!(task.attempts, 1);
         task.accept(NOW + 4).unwrap();
         task.start(NOW + 5).unwrap();
         assert_eq!(task.state, TaskState::Running);
 
-        let result = TaskResult::new(b"hello".to_vec(), "node-a", NOW + 6).unwrap();
+        let result = TaskResult::signed(
+            task.spec.id.clone(),
+            b"hello".to_vec(),
+            node,
+            NOW + 6,
+            &keypair,
+        )
+        .unwrap();
         task.complete(result, NOW + 7).unwrap();
 
         assert_eq!(task.state, TaskState::Succeeded);
@@ -698,8 +830,9 @@ mod tests {
 
     #[test]
     fn cancel_after_success_is_refused() {
-        let mut task = running();
-        let result = TaskResult::new(b"hello".to_vec(), "node-a", NOW + 6).unwrap();
+        let keypair = executor();
+        let mut task = running_with(&keypair);
+        let result = signed_for(&task, b"hello", &keypair, NOW + 6);
         task.complete(result, NOW + 7).unwrap();
         let error = task.cancel(NOW + 8).unwrap_err();
         assert_eq!(error, TaskError::TerminalState(TaskState::Succeeded));
@@ -722,8 +855,9 @@ mod tests {
 
     #[test]
     fn complete_rejects_a_tampered_result() {
-        let mut task = running();
-        let mut result = TaskResult::new(b"hello".to_vec(), "node-a", NOW + 6).unwrap();
+        let keypair = executor();
+        let mut task = running_with(&keypair);
+        let mut result = signed_for(&task, b"hello", &keypair, NOW + 6);
         result.output = b"tampered".to_vec();
 
         let error = task.complete(result, NOW + 7).unwrap_err();
@@ -737,22 +871,74 @@ mod tests {
 
     #[test]
     fn complete_rejects_a_result_from_another_node() {
-        let mut task = running();
-        let result = TaskResult::new(b"hello".to_vec(), "node-b", NOW + 6).unwrap();
+        let keypair = executor();
+        let mut task = running_with(&keypair);
+        let foreign = executor();
+        let foreign_node = executor_node(&foreign);
+        let result = signed_for(&task, b"hello", &foreign, NOW + 6);
         let error = task.complete(result, NOW + 7).unwrap_err();
         assert_eq!(
             error,
             TaskError::ProducerMismatch {
-                producer: "node-b".to_string(),
-                assigned: "node-a".to_string()
+                producer: foreign_node,
+                assigned: executor_node(&keypair),
             }
         );
     }
 
     #[test]
+    fn complete_rejects_an_unsigned_result() {
+        let keypair = executor();
+        let mut task = running_with(&keypair);
+        let result = TaskResult::new(
+            task.spec.id.clone(),
+            b"hello".to_vec(),
+            executor_node(&keypair),
+            NOW + 6,
+        )
+        .unwrap();
+        assert_eq!(
+            task.complete(result, NOW + 7).unwrap_err(),
+            TaskError::MissingSignature
+        );
+    }
+
+    #[test]
+    fn complete_rejects_a_result_signed_by_another_key() {
+        let keypair = executor();
+        let mut task = running_with(&keypair);
+        let foreign = executor();
+        let mut result = signed_for(&task, b"hello", &foreign, NOW + 6);
+        // Le producteur est celui du nœud assigné, mais la clé est étrangère.
+        result.producer = executor_node(&keypair);
+        let error = task.complete(result, NOW + 7).unwrap_err();
+        assert!(matches!(error, TaskError::ProducerKeyMismatch { .. }));
+    }
+
+    #[test]
+    fn complete_rejects_a_result_for_another_task() {
+        let keypair = executor();
+        let mut task = running_with(&keypair);
+        let other = TaskId::parse("task_ffffffffffffffffffffffffffffffff").unwrap();
+        let result = TaskResult::signed(
+            other,
+            b"hello".to_vec(),
+            executor_node(&keypair),
+            NOW + 6,
+            &keypair,
+        )
+        .unwrap();
+        assert!(matches!(
+            task.complete(result, NOW + 7),
+            Err(TaskError::TaskIdMismatch { .. })
+        ));
+    }
+
+    #[test]
     fn complete_rejects_a_result_from_the_future() {
-        let mut task = running();
-        let result = TaskResult::new(b"hello".to_vec(), "node-a", NOW + 50).unwrap();
+        let keypair = executor();
+        let mut task = running_with(&keypair);
+        let result = signed_for(&task, b"hello", &keypair, NOW + 50);
         assert_eq!(
             task.complete(result, NOW + 10).unwrap_err(),
             TaskError::ResultFromFuture
@@ -866,11 +1052,21 @@ mod tests {
 
     #[test]
     fn result_hash_is_computed_not_trusted() {
-        let result = TaskResult::new(b"abc".to_vec(), "node-a", NOW).unwrap();
+        let keypair = executor();
+        let task_id = TaskId::parse("task_0123456789abcdef0123456789abcdef").unwrap();
+        let result = TaskResult::signed(
+            task_id,
+            b"abc".to_vec(),
+            executor_node(&keypair),
+            NOW,
+            &keypair,
+        )
+        .unwrap();
         assert_eq!(
             result.output_hash,
             blake3::hash(b"abc").to_hex().to_string()
         );
+        result.verify().unwrap();
 
         let mut forged = result.clone();
         forged.output_hash = "00".repeat(32);
@@ -878,6 +1074,10 @@ mod tests {
             forged.verify(),
             Err(TaskError::ResultHashMismatch { .. })
         ));
+
+        let mut bad_signature = result;
+        bad_signature.signature_hex = "00".repeat(3309);
+        assert_eq!(bad_signature.verify(), Err(TaskError::InvalidSignature));
     }
 
     #[test]
