@@ -15,7 +15,7 @@
 | D2 | tranchée : ADR-0002 (clé ML-DSA-65), DEC-SEC-03 SUPERSEDED dans le registre |
 | Gitleaks | 292 commits, 0 fuite (avant push) |
 | GitHub | branche poussée, PR #4 (conflictuelle avec main — réconciliation distincte) ; **CI VERTE run 44501139127** (ubuntu+macos+smoke, HEAD 26c52d9) après 9 runs ; bug produit macOS/BSD corrigé (socket accepté O_NONBLOCK hérité → bloquant) |
-| Release | dry-run conforme ; version 2.1.0 ; tag v2.1.0 poussé → release.yml (4 cibles + SHA256SUMS) |
+| Release | **v2.1.0 PUBLIÉE** — run 44505345176 vert, 4 cibles + SHA256SUMS ; macos-x86_64 cross-compilé vérifié x86_64 (macos-latest=arm64, macos-14 retiré, asset mal étiqueté supprimé) ; installation réelle testée en répertoire isolé (checksums + polygone id) |
 | Cue SSH | intermittent : la sandbox se suspend, et le port 22 peut passer en « Tailscale SSH check » (authentification interactive) — ne pas ouvrir l'URL de login, réessayer plus tard |
 
 ## Réconciliation canonique — 2026-11-09

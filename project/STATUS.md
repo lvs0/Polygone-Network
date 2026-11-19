@@ -240,8 +240,8 @@ pour tout ce qu'elle contredit.
 | CI sur l'arbre | **VERTE** — run 44501139127 (HEAD 26c52d9) : Test ubuntu ✓, Test macos ✓, Smoke ubuntu ✓ (installeur, p0-two-process, smoke-commands, gateway-smoke, CI honesty, secrets) ; canari Windows échec attendu. 9 runs : probe sandbox discriminant (exit 218 runners), Default MacOSPlatform, cfg cgroup linux/test, **socket accepté repassé bloquant (bug produit macOS/BSD : O_NONBLOCK hérité)**, tests sysfs/PrivateTmp gatés Linux | commits `22cc718`→`26c52d9` |
 | Release dry-run | FAIT — archive `polygone-linux-x86_64.tar.gz` acceptée par les règles de l'installeur, altération détectée | `docs/proofs/release-dry-run-2026-11-19.txt`, `dist/SHA256SUMS` |
 | Version | 2.1.0 (la release v2.0.0 du 2026-08-20 existe déjà ; ne pas l'écraser) | `Cargo.toml` |
+| Release publiée | FAIT — https://github.com/lvs0/Polygone-Network/releases/tag/v2.1.0 : 4 cibles (linux x86_64/aarch64, macos x86_64/aarch64) + SHA256SUMS, run 44505345176 vert. Asset macos-x86_64 vérifié x86_64 (cross-compilation ; macos-latest est arm64, macos-14 retiré). Installation réelle testée : `POLYGONE_VERSION=v2.1.0 install.sh` en répertoire isolé → checksums vérifiés, `polygone id` fonctionnel | `gh release view v2.1.0`, test install 2026-11-19 |
 | Fusion github/main | NON FAITE — 18 conflits (lignées divergentes), mission de réconciliation distincte | PR #4 commentée |
 
-**Prochaine action** : tag `v2.1.0` → `release.yml` (4 cibles + SHA256SUMS),
-vérification des assets et du contrat install.sh. Puis : réconciliation
-github/main (mission distincte), RTT/débit inter-hôtes, F1-API-01.
+**Prochaine action** : réconciliation github/main (mission distincte),
+mesure RTT/débit inter-hôtes → planificateur de coût, F1-API-01, test LAN/NAT.
