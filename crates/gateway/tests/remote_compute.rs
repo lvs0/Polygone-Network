@@ -53,7 +53,9 @@ fn request(command: &str, target: &str, relay: &str, verify_local: bool) -> Crea
 #[tokio::test]
 async fn remote_compute_contract_through_real_relay() {
     if !sandbox_available() {
-        eprintln!("sandbox systemd-run --user indisponible — test contrat sauté (honnête, pas simulé)");
+        eprintln!(
+            "sandbox systemd-run --user indisponible — test contrat sauté (honnête, pas simulé)"
+        );
         return;
     }
 
@@ -100,8 +102,14 @@ async fn remote_compute_contract_through_real_relay() {
     assert_eq!(receipt.output, "hello\n");
     assert_eq!(receipt.verification, net::VERIFICATION_RECOMPUTED);
     assert!(receipt.recomputed, "L1 doit reproduire la sortie");
-    assert!(receipt.evidence_path.is_some(), "preuve L1 persistée (ADR-0003)");
-    assert!(!receipt.verification_limit.is_empty(), "limite honnête portée");
+    assert!(
+        receipt.evidence_path.is_some(),
+        "preuve L1 persistée (ADR-0003)"
+    );
+    assert!(
+        !receipt.verification_limit.is_empty(),
+        "limite honnête portée"
+    );
 
     // 2) L0 — signature producteur seule, pas de surclaim « vérifié ».
     let task0 = store
@@ -121,7 +129,11 @@ async fn remote_compute_contract_through_real_relay() {
         .create(request("echo nope", &unknown, &relay_addr, true), now)
         .await
         .expect("création acceptée puis échec d'exécution");
-    assert_eq!(task_bad.state, TaskState::Failed, "pair inconnu doit échouer");
+    assert_eq!(
+        task_bad.state,
+        TaskState::Failed,
+        "pair inconnu doit échouer"
+    );
     assert!(task_bad.remote_receipt.is_none(), "aucun reçu de succès");
     assert!(task_bad.last_error.is_some(), "raison d'échec journalisée");
 
