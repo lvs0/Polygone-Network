@@ -118,15 +118,15 @@ polygone/
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
 | `core` | 15 | 3655 | — (lib) | 77 |
-| `client` | 33 | 16786 | `polygone` | 217 |
+| `client` | 33 | 16830 | `polygone` | 217 |
 | `relay` | 4 | 1675 | `polygone-relay` | 28 |
 | `gateway` | 9 | 4275 | `polygone-gateway` | 64 |
 | `petals` | 12 | 3104 | — (lib) | 19 |
 | `serverless` | 3 | 776 | — (lib) | 17 |
 | `fabric` | 8 | 3026 | `polygone-fabric` | 32 |
-| `daemon` | 17 | 10974 | `polygoned` | 132 |
+| `daemon` | 17 | 10991 | `polygoned` | 132 |
 | doc-tests | — | — | — | comptés dans leur crate |
-| **Total** | **101** | **44271** | **5 binaires** | **586** |
+| **Total** | **101** | **44332** | **5 binaires** | **586** |
 
 > Base de mesure initiale du **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
@@ -157,7 +157,12 @@ polygone/
 > **2026-11-19 (production, mandat opérateur)** : câblage de la preuve L1
 > (`net::persist_l1_evidence`, ADR-0003, 4 tests round-trip/disjonction/refus/sujet)
 > et preuve deux hôtes (`docs/proofs/P0-DEUX-HOTES-2026-11-19.md`) :
-> **101 fichiers, 44 271 lignes, 586 tests, 0 échec**.
+> **101 fichiers, 44 332 lignes, 586 tests, 0 échec**.
+> **2026-11-19 (soir, réconciliation)** : re-mesuré après le correctif macOS/BSD
+> `8352c5c` (socket accepté `O_NONBLOCK`) et la fusion `github/main` (ADR-0004,
+> **aucun fichier Rust modifié** — 24 ajouts documentaires/scripts de septembre) :
+> **101 fichiers, 44 332 lignes, 586 tests, 0 échec** ; clippy workspace RC=0,
+> `check-ci-honesty` OK, gitleaks 313 commits sans fuite.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
