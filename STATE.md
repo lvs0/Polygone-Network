@@ -3,6 +3,20 @@
 > Mis à jour par l'orchestrateur après chaque bloc de travail.
 > Ne jamais écrire ici une valeur non vérifiée.
 
+## Réconciliation github/main + contrats F1-API-01 — 2026-11-19 (soir, CORVUS)
+
+| Champ | Valeur vérifiée |
+|---|---|
+| Branche | `f1-api-01-contrats` (depuis `main` = `8307094`) ; PR #5 en cours |
+| Réconciliation | **FAITE** — merge `78e9447` (deux parents `c13cdf6` + `23d27ac`), PR #4 **MERGED** 2026-11-19T16:07:42Z, `github/main` = `8307094`, arbre identique à `78e9447` (`git diff` vide) |
+| Arbitrage | ADR-0004 **accepté** : 20 conflits + 11 auto-fusions inspectées → version canonique partout ; 24 ajouts purs de septembre en couche historique (bandeaux + INDEX) ; 2 fichiers mock exclus ; **0 fichier Rust modifié** (`git diff c13cdf6 78e9447 -- '*.rs'` = 0) |
+| Gates locaux | fmt 0 ; clippy workspace 0 ; **586 tests / 24 suites / 0 échec** (`--no-fail-fast`, TMPDIR=/tmp, -j 2) ; check-docs 96 documents ; check-ci-honesty OK ; gitleaks **313 commits, 0 fuite** |
+| CI arbre fusionné | **VERTE** run 44558244332 (ubuntu ✓ macos ✓ smoke ✓ ; canari Windows échec attendu non bloquant) |
+| F1-API-01 | contrats documentés : `docs/architecture/API-CONTRACTS.md` **§8** (8 domaines, prochain pas + test de contrat + dépendance) ; implémentation non commencée |
+| ARCHITECTURE | re-mesuré : 101 fichiers, **44 332 lignes** (client 16 830, daemon 10 991) ; compteur 44 271 périmé depuis `8352c5c`, corrigé |
+| Cue SSH | toujours intermittent (sonde arrière-plan active) ; mesures RTT/débit **non faites** ; ne pas ouvrir l'URL Tailscale SSH check |
+| Retour arrière | `git revert -m 1 8307094` sur main (ADR-0004 §7) ; aucun force-push, histoires préservées |
+
 ## Production — 2026-11-19 (mandat opérateur, CORVUS)
 
 | Champ | Valeur vérifiée |

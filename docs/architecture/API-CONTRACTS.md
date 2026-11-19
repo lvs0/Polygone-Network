@@ -1,6 +1,8 @@
 # API-CONTRACTS — contrats d'interface existants
 
 > Date : **2026-11-13**, HEAD `f6382e6` + reçu de résultat signé (`F1-TASK-03`).
+> Extension **2026-11-19** (arbre `8307094`, réconciliation ADR-0004) : §8,
+> plan de stabilisation progressive F1-API-01, sources revérifiées.
 > Ce document décrit **ce qui est
 > implémenté**. Une interface absente est listée comme absente, pas comme
 > « prévue ».
@@ -358,3 +360,40 @@ C'est interdit par la règle du projet.
    compatibilité.
 5. Les erreurs sont nommées par un code stable ; le message est destiné à
    l'humain et peut changer.
+
+---
+
+## 8. F1-API-01 — plan de stabilisation progressive par domaine
+
+> Ajouté le **2026-11-19** sur l'arbre `8307094` (post-réconciliation).
+> Le ticket F1-API-01 (`project/FOUNDATION-ROADMAP.md`, PARTIAL) demande des
+> contrats stables pour les huit domaines produit. Le §6 donne l'état ; cette
+> section donne le **prochain pas implémentable** de chaque domaine, sans rien
+> figer prématurément (risque nommé du ticket : « figer trop tôt »).
+
+**Règle de passage** : un domaine ne devient `stable` que lorsque sa surface
+est complète pour l'usage produit visé **et** testée. Chaque prochain pas livre
+trois choses ensemble : la route/variante, sa documentation de contrat (champs,
+omissions, erreurs — règles du §7), et un test de contrat qui échoue si la
+surface dérive. Critère d'acceptation du ticket : « un client externe peut
+lire/agir sans types internes ».
+
+| Domaine | Prochain pas | Test de contrat | Dépendance |
+|---|---|---|---|
+| `identity` | `GET /api/v1/identity` : lecture locale de sa propre identité publique (`node_id`, clés publiques ML-KEM-1024 / ML-DSA-65, empreinte). Jamais la clé privée. Source actuelle : `~/.polygone/identity.json` 0600, `LocalIdentity` (`crates/client/src/identity.rs`), rotation `polygone-key-rotation-v1` | la réponse ne contient aucun matériel secret (même règle que F1-OBS-01) ; empreinte conforme ADR-0002 | — |
+| `nodes` | Révocation d'un pair par API (aujourd'hui locale seulement) | révocation → l'appairage suivant refuse ; grant signé par la clé révoquée refusé | décision protocole (révocation distribuée, §6 P0 restant) |
+| `resources` | `GET /api/v1/resources` relayant `status_response` **à l'identique** (mêmes champs, mêmes omissions `Option`, mêmes capacités `measured/reservable/enforced`) | daemon absent → 503 explicite, **jamais des zéros** ; parité de schéma avec `status_response` | socket local (§1) |
+| `network` | Graphe de routage du relais + débit par pair exposés | valeurs issues de mesures réelles, `null` si non mesuré | mesures RTT/débit inter-hôtes (mission en cours, Cue sandbox) |
+| `tasks` | Ordonnanceur multi-nœuds (placement) | placement fondé sur RTT/débit mesurés ; reçu signé vérifié par le demandeur | mesures inter-hôtes + F1-TASK-01..03 (faits) |
+| `usage` | Historique borné dérivé du ledger d'allocations (ticket F1-USG à ouvrir) | aucun compteur rétroactif inventé ; bornes et éviction testées | resources exposé |
+| `settings` | `GET /api/v1/settings` lecture seule (champs non secrets de la config TOML), puis écriture bornée | une écriture ne peut jamais dépasser les plafonds du palier sans décision produit explicite ; champ secret absent de la lecture | — |
+| `events` | **F1-EVT-01** : flux borné (état, ressource, tâche, erreur) | souscription + ordre + perte + backpressure | F1-API-01 (ce ticket) |
+
+**Sources revérifiées le 2026-11-19 sur `8307094`** : table de routage
+`crates/gateway/src/routes.rs` (1263 lignes ; `/api/*` inconnu → 404 JSON sans
+retombée statique, CORS y compris sur erreurs, GET/POST seuls, corps plafonné) ;
+`daemon/src/socket.rs` `Request` (l.265 : status_request, ping, alloc_request,
+release, renew, refusals_request) et `Reply` (l.318 : hello, status_response,
+alloc_granted, alloc_denied, renewed, released, pong, error, refusals_response) ;
+`crates/client/src/identity.rs` ; `daemon/src/main.rs` (`--config`,
+`--gen-config`). Complément écran par écran : `product/UI-API-MAPPING.md`.
