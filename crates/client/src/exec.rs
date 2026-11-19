@@ -471,7 +471,11 @@ mod tests {
 
     #[test]
     fn private_tmp_home_does_not_add_a_conflicting_inaccessible_mount() {
-        let home = std::env::temp_dir().join(format!(
+        // Base /tmp explicite : le contrat du helper porte sur le tmp privé
+        // du sandbox Linux (/tmp, /var/tmp). env::temp_dir() vaut /var/folders
+        // sur macOS et un scratch quelconque selon TMPDIR : le test devenait
+        // dépendant de l'environnement au lieu de tester la logique.
+        let home = std::path::Path::new("/tmp").join(format!(
             "polygone-private-tmp-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
