@@ -36,6 +36,15 @@ réussi sans exécution, aucun déploiement ni release automatique.
 
 ## 3. État actuel — 2026-11-15
 
+> **Mise à jour 2026-11-19 (soir)** : production terminée (`STATUS.md` §11),
+> réconciliation `github/main` **FAITE** (ADR-0004, PR #4 fusionnée,
+> `main` = `8307094`, CI verte run 44558244332, 586 tests), contrats F1-API-01
+> documentés (`docs/architecture/API-CONTRACTS.md` §8). Le tableau ci-dessous
+> est l'instantané du 2026-11-15 ; **l'état courant fait foi dans
+> `project/STATUS.md` §11-12**. Bloqué inchangé : Cue sandbox hors ligne par
+> intermittence (mesures RTT/débit), LAN/NAT (physique), quorum L2 (second
+> opérateur).
+
 ### Terminé et vérifié dans cette session
 
 | Tâche | Preuve |
@@ -113,6 +122,12 @@ Le test `wasm_runs_and_captures_stdout` s'auto-skippe (pas de `test.wasm`) ;
 c'est un skip déclaré, pas un succès.
 
 ## 6. Prochaine tâche, dans l'ordre
+
+> **Ordre courant (2026-11-19 soir, STATUS §12)** : 1) mesures RTT/débit
+> inter-hôtes dès Cue réveillé → planificateur de coût ; 2) F1-API-01 premier
+> pas sans dépendance (`GET /api/v1/identity` ou `/resources` + tests de
+> contrat, API-CONTRACTS §8) ; 3) LAN/NAT (physique) ; 4) quorum L2 (second
+> opérateur). La liste ci-dessous reste la référence de fond.
 
 1. **P1 (L2) — quorum vérifiable dès qu'un second hôte existe** : deux
    opérateurs distincts, même tâche déterministe, comparaison des sorties et

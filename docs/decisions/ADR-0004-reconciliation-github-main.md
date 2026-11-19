@@ -1,6 +1,7 @@
 # ADR-0004 — Réconciliation `github/main` ↔ `reconcile/2026-11` : arbitrage fichier par fichier
 
-- **Statut** : proposé (2026-11-19) — sera « accepté » à la fusion de la PR #4
+- **Statut** : **accepté** (2026-11-19) — PR #4 fusionnée (merge `8307094`),
+  CI verte sur l'arbre fusionné (run 44558244332)
 - **Décideurs** : LVS (mandat « continue en toute autonomie sur Polygone », 2026-11-19)
 - **Exécution** : CORVUS, session du 19/11 (soir)
 - **Prolonge** : ADR-0001 (base canonique, règle « plus récente, testée ») ; ADR-0002 (D2) ; ADR-0003 (L1)
@@ -112,8 +113,9 @@ gouvernance ni le produit actuels :
   jour après `8352c5c`). Corrigé avec la mesure (client 16 830, daemon 10 991).
 - `scripts/check-ci-honesty.mjs` → **OK** (6 jobs, Windows canari non bloquant)
 - `gitleaks git .` → **313 commits, aucune fuite, RC=0**
-- Reste avant fusion de la PR : push + CI `workflow_dispatch` verte sur l'arbre
-  fusionné (gate §9.5)
+- Push + CI `workflow_dispatch` verte sur l'arbre fusionné : **FAIT** —
+  run 44558244332 (ubuntu ✓, macos ✓, smoke ✓ ; canari Windows échec attendu),
+  PR #4 fusionnée le 2026-11-19T16:07:42Z, `main` = `8307094`
 
 ## 7. Retour arrière
 

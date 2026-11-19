@@ -45,7 +45,7 @@
 | Reçu de résultat signé | FAIT (local) — signature ML-DSA-65 sur `task_id + producer + output_hash + produced_at` ; `NodeId` dérivé de la clé ; résultat non signé, altéré, étranger ou d'une autre tâche refusé | `TaskResult::verify`, `TaskRecord::complete` ; 20 tests `task` |
 | Clé d'exécuteur persistante | FAIT — `gateway-signing.json` à côté de `tasks.json`, atomique `0600`, rechargée au démarrage | `load_or_create_executor_keypair` ; test de rechargement et de permissions |
 | Reprise après interruption | FAIT (local) — une tâche `assigned`/`accepted`/`running` est reprise au démarrage ; une identité différente refuse de signer | `TaskStore::recover` ; 2 tests de reprise sur fichier réel |
-| Publication / push | FAIT (branche) — `reconcile/2026-11` poussée sur `lvs0/Polygone-Network`, PR #4, mandat opérateur 2026-11-19 ; fusion `main` = réconciliation distincte | §11 |
+| Publication / push | FAIT — `reconcile/2026-11` poussée sur `lvs0/Polygone-Network`, PR #4 **fusionnée** le 2026-11-19 (merge `8307094`), réconciliation ADR-0004 | §11-12 |
 
 ## 3. Prochaine action, dans l'ordre
 
@@ -241,7 +241,29 @@ pour tout ce qu'elle contredit.
 | Release dry-run | FAIT — archive `polygone-linux-x86_64.tar.gz` acceptée par les règles de l'installeur, altération détectée | `docs/proofs/release-dry-run-2026-11-19.txt`, `dist/SHA256SUMS` |
 | Version | 2.1.0 (la release v2.0.0 du 2026-08-20 existe déjà ; ne pas l'écraser) | `Cargo.toml` |
 | Release publiée | FAIT — https://github.com/lvs0/Polygone-Network/releases/tag/v2.1.0 : 4 cibles (linux x86_64/aarch64, macos x86_64/aarch64) + SHA256SUMS, run 44505345176 vert. Asset macos-x86_64 vérifié x86_64 (cross-compilation ; macos-latest est arm64, macos-14 retiré). Installation réelle testée : `POLYGONE_VERSION=v2.1.0 install.sh` en répertoire isolé → checksums vérifiés, `polygone id` fonctionnel | `gh release view v2.1.0`, test install 2026-11-19 |
-| Fusion github/main | NON FAITE — 18 conflits (lignées divergentes), mission de réconciliation distincte | PR #4 commentée |
+| Fusion github/main | **FAITE** — merge `78e9447` (ADR-0004, arbitrage inspecté fichier par fichier), PR #4 fusionnée → `main` = `8307094`, CI verte run 44558244332 | §12 |
 
-**Prochaine action** : réconciliation github/main (mission distincte),
-mesure RTT/débit inter-hôtes → planificateur de coût, F1-API-01, test LAN/NAT.
+**Prochaine action** : mesure RTT/débit inter-hôtes (Cue sandbox, hors ligne
+par intermittence — sonde active) → planificateur de coût ; F1-API-01
+(contrats documentés, §12 — implémentation progressive par domaine) ;
+test LAN/NAT (accès physique).
+
+## 12. Réconciliation + contrats F1-API-01 — 2026-11-19 (soir, autonomie)
+
+Mandat : « Contine en tt autonomie sur Polygone ». Le disque fait foi.
+
+| Élément | État | Preuve |
+|---|---|---|
+| Réconciliation `github/main` | **FAITE** — lignée septembre (17 commits, ancêtre `060c11d` du 02/09) fusionnée dans la lignée canonique ; merge `78e9447` à deux parents (`c13cdf6` + `23d27ac`), aucun rewrite, aucun force-push | ADR-0004 (table d'arbitrage : 20 conflits + 11 auto-fusions inspectées, 24 ajouts purs conservés en couche historique, 2 fichiers mock exclus) |
+| Arbre fusionné = arbre vérifié | **PROUVÉ** — `git diff c13cdf6 78e9447 -- '*.rs'` = 0 ; seuls changements : docs (ADR, INDEX, bandeaux, ARCHITECTURE re-mesuré 101 fichiers / 44 332 lignes) | commandes git, §6 ADR-0004 |
+| Gates locaux | fmt OK ; clippy `--workspace --all-targets -D warnings` **RC=0** ; `TMPDIR=/tmp cargo test --workspace --no-fail-fast -j 2` **586 passés / 0 échec / 24 suites** ; check-docs OK (96 documents) ; check-ci-honesty OK ; gitleaks **313 commits, 0 fuite** | logs `~/.hermes/cache/scratch/reconcile-*.log` |
+| CI sur l'arbre fusionné | **VERTE** — run 44558244332 : Test ubuntu ✓, Test macos ✓, Smoke ubuntu ✓ ; canari Windows échec attendu (non bloquant, documenté) | https://github.com/lvs0/Polygone-Network/actions/runs/44558244332 |
+| PR #4 fusionnée | **FAITE** — `main` = `8307094` (2026-11-19T16:07:42Z), arbre identique à `78e9447` ; retour arrière = `git revert -m 1` (ADR-0004 §7) | `gh pr view 4` state=MERGED |
+| Couche septembre | conservée historique : `GOVERNANCE.md`, `DOSSIER-POLYGONE-DREAM.md`, `docs/COMPANY.md`, `docs/RAPPORT-PRE-SHIP-2026-09-10.md` (indexés `daté` + bandeaux), `scripts/company*`, `web-pwa/` (stub SW pass-through, **ne satisfait pas** la PWA offline ; console produit = `web/`) | ADR-0004 §5 |
+| F1-API-01 — contrats documentés | **FAIT** — `docs/architecture/API-CONTRACTS.md` §8 : plan de stabilisation progressive des 8 domaines (prochain pas + test de contrat + dépendance par domaine), sources revérifiées sur `8307094`. Implémentation : NON commencée (progressive, ne pas figer trop tôt) | §8, roadmap F1-API-01 |
+| Mesures RTT/débit | **BLOQUÉ** — Cue sandbox (`root@100.99.15.112`) hors ligne par intermittence (suspension idle) ; sonde SSH active en arrière-plan ; ne JAMAIS ouvrir l'URL Tailscale SSH check | tentatives datées 19/11 soir |
+
+**Prochaine action** : dès Cue réveillé → mesures RTT/débit inter-hôtes
+(→ planificateur de coût) ; sinon F1-API-01 premier pas implémentable sans
+dépendance : `GET /api/v1/identity` ou `GET /api/v1/resources` (+ tests de
+contrat, §8). LAN/NAT et quorum L2 restent bloqués (physique / second opérateur).
