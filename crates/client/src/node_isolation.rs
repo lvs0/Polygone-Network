@@ -5,8 +5,10 @@
 //! vérifie ensuite que le processus est bien dans CE scope et que le noyau expose
 //! les plafonds attendus. Un bail sans cette preuve reste un engagement logiciel.
 
+#[cfg(any(target_os = "linux", test))]
+use std::path::Path;
 #[cfg(target_os = "linux")]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[cfg(any(target_os = "linux", test))]
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
