@@ -469,6 +469,11 @@ mod tests {
         assert!(out.is_err(), "invalid wasm must error");
     }
 
+    // Propriété du sandbox Linux (PrivateTmp=yes masque /tmp et /var/tmp).
+    // Sur macOS, /tmp est un symlink vers /private/tmp : canonicalize sort
+    // des racines reconnues, et le sandbox systemd n'existe pas — le test
+    // n'a pas de sens hors Linux.
+    #[cfg(target_os = "linux")]
     #[test]
     fn private_tmp_home_does_not_add_a_conflicting_inaccessible_mount() {
         // Base /tmp explicite : le contrat du helper porte sur le tmp privé
