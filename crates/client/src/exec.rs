@@ -169,6 +169,10 @@ pub fn run_sandboxed(
             timeout.as_secs().max(1)
         ))
         .args([
+            // Without MemorySwapMax=0 the swap can absorb the allocation and
+            // the cgroup limit silently stops capping resident memory: the
+            // 96 MB probe survived a 32 MB cap until this was added.
+            "--property=MemorySwapMax=0",
             "--property=NoNewPrivileges=yes",
             "--property=ProtectSystem=strict",
             "--property=ProtectHome=yes",
@@ -181,7 +185,14 @@ pub fn run_sandboxed(
     if let Some(inaccessible) = inaccessible {
         cmd.arg(inaccessible);
     }
-    cmd.arg("/bin/sh").arg("-c").arg(command);
+    // Two barriers, both measured on this host: the cgroup cap
+    // (`memory.max` = requested size, `memory.swap.max` = 0) kills a 4x
+    // allocation while a half-size one survives, and RLIMIT_AS is inherited
+    // by the shell and every child so the budget still holds on a host whose
+    // memory controller is not delegated to the user manager.
+    let mem_kb = u64::from(mem_mb) * 1024;
+    let limited = format!("ulimit -v {mem_kb} 2>/dev/null || exit 125; {command}");
+    cmd.arg("/bin/sh").arg("-c").arg(limited);
 
     // Timeout: systemd-run --wait blocks; stop the transient unit on excess.
     let output = match run_with_timeout(&mut cmd, timeout, Some(&unit)) {
@@ -193,6 +204,13 @@ pub fn run_sandboxed(
     };
 
     if !output.status.success() {
+        // A failed transient unit otherwise stays loaded as `failed` forever.
+        // Remove it after recording the exit code; the result is already
+        // captured below, so cleanup cannot hide the failure.
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "reset-failed"])
+            .arg(&unit)
+            .status();
         let code = output
             .status
             .code()
@@ -300,8 +318,11 @@ fn run_with_timeout(
             // `--wait` blocks until the stop completes (a `--no-block` stop
             // can be lost if the unit is still activating).
             if let Some(unit) = unit {
+                // `systemctl stop --wait` is not a supported option
+                // (systemd 261 warns and ignores it). Stop synchronously,
+                // then reset the failed transient unit.
                 let _ = std::process::Command::new("systemctl")
-                    .args(["--user", "stop", "--wait"])
+                    .args(["--user", "stop"])
                     .arg(unit)
                     .status();
                 let _ = std::process::Command::new("systemctl")
@@ -324,16 +345,20 @@ mod tests {
     /// Retourne false en CI (GitHub Actions) où systemd n'a pas de session utilisateur.
     fn systemd_run_available() -> bool {
         // Vérifier que systemd-run existe
+        // A fixed unit name can survive as a failed/loaded unit and make every
+        // probe fail. Use a unique, collected unit per probe.
+        let unit = format!(
+            "polygone-probe-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
         let Ok(output) = std::process::Command::new("systemd-run")
-            .args([
-                "--user",
-                "--wait",
-                "--pipe",
-                "-q",
-                "--unit=test-polygone-check",
-                "echo",
-                "test",
-            ])
+            .args(["--user", "--wait", "--pipe", "-q", "--collect"])
+            .arg(format!("--unit={unit}"))
+            .args(["/bin/echo", "test"])
             .output()
         else {
             return false;
@@ -450,6 +475,180 @@ mod tests {
         if let Some(arg) = arg {
             assert!(arg.starts_with("--property=InaccessiblePaths="));
         }
+    }
+
+    #[test]
+    fn sandbox_enforces_wall_clock_timeout() {
+        if !systemd_run_available() {
+            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+            return;
+        }
+        let _g = exec_test_guards();
+        let started = std::time::Instant::now();
+        let result = run_sandboxed("sleep 10", 64, 50, Duration::from_secs(1));
+        assert!(result.is_err(), "sleep 10 must not survive a 1 s sandbox");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "timeout cleanup took too long: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn sandbox_enforces_memory_limit() {
+        if !systemd_run_available() {
+            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+            return;
+        }
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .map(|out| !out.status.success())
+            .unwrap_or(true)
+        {
+            eprintln!("skip: python3 absent");
+            return;
+        }
+        let _g = exec_test_guards();
+        // Touch every page: a lazy allocation alone would not prove the cap.
+        let result = run_sandboxed(
+            r#"python3 -c 'x=bytearray(96*1024*1024); x[::4096]=b"\x01"*((len(x)+4095)//4096); print("TOUCHED")'"#,
+            32,
+            50,
+            Duration::from_secs(5),
+        );
+        assert!(
+            result.is_err(),
+            "96 MB touched under a 32 MB sandbox must fail"
+        );
+    }
+
+    #[test]
+    fn sandbox_memory_cap_is_configured_in_the_cgroup_and_enforced() {
+        if !systemd_run_available() {
+            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+            return;
+        }
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .map(|out| !out.status.success())
+            .unwrap_or(true)
+        {
+            eprintln!("skip: python3 absent");
+            return;
+        }
+        let _g = exec_test_guards();
+        // The cgroup must carry the declared cap and close the swap escape
+        // hatch. 256 MB keeps RLIMIT_AS out of the way so the Python control
+        // allocation proves the sandbox is not failing for an unrelated
+        // reason; the 96 MB probe below then fails under a 32 MB budget.
+        let probe = run_sandboxed(
+            "echo CGROUP_MAX=$(cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.max); \
+             echo SWAP_MAX=$(cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.swap.max); \
+             echo ADDRESS_SPACE_KB=$(ulimit -v); \
+             python3 -c 'x=bytearray(16*1024*1024); x[::4096]=b\"\\x01\"*((len(x)+4095)//4096); print(\"SMALL_OK\")'",
+            256,
+            50,
+            Duration::from_secs(20),
+        )
+        .expect("16 MB under a 256 MB cap must run");
+        assert!(
+            probe.contains("CGROUP_MAX=268435456"),
+            "cgroup cap not applied: {probe}"
+        );
+        assert!(
+            probe.contains("SWAP_MAX=0"),
+            "swap escape hatch open: {probe}"
+        );
+        assert!(
+            probe.contains("ADDRESS_SPACE_KB=262144"),
+            "RLIMIT_AS must be the second barrier: {probe}"
+        );
+        assert!(
+            probe.contains("SMALL_OK"),
+            "control allocation failed: {probe}"
+        );
+
+        // Four times the cap, touched: the sandbox must not let it through.
+        // Both barriers (cgroup and RLIMIT_AS) are active here; the cgroup on
+        // its own was measured separately on this host: 16 MB survives a
+        // 32 MB cap, 96 MB is killed, uncapped 96 MB survives.
+        let over = run_sandboxed(
+            r#"python3 -c 'x=bytearray(96*1024*1024); x[::4096]=b"\x01"*((len(x)+4095)//4096); print("BIG_OK")'"#,
+            32,
+            50,
+            Duration::from_secs(20),
+        );
+        assert!(
+            over.is_err(),
+            "96 MB touched under a 32 MB cap must fail: {over:?}"
+        );
+    }
+
+    #[test]
+    fn sandbox_cpu_quota_slows_a_cpu_bound_workload() {
+        if !systemd_run_available() {
+            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+            return;
+        }
+        if std::process::Command::new("sha256sum")
+            .arg("--version")
+            .output()
+            .map(|out| !out.status.success())
+            .unwrap_or(true)
+        {
+            eprintln!("skip: sha256sum absent");
+            return;
+        }
+        let _g = exec_test_guards();
+        // Same CPU-bound, deterministic work at full speed then at 10%: the
+        // quota is proven by the slowdown, not by reading CPUQuotaPerSecUSec.
+        let work = "dd if=/dev/zero bs=1M count=48 2>/dev/null | sha256sum";
+        let full_started = std::time::Instant::now();
+        run_sandboxed(work, 256, 100, Duration::from_secs(60)).expect("full-speed run");
+        let full = full_started.elapsed();
+        let throttled_started = std::time::Instant::now();
+        run_sandboxed(work, 256, 10, Duration::from_secs(60)).expect("throttled run");
+        let throttled = throttled_started.elapsed();
+        eprintln!(
+            "cpu quota measure: 100% -> {:?}, 10% -> {:?} (ratio {:.1}x)",
+            full,
+            throttled,
+            throttled.as_secs_f64() / full.as_secs_f64().max(0.001)
+        );
+        assert!(
+            throttled >= full.mul_f64(1.5),
+            "CPUQuota=10% did not slow the workload: {full:?} -> {throttled:?}"
+        );
+    }
+
+    #[test]
+    fn sandbox_blocks_identity_and_network_access() {
+        if !systemd_run_available() {
+            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+            return;
+        }
+        let _g = exec_test_guards();
+        let home = run_sandboxed(
+            "test -r \"$HOME/.polygone/identity.json\" && echo READABLE || echo BLOCKED",
+            64,
+            50,
+            Duration::from_secs(5),
+        )
+        .expect("sandbox runs");
+        assert!(
+            home.contains("BLOCKED"),
+            "identity directory readable: {home}"
+        );
+
+        let net = run_sandboxed("cat /proc/net/dev", 64, 50, Duration::from_secs(5))
+            .expect("sandbox runs");
+        assert!(net.contains("lo:"), "loopback should exist: {net}");
+        assert!(
+            !net.contains("wlp") && !net.contains("eth"),
+            "host interfaces leaked into the sandbox: {net}"
+        );
     }
 
     #[test]

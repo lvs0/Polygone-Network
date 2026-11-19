@@ -332,6 +332,17 @@ pub(crate) struct NetEnvelope {
     pub(crate) ts: Option<u64>,
 }
 
+/// End-to-end encrypted Compute body. The relay sees this JSON but only the
+/// ghost can decapsulate `kem_ct`; the task/result lives in `body`, which is
+/// AES-256-GCM ciphertext (`nonce || ciphertext`).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ComputeEnvelope {
+    v: String,
+    #[serde(default)]
+    kem_ct: Option<Vec<u8>>,
+    body: Vec<u8>,
+}
+
 /// The node id of an identity: 128 bits derived from the ML-DSA-65 key.
 ///
 /// `node_id = hex(BLAKE3-256("polygone node id v1" || sign_pk)[..16])`
@@ -374,6 +385,9 @@ type CompletedSessions = VecDeque<(String, String, u64)>;
 pub const COMPUTE_REPLAY_TTL_SECS: u64 = 2 * MAX_TS_SKEW_SECS;
 /// Bound memory used by the compute-request replay cache.
 pub const MAX_COMPUTE_REPLAYS: usize = 4096;
+/// Version of the end-to-end Compute envelope. A receiver refuses anything
+/// else instead of falling back to plaintext.
+pub const COMPUTE_E2E_VERSION: &str = "polygone-compute-e2e-v1";
 
 /// Canonical bytes signed by the sender and verified by the receiver.
 ///
@@ -627,6 +641,70 @@ pub async fn send_network(
     Ok(session)
 }
 
+/// Seal a Compute request for `ghost_kem`. Returns the opaque wire envelope and
+/// the derived session key (which also seals the ghost's reply).
+fn seal_compute_request(
+    plaintext: &[u8],
+    ghost_kem: &kem::KemPublicKey,
+) -> Result<(Vec<u8>, symmetric::SessionKey)> {
+    let (kem_ct, shared) = kem::encapsulate(ghost_kem)?;
+    let key = symmetric::SessionKey::derive_from_secret(&shared);
+    let body = symmetric::encrypt(plaintext, &key)?;
+    let envelope = ComputeEnvelope {
+        v: COMPUTE_E2E_VERSION.to_string(),
+        kem_ct: Some(kem_ct.as_bytes().to_vec()),
+        body,
+    };
+    Ok((serde_json::to_vec(&envelope)?, key))
+}
+
+/// Open a sealed Compute request with the ghost's KEM secret. Fails closed on
+/// an unknown version, missing KEM ciphertext, bad key, or failed GCM tag.
+fn open_compute_request(
+    payload: &[u8],
+    identity: &LocalIdentity,
+) -> Result<(Vec<u8>, symmetric::SessionKey)> {
+    let envelope: ComputeEnvelope = serde_json::from_slice(payload)
+        .map_err(|error| anyhow::anyhow!("enveloppe compute illisible : {error}"))?;
+    if envelope.v != COMPUTE_E2E_VERSION {
+        anyhow::bail!("version compute inconnue : {}", envelope.v);
+    }
+    let kem_ct = envelope
+        .kem_ct
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("enveloppe compute sans KEM_CT"))?;
+    let kem_ct = kem::KemCiphertext::from_bytes(kem_ct)?;
+    let shared = kem::decapsulate(&identity.kem_secret_key()?, &kem_ct)?;
+    let key = symmetric::SessionKey::derive_from_secret(&shared);
+    let plaintext = symmetric::decrypt(&envelope.body, &key)?;
+    Ok((plaintext, key))
+}
+
+/// Seal a grant with the key established by the request. No second KEM
+/// ciphertext is needed: both sides already hold the same shared secret.
+fn seal_compute_reply(plaintext: &[u8], key: &symmetric::SessionKey) -> Result<Vec<u8>> {
+    let body = symmetric::encrypt(plaintext, key)?;
+    let envelope = ComputeEnvelope {
+        v: COMPUTE_E2E_VERSION.to_string(),
+        kem_ct: None,
+        body,
+    };
+    Ok(serde_json::to_vec(&envelope)?)
+}
+
+/// Open a sealed grant. Plaintext or a different version is refused.
+fn open_compute_reply(payload: &[u8], key: &symmetric::SessionKey) -> Result<Vec<u8>> {
+    let envelope: ComputeEnvelope = serde_json::from_slice(payload)
+        .map_err(|error| anyhow::anyhow!("grant compute illisible : {error}"))?;
+    if envelope.v != COMPUTE_E2E_VERSION {
+        anyhow::bail!("version grant inconnue : {}", envelope.v);
+    }
+    if envelope.kem_ct.is_some() {
+        anyhow::bail!("grant compute ne doit pas porter de KEM_CT");
+    }
+    Ok(symmetric::decrypt(&envelope.body, key)?)
+}
+
 /// Borrow compute from a ghost node (RES lending, MVP).
 ///
 /// Protocol: connect to the relay, register, send a `req` envelope to the
@@ -689,6 +767,66 @@ fn base64_encode(data: &[u8]) -> String {
 
 /// The shared request/grant exchange (borrow or wasm).
 /// `known_peers` is the trust anchor for the ghost's signing key (TOFU).
+fn compute_request_envelope(
+    session: &str,
+    from: &str,
+    to: &str,
+    typ: &str,
+    payload: Vec<u8>,
+    identity: &LocalIdentity,
+) -> Result<NetEnvelope> {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let sig = identity
+        .sign_signer()?
+        .sign(&canonical_bytes(session, from, to, ts, &[], &payload));
+    Ok(NetEnvelope {
+        kind: "fragment".into(),
+        from: from.to_string(),
+        to: to.to_string(),
+        session: session.to_string(),
+        seq: 0,
+        typ: typ.to_string(),
+        idx: 0,
+        threshold: 0,
+        total: 0,
+        payload,
+        sig: Some(sig.as_bytes().to_vec()),
+        signer: Some(identity.sign_pk_hex.clone()),
+        name_ct: None,
+        ts: Some(ts),
+    })
+}
+
+/// Read the next envelope before the shared deadline. `None` means timeout or
+/// EOF; malformed lines are skipped (never treated as a valid reply).
+async fn read_compute_envelope<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    deadline: tokio::time::Instant,
+) -> Result<Option<NetEnvelope>> {
+    loop {
+        let bytes = match tokio::time::timeout_at(
+            deadline,
+            read_line_capped(reader, MAX_WIRE_LINE, FRAME_CONTINUATION_TIMEOUT),
+        )
+        .await
+        {
+            Ok(Ok(Some(bytes))) => bytes,
+            Ok(Ok(None)) | Err(_) => return Ok(None),
+            Ok(Err(error)) => return Err(error.into()),
+        };
+        if let Ok(env) = serde_json::from_slice(&bytes) {
+            return Ok(Some(env));
+        }
+    }
+}
+
+/// E2E Compute exchange. The ghost first proves its ML-DSA identity and offers
+/// its ML-KEM public key; the borrower then seals the task to that key. The
+/// grant is sealed with the same derived key, so the relay never sees either
+/// side's plaintext.
 async fn borrow_request(
     relay: &str,
     ghost_node: &str,
@@ -698,82 +836,85 @@ async fn borrow_request(
     timeout: std::time::Duration,
 ) -> Result<Option<String>> {
     let policy = TrustPolicy::from_env()?;
-    let mut stream = connect(relay, identity).await?;
     let from = node_id(identity);
     let req_session = session_id();
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let stream = connect(relay, identity).await?;
+    let (read_half, mut writer) = stream.into_split();
+    let mut reader = BufReader::new(read_half);
+    let deadline = tokio::time::Instant::now() + timeout;
 
-    // The request is signed (like messages): the ghost can verify who asks
-    // for compute, and the grant is bound to OUR session.
-    let body_bytes = body.to_string().into_bytes();
-    let req_sig = identity.sign_signer()?.sign(&canonical_bytes(
+    // 1. Signed hello: discover the ghost's KEM key without trusting the relay.
+    let hello_body = serde_json::json!({
+        "action": "kem_hello",
+        "kem_pk": identity.kem_pk_hex,
+    })
+    .to_string()
+    .into_bytes();
+    let hello = compute_request_envelope(
         &req_session,
         &from,
         ghost_node,
-        ts,
-        &[],
-        &body_bytes,
-    ));
+        "kem_hello",
+        hello_body,
+        identity,
+    )?;
+    write_net_envelope(&mut writer, &hello).await?;
+    writer.flush().await?;
 
-    let req = NetEnvelope {
-        kind: "fragment".into(),
-        from: from.clone(),
-        to: ghost_node.to_string(),
-        session: req_session.clone(),
-        seq: 0,
-        typ: "req".into(),
-        idx: 0,
-        threshold: 0,
-        total: 0,
-        payload: body_bytes,
-        sig: Some(req_sig.as_bytes().to_vec()),
-        signer: Some(identity.sign_pk_hex.clone()),
-        name_ct: None,
-        ts: Some(ts),
-    };
-    write_net_envelope(&mut stream, &req).await?;
-    stream.flush().await?;
-
-    // Listen for the grant reply on the same connection. A grant is only
-    // accepted if it answers OUR request: addressed to us, same session,
-    // from the ghost we asked — anything else is a forged/poisoned grant.
-    let mut reader = BufReader::new(stream);
-    let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        let bytes = match tokio::time::timeout_at(
-            deadline,
-            read_line_capped(&mut reader, MAX_WIRE_LINE, FRAME_CONTINUATION_TIMEOUT),
-        )
-        .await
-        {
-            Ok(result) => result?,
-            Err(_) => break,
+    let ghost_kem = loop {
+        let Some(env) = read_compute_envelope(&mut reader, deadline).await? else {
+            return Ok(None);
         };
-        let Some(bytes) = bytes else { break };
-        let env: NetEnvelope = match serde_json::from_slice(&bytes) {
-            Ok(e) => e,
+        if env.typ != "kem_offer"
+            || env.to != from
+            || env.session != req_session
+            || env.from != ghost_node
+        {
+            continue;
+        }
+        if !verify_grant(&env, known_peers, ghost_node, policy) {
+            continue;
+        }
+        let offer: serde_json::Value = match serde_json::from_slice(&env.payload) {
+            Ok(value) => value,
             Err(_) => continue,
         };
-        if env.typ == "grant" {
-            let ok =
-                env.to == node_id(identity) && env.session == req_session && env.from == ghost_node;
-            if ok {
-                // The grant is signed by the ghost. If we already know the
-                // ghost's key (trust anchor), the signature MUST verify —
-                // a malicious relay cannot forge a grant for our session.
-                // First contact = TOFU: learn the ghost's key.
-                let sig_ok = verify_grant(&env, known_peers, ghost_node, policy);
-                if sig_ok {
-                    return Ok(Some(String::from_utf8_lossy(&env.payload).to_string()));
-                }
-            }
-            // A mismatched or unverifiable grant is ignored, never trusted.
+        let Some(kem_pk) = offer.get("kem_pk").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        break match kem::KemPublicKey::from_hex(kem_pk) {
+            Ok(key) => key,
+            Err(_) => continue,
+        };
+    };
+
+    // 2. Seal the task to the ghost's KEM key and sign the sealed bytes.
+    let body_bytes = body.to_string().into_bytes();
+    let (sealed, key) = seal_compute_request(&body_bytes, &ghost_kem)?;
+    let req = compute_request_envelope(&req_session, &from, ghost_node, "req", sealed, identity)?;
+    write_net_envelope(&mut writer, &req).await?;
+    writer.flush().await?;
+
+    // 3. Only an encrypted, signed grant for OUR session is accepted.
+    loop {
+        let Some(env) = read_compute_envelope(&mut reader, deadline).await? else {
+            return Ok(None);
+        };
+        if env.typ != "grant"
+            || env.to != from
+            || env.session != req_session
+            || env.from != ghost_node
+        {
+            continue;
         }
+        if !verify_grant(&env, known_peers, ghost_node, policy) {
+            continue;
+        }
+        if let Ok(plain) = open_compute_reply(&env.payload, &key) {
+            return Ok(Some(String::from_utf8_lossy(&plain).to_string()));
+        }
+        // A plaintext or corrupt grant is ignored, never trusted.
     }
-    Ok(None)
 }
 
 /// Verify a grant's signature against the ghost's known key (TOFU learn
@@ -865,23 +1006,69 @@ fn grant_payload(identity: &LocalIdentity) -> serde_json::Value {
         "node": node_id(identity),
         "ram_mb": crate::mesh::free_ram_mb().unwrap_or(0),
         "ok": true,
+        "verification": VERIFICATION_PRODUCER_SIGNED,
+        "verification_limit": "la signature prouve l'auteur, pas la justesse du résultat",
     })
 }
 
-/// Build a RES grant only after its final payload is known. The signature
-/// covers the exact bytes sent on the wire, including output/error fields.
-/// Signing failure is fatal: an unsigned grant is never emitted.
-fn grant_for(
+/// Niveau L0 : le producteur a signé le résultat. Prouve l'auteur, pas la
+/// justesse.
+pub const VERIFICATION_PRODUCER_SIGNED: &str = "producer-signed";
+/// Niveau L1 : le demandeur a recalculé la même tâche déterministe et a obtenu
+/// la même sortie.
+pub const VERIFICATION_RECOMPUTED: &str = "recomputed-local";
+
+/// Annotate a decrypted grant with the outcome of an independent local
+/// recomputation of the same deterministic task (L1).
+///
+/// Returns the JSON to display and whether the producer's output was
+/// reproduced. A divergence is never silently accepted: the level stays L0 and
+/// both BLAKE3 digests are recorded, so the disagreement is auditable without
+/// storing the two outputs a second time. A refusal has nothing to recompute
+/// and is returned untouched.
+pub fn annotate_local_recomputation(grant: &str, local_output: &str) -> Result<(String, bool)> {
+    let mut body: serde_json::Value = serde_json::from_str(grant)?;
+    if body.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        return Ok((body.to_string(), false));
+    }
+    let remote = body
+        .get("output")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let reproduced = remote == local_output;
+    body["recompute"] = serde_json::json!({
+        "level": if reproduced { VERIFICATION_RECOMPUTED } else { VERIFICATION_PRODUCER_SIGNED },
+        "match": reproduced,
+        "grant_output_blake3": blake3::hash(remote.as_bytes()).to_hex().to_string(),
+        "local_output_blake3": blake3::hash(local_output.as_bytes()).to_hex().to_string(),
+    });
+    if reproduced {
+        body["verification"] = serde_json::Value::String(VERIFICATION_RECOMPUTED.into());
+        body["verification_limit"] = serde_json::Value::String(
+            "recalcul local identique — deux exécutions ont produit la même sortie, ce qui ne protège pas d'un bug partagé".into(),
+        );
+    } else {
+        body["verification"] = serde_json::Value::String(VERIFICATION_PRODUCER_SIGNED.into());
+        body["verification_limit"] = serde_json::Value::String(
+            "le recalcul local diverge : la sortie du producteur n'a pas été reproduite".into(),
+        );
+    }
+    Ok((body.to_string(), reproduced))
+}
+
+/// Sign a reply bound to the request's session and the requester's node id.
+/// Signing failure is fatal: an unsigned reply is never emitted.
+fn signed_compute_reply(
     req: &NetEnvelope,
     identity: &LocalIdentity,
-    body: serde_json::Value,
+    typ: &str,
+    payload: Vec<u8>,
 ) -> Result<NetEnvelope> {
     let from = node_id(identity);
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let payload = body.to_string().into_bytes();
     let signer = identity.sign_signer()?;
     let sig = signer.sign(&canonical_bytes(
         &req.session,
@@ -897,7 +1084,7 @@ fn grant_for(
         to: req.from.clone(),
         session: req.session.clone(),
         seq: 0,
-        typ: "grant".into(),
+        typ: typ.to_string(),
         idx: 0,
         threshold: 0,
         total: 0,
@@ -907,6 +1094,30 @@ fn grant_for(
         name_ct: None,
         ts: Some(ts),
     })
+}
+
+/// Signed KEM offer: public key only, no task data. The signature lets the
+/// borrower bind the key to the ghost's ML-DSA identity.
+fn compute_offer_for(req: &NetEnvelope, identity: &LocalIdentity) -> Result<NetEnvelope> {
+    let body = serde_json::json!({
+        "ok": true,
+        "node": node_id(identity),
+        "kem_pk": identity.kem_pk_hex,
+    });
+    signed_compute_reply(req, identity, "kem_offer", body.to_string().into_bytes())
+}
+
+/// Build a RES grant only after its final payload is known. The body is
+/// sealed with the request's session key, then signed; the signature covers
+/// the exact ciphertext. An unencrypted grant is not representable here.
+fn grant_for(
+    req: &NetEnvelope,
+    identity: &LocalIdentity,
+    body: serde_json::Value,
+    key: &symmetric::SessionKey,
+) -> Result<NetEnvelope> {
+    let payload = seal_compute_reply(body.to_string().as_bytes(), key)?;
+    signed_compute_reply(req, identity, "grant", payload)
 }
 
 /// Verify an authenticated RES request (signed like a message).
@@ -964,8 +1175,7 @@ fn verify_req_with_policy(
 /// If the request carries WASM bytes, they run in the wasmi sandbox instead.
 /// Runs off the async event loop (spawn_blocking): a long sandboxed run
 /// must not freeze message reception.
-async fn run_res_task(req: &NetEnvelope) -> Option<Result<String>> {
-    let body: serde_json::Value = serde_json::from_slice(&req.payload).ok()?;
+async fn run_res_task(body: &serde_json::Value) -> Option<Result<String>> {
     if let Some(wasm_b64) = body.get("wasm").and_then(|w| w.as_str()) {
         let Some(wasm) = base64_decode(wasm_b64) else {
             return Some(Err(anyhow::anyhow!("module WASM base64 invalide")));
@@ -1621,35 +1831,78 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
 
-            // RES compute requests: answer with a grant (ghost node).
-            // Only answer requests addressed to this node, and only if the
-            // request is AUTHENTICATED (signed req, fresh timestamp). The
-            // borrower's reputation is recorded for real on failure.
+            // RES compute requests: answer with an encrypted grant (ghost
+            // node). Only authenticated envelopes addressed to this node are
+            // processed. The signed hello only reveals the public KEM key;
+            // every task/result is sealed end-to-end.
             if let Ok(env) = serde_json::from_str::<NetEnvelope>(line.trim()) {
-                if env.typ == "req" && compute && env.to == node_id(identity) {
+                if compute && env.to == node_id(identity) && env.typ == "kem_hello" {
                     let was_known = known_peers.contains_key(&env.from);
                     let req_ok =
                         verify_req_with_policy(&env, &mut known_peers, now_secs, trust_policy);
-                    if req_ok && !was_known {
-                        announce_new_peer(&known_peers, &env.from);
-                        save_peers(&known_peers)?;
-                    }
-                    if !req_ok {
-                        crate::reputation::ReputationTable::load().record(&env.from, false);
-                        let mut body = grant_payload(identity);
-                        body["ok"] = serde_json::Value::Bool(false);
-                        body["error"] =
-                            serde_json::Value::String("requête non authentifiée".into());
-                        let grant = grant_for(&env, identity, body)?;
-                        if let Err(error) = write_net_envelope(&mut writer, &grant).await {
+                    if req_ok {
+                        if !was_known {
+                            announce_new_peer(&known_peers, &env.from);
+                            save_peers(&known_peers)?;
+                        }
+                        let offer = compute_offer_for(&env, identity)?;
+                        if let Err(error) = write_net_envelope(&mut writer, &offer).await {
                             if is_retryable_relay_error(&error) {
                                 eprintln!("connexion au relay perdue pendant l'envoi : {error}");
                                 break;
                             }
                             return Err(error);
                         }
+                    } else {
+                        crate::reputation::ReputationTable::load().record(&env.from, false);
+                    }
+                    continue;
+                }
+                if env.typ == "req" && compute && env.to == node_id(identity) {
+                    let was_known = known_peers.contains_key(&env.from);
+                    let req_ok =
+                        verify_req_with_policy(&env, &mut known_peers, now_secs, trust_policy);
+                    if !req_ok {
+                        // No key was established: do not emit even a refusal in
+                        // plaintext. The borrower simply gets no grant.
+                        crate::reputation::ReputationTable::load().record(&env.from, false);
                         continue;
                     }
+                    if !was_known {
+                        announce_new_peer(&known_peers, &env.from);
+                        save_peers(&known_peers)?;
+                    }
+                    let (plain_body, key) = match open_compute_request(&env.payload, identity) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            log::warn!("RES : requête compute non déchiffrable : {error}");
+                            crate::reputation::ReputationTable::load().record(&env.from, false);
+                            continue;
+                        }
+                    };
+                    let request_body: serde_json::Value = match serde_json::from_slice(&plain_body)
+                    {
+                        Ok(value) => value,
+                        Err(_) => {
+                            let mut body = grant_payload(identity);
+                            body["ok"] = serde_json::Value::Bool(false);
+                            body["error"] = serde_json::Value::String(
+                                "requête compute invalide ou tâche absente".into(),
+                            );
+                            let grant = grant_for(&env, identity, body, &key)?;
+                            if let Err(error) = write_net_envelope(&mut writer, &grant).await {
+                                if is_retryable_relay_error(&error) {
+                                    eprintln!(
+                                        "connexion au relay perdue pendant l'envoi : {error}"
+                                    );
+                                    break;
+                                }
+                                return Err(error);
+                            }
+                            crate::reputation::ReputationTable::load().record(&env.from, false);
+                            continue;
+                        }
+                    };
                     match remember_compute_request(
                         &mut seen_compute_requests,
                         &mut compute_request_order,
@@ -1674,7 +1927,7 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
                             body["error"] = serde_json::Value::String(
                                 "cache anti-rejeu saturé ; réessayez après expiration".into(),
                             );
-                            let grant = grant_for(&env, identity, body)?;
+                            let grant = grant_for(&env, identity, body, &key)?;
                             if let Err(error) = write_net_envelope(&mut writer, &grant).await {
                                 if is_retryable_relay_error(&error) {
                                     eprintln!(
@@ -1696,7 +1949,7 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
                             body["ok"] = serde_json::Value::Bool(false);
                             body["error"] =
                                 serde_json::Value::String("réputation insuffisante".into());
-                            let grant = grant_for(&env, identity, body)?;
+                            let grant = grant_for(&env, identity, body, &key)?;
                             if let Err(error) = write_net_envelope(&mut writer, &grant).await {
                                 if is_retryable_relay_error(&error) {
                                     eprintln!(
@@ -1711,7 +1964,7 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
                     }
 
                     let mut body = grant_payload(identity);
-                    match run_res_task(&env).await {
+                    match run_res_task(&request_body).await {
                         Some(Ok(output)) => {
                             body["output"] = serde_json::Value::String(output);
                             crate::reputation::ReputationTable::load().record(&env.from, true);
@@ -1729,8 +1982,8 @@ pub async fn receive_network(relay: &str, identity: &LocalIdentity, compute: boo
                             crate::reputation::ReputationTable::load().record(&env.from, false);
                         }
                     }
-                    // Sign only after the final output/error has been attached.
-                    let grant = grant_for(&env, identity, body)?;
+                    // Seal then sign, only after the final output/error exists.
+                    let grant = grant_for(&env, identity, body, &key)?;
                     if let Err(error) = write_net_envelope(&mut writer, &grant).await {
                         if is_retryable_relay_error(&error) {
                             eprintln!("connexion au relay perdue pendant l'envoi : {error}");

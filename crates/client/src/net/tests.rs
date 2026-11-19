@@ -846,7 +846,7 @@ fn three_fragments_never_complete() {
 }
 
 #[test]
-fn grant_reply_routes_back_and_signs_the_final_output_payload() {
+fn grant_reply_routes_back_and_seals_the_final_output_payload() {
     let ghost = LocalIdentity::generate();
     let borrower = LocalIdentity::generate();
     let borrower_node = node_id(&borrower);
@@ -870,20 +870,26 @@ fn grant_reply_routes_back_and_signs_the_final_output_payload() {
         ts: None,
     };
 
+    let key = symmetric::SessionKey::from_bytes([0x42; 32]);
     let mut body = grant_payload(&ghost);
     body["output"] = serde_json::Value::String("résultat signé".into());
-    let grant = grant_for(&req, &ghost, body).expect("grant signing succeeds");
+    let grant = grant_for(&req, &ghost, body, &key).expect("grant signing succeeds");
     assert_eq!(grant.typ, "grant");
     assert_eq!(grant.to, borrower_node);
     assert_eq!(grant.session, "res-session-1");
     assert_eq!(grant.from, ghost_node);
+    assert!(
+        !String::from_utf8_lossy(&grant.payload).contains("résultat signé"),
+        "le grant ne doit jamais porter le résultat en clair"
+    );
+    let plain = open_compute_reply(&grant.payload, &key).expect("grant decrypts");
     let body: serde_json::Value =
-        serde_json::from_slice(&grant.payload).expect("grant payload is JSON");
+        serde_json::from_slice(&plain).expect("decrypted grant payload is JSON");
     assert_eq!(body["ok"], true);
     assert_eq!(body["node"], node_id(&ghost));
     assert_eq!(body["output"], "résultat signé");
 
-    // The requester accepts the exact final payload, but not a changed output.
+    // The requester accepts the exact sealed payload, but not a changed byte.
     let mut known = HashMap::new();
     assert!(verify_grant(
         &grant,
@@ -894,15 +900,169 @@ fn grant_reply_routes_back_and_signs_the_final_output_payload() {
     assert_eq!(known.get(&node_id(&ghost)), Some(&ghost.sign_pk_hex));
 
     let mut tampered = grant;
-    let mut changed: serde_json::Value = serde_json::from_slice(&tampered.payload).unwrap();
-    changed["output"] = serde_json::Value::String("résultat falsifié".into());
-    tampered.payload = changed.to_string().into_bytes();
+    let last = tampered.payload.len() - 1;
+    tampered.payload[last] ^= 0x01;
     assert!(!verify_grant(
         &tampered,
         &mut known,
         &node_id(&ghost),
         TrustPolicy::Tofu
     ));
+    assert!(open_compute_reply(&tampered.payload, &key).is_err());
+}
+
+#[test]
+fn compute_e2e_hides_task_and_result_from_the_relay() {
+    let borrower = LocalIdentity::generate();
+    let ghost = LocalIdentity::generate();
+    let ghost_kem = ghost.kem_public_key().unwrap();
+    let task = "TASK_SECRET_7f3a9c";
+    let result = "RESULT_SECRET_2b8d1e";
+    let body = serde_json::json!({"action": "compute", "task": task});
+    let plain = body.to_string().into_bytes();
+
+    let (sealed, key) = seal_compute_request(&plain, &ghost_kem).unwrap();
+    let wire = String::from_utf8_lossy(&sealed);
+    assert!(!wire.contains(task), "le relais ne doit pas lire la tâche");
+    let outer: ComputeEnvelope = serde_json::from_slice(&sealed).unwrap();
+    assert_eq!(outer.v, COMPUTE_E2E_VERSION);
+    assert!(outer.kem_ct.is_some(), "la demande doit porter un KEM_CT");
+
+    let (opened, reply_key) = open_compute_request(&sealed, &ghost).unwrap();
+    assert_eq!(opened, plain);
+    assert!(
+        open_compute_request(&sealed, &borrower).is_err(),
+        "une autre identité ne peut pas ouvrir la tâche"
+    );
+
+    let reply = seal_compute_reply(result.as_bytes(), &key).unwrap();
+    assert!(
+        !String::from_utf8_lossy(&reply).contains(result),
+        "le relais ne doit pas lire le résultat"
+    );
+    assert_eq!(
+        open_compute_reply(&reply, &reply_key).unwrap(),
+        result.as_bytes()
+    );
+    assert!(
+        open_compute_reply(br#"{"ok":true}"#, &key).is_err(),
+        "un grant en clair doit être refusé"
+    );
+}
+
+#[test]
+fn key_rotation_changes_the_node_id_and_old_grants_stay_with_the_old_key() {
+    let borrower = LocalIdentity::generate();
+    let mut ghost = LocalIdentity::generate();
+    let old_node = node_id(&ghost);
+    let old_pk = ghost.sign_pk_hex.clone();
+    let key = symmetric::SessionKey::from_bytes([0x24; 32]);
+    let req = NetEnvelope {
+        kind: "fragment".into(),
+        from: node_id(&borrower),
+        to: old_node.clone(),
+        session: "res-session-rotation".into(),
+        seq: 0,
+        typ: "req".into(),
+        idx: 0,
+        threshold: 0,
+        total: 0,
+        payload: Vec::new(),
+        sig: None,
+        signer: None,
+        name_ct: None,
+        ts: None,
+    };
+
+    let mut known = HashMap::new();
+    let before = grant_for(&req, &ghost, grant_payload(&ghost), &key).expect("grant signs");
+    assert!(verify_grant(
+        &before,
+        &mut known,
+        &old_node,
+        TrustPolicy::Tofu
+    ));
+    assert_eq!(known.get(&old_node), Some(&old_pk));
+
+    let outcome = ghost.rotate_sign_key().expect("rotation succeeds");
+    let new_node = node_id(&ghost);
+    assert_ne!(
+        new_node, old_node,
+        "le node_id dérive de la clé de signature : la rotation change l'adresse"
+    );
+    assert_ne!(outcome.new_pk_hex, old_pk);
+
+    // The rotated ghost cannot speak for the old node id...
+    let after = grant_for(&req, &ghost, grant_payload(&ghost), &key).expect("grant signs");
+    assert!(
+        !verify_grant(&after, &mut known, &old_node, TrustPolicy::Tofu),
+        "a rotated key must not authenticate the previous node id"
+    );
+    // ...but rotation is local: the old key's grants still verify for the old
+    // node id, so it is not a distributed revocation. This is the documented
+    // limit, not an accident of this test.
+    assert!(
+        verify_grant(&before, &mut known, &old_node, TrustPolicy::Tofu),
+        "sans révocation distribuée, l'ancienne clé garde l'ancien node_id"
+    );
+    assert!(!ghost.accepts_signature_from(&old_pk));
+}
+
+#[test]
+fn local_recomputation_promotes_a_reproduced_grant_to_l1() {
+    let grant = serde_json::json!({
+        "node": "ghost",
+        "ok": true,
+        "output": "42\n",
+        "verification": VERIFICATION_PRODUCER_SIGNED,
+        "verification_limit": "la signature prouve l'auteur, pas la justesse du résultat",
+    })
+    .to_string();
+
+    let (annotated, reproduced) = annotate_local_recomputation(&grant, "42\n").unwrap();
+    assert!(
+        reproduced,
+        "identical output must be reported as reproduced"
+    );
+    let body: serde_json::Value = serde_json::from_str(&annotated).unwrap();
+    assert_eq!(body["verification"], VERIFICATION_RECOMPUTED);
+    assert_eq!(body["recompute"]["match"], true);
+    let digest = blake3::hash(b"42\n").to_hex().to_string();
+    assert_eq!(body["recompute"]["grant_output_blake3"], digest.as_str());
+    assert_eq!(body["recompute"]["local_output_blake3"], digest.as_str());
+}
+
+#[test]
+fn local_recomputation_keeps_a_divergent_grant_at_l0() {
+    let grant = serde_json::json!({"node": "ghost", "ok": true, "output": "42\n"}).to_string();
+
+    let (annotated, reproduced) = annotate_local_recomputation(&grant, "41\n").unwrap();
+    assert!(!reproduced, "a different output must never be accepted");
+    let body: serde_json::Value = serde_json::from_str(&annotated).unwrap();
+    assert_eq!(body["verification"], VERIFICATION_PRODUCER_SIGNED);
+    assert_eq!(body["recompute"]["match"], false);
+    assert_ne!(
+        body["recompute"]["grant_output_blake3"],
+        body["recompute"]["local_output_blake3"]
+    );
+    assert!(body["verification_limit"]
+        .as_str()
+        .unwrap()
+        .contains("diverge"));
+}
+
+#[test]
+fn local_recomputation_of_a_refusal_claims_nothing() {
+    let grant = r#"{"ok":false,"error":"sandbox refusée"}"#;
+
+    let (annotated, reproduced) = annotate_local_recomputation(grant, "").unwrap();
+    assert!(!reproduced);
+    let body: serde_json::Value = serde_json::from_str(&annotated).unwrap();
+    assert!(
+        body.get("recompute").is_none(),
+        "a refusal has no output to verify"
+    );
+    assert_eq!(body["error"], "sandbox refusée");
 }
 
 #[test]

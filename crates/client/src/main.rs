@@ -40,6 +40,7 @@ mod tui;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use polygone_client::{node, node_isolation, pause, uninstall};
+use polygone_core::reuse;
 use polygoned::socket::{self, Reply};
 use polygoned::DaemonClient;
 use std::path::Path;
@@ -186,6 +187,9 @@ enum Commands {
         /// Relay to route the borrow/exec request through
         #[arg(long, default_value = "127.0.0.1:7000")]
         via: String,
+        /// Recalculer localement la tâche et comparer au grant (vérification L1)
+        #[arg(long)]
+        verifier_local: bool,
     },
     /// Nœud de stockage : demande un bail au daemon avant d'ouvrir le port.
     Node {
@@ -279,6 +283,21 @@ fn display_compute_grant(grant: &str, label: &str) -> Result<bool> {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("inconnu")
     );
+    if let Some(level) = body.get("verification").and_then(serde_json::Value::as_str) {
+        let limit = body
+            .get("verification_limit")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("signature de l'auteur, pas preuve de justesse");
+        println!("  vérification : {level} — {limit}");
+    }
+    if body
+        .get("recompute")
+        .and_then(|recompute| recompute.get("match"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(false)
+    {
+        println!("  ✖ recalcul local DIVERGENT — la sortie du producteur n'a pas été reproduite");
+    }
     if let Some(output) = body.get("output").and_then(serde_json::Value::as_str) {
         println!("{output}");
     }
@@ -327,13 +346,23 @@ fn format_doctor_report(
     reply: &Reply,
     isolation: Result<node_isolation::OsIsolation, String>,
 ) -> Result<String> {
-    let (tier, seq, capacity) = match reply {
+    let (tier, seq, capacity, cpu_cores, free_vram_mb, storage) = match reply {
         Reply::Status {
             tier,
             seq,
             ram_capacity: Some(capacity),
+            cpu_cores,
+            gpu_free_vram_mb,
+            storage_capacity,
             ..
-        } => (tier, seq, capacity),
+        } => (
+            tier,
+            seq,
+            capacity,
+            *cpu_cores,
+            *gpu_free_vram_mb,
+            storage_capacity.as_deref(),
+        ),
         Reply::Status {
             ram_capacity: None, ..
         } => {
@@ -383,6 +412,33 @@ fn format_doctor_report(
             ));
         }
         Err(reason) => report.push_str(&format!("    Non mesurée : {reason}\n")),
+    }
+
+    // Device Reuse : les entrées sont les mesures publiées par le daemon, pas
+    // une déclaration de l'utilisateur. Batterie, température et activité
+    // restent `None` : le rapport dit alors que la contrainte n'a pas été
+    // évaluée, au lieu de la supposer favorable.
+    let capabilities = reuse::DeviceCapabilities {
+        cpu_cores,
+        ram_bytes: capacity.measured,
+        free_storage_bytes: storage.map(|capacity| capacity.measured),
+        free_vram_bytes: Some(u64::from(free_vram_mb) * reuse::MIB),
+        battery_percent: None,
+        thermal_celsius: None,
+        user_active: None,
+    };
+    report.push_str("\n  Rôles proposés (Device Reuse — proposition, aucune activation)\n");
+    for suggestion in reuse::suggest_roles(&capabilities) {
+        let verdict = if suggestion.eligible {
+            "éligible"
+        } else {
+            "non éligible"
+        };
+        report.push_str(&format!(
+            "    {:<13}: {verdict} — {}\n",
+            suggestion.role.as_str(),
+            suggestion.reasons.join(" ; ")
+        ));
     }
 
     report.push_str(&format!("\n  Conclusion : {conclusion}\n"));
@@ -569,6 +625,25 @@ mod doctor_tests {
             ram_capacity: capacity.map(Box::new),
             storage_capacity: None,
         }
+    }
+
+    /// Les rôles Device Reuse ne sont proposés qu'à partir des mesures du
+    /// daemon ; un stockage non mesuré est refusé, pas supposé disponible.
+    #[test]
+    fn doctor_proposes_device_reuse_roles_from_measured_capacity() {
+        let reply = status(Some(Capacity {
+            measured: 8 * GIO,
+            reservable: 3 * GIO,
+            enforced: 0,
+        }));
+        let report = format_doctor_report(&reply, unlimited()).unwrap();
+        assert!(report.contains("Rôles proposés (Device Reuse"), "{report}");
+        assert!(report.contains("relais"), "{report}");
+        assert!(
+            report.contains("non éligible — stockage libre non mesuré"),
+            "{report}"
+        );
+        assert!(report.contains("aucune activation"), "{report}");
     }
 
     #[test]
@@ -1142,7 +1217,13 @@ async fn main() -> Result<()> {
             executer,
             wasm,
             via,
+            verifier_local,
         }) => {
+            if verifier_local && executer.is_none() {
+                anyhow::bail!(
+                    "--verifier-local demande --executer <commande> : le recalcul L1 ne s'applique qu'à une tâche déterministe déclarée"
+                );
+            }
             // WASM mode: send a wasm module for sandboxed execution.
             if let Some(path) = wasm {
                 let ghost = emprunter.ok_or_else(|| {
@@ -1189,7 +1270,7 @@ async fn main() -> Result<()> {
                 println!("⬡ RES — exécution sandboxée → {ghost} (via {via})");
                 println!("  tâche : {command}");
                 let mut peers = net::load_peers()?;
-                let success = match net::borrow_compute(
+                let (shown, reproduced) = match net::borrow_compute(
                     &via,
                     &ghost,
                     &command,
@@ -1199,16 +1280,43 @@ async fn main() -> Result<()> {
                 )
                 .await?
                 {
-                    Some(grant) => display_compute_grant(&grant, "RÉSULTAT")?,
+                    Some(grant) if verifier_local => {
+                        // L1: run the same deterministic command here, in the
+                        // same sandbox, and compare both outputs.
+                        println!("  vérification L1 : recalcul local dans le même sandbox…");
+                        match crate::exec::run_sandboxed(
+                            &command,
+                            256,
+                            50,
+                            std::time::Duration::from_secs(30),
+                        ) {
+                            Ok(local) => net::annotate_local_recomputation(&grant, &local)?,
+                            Err(error) => {
+                                println!("  ⚠ recalcul local impossible : {error}");
+                                (grant, false)
+                            }
+                        }
+                    }
+                    Some(grant) => (grant, true),
                     None => {
                         println!("  ✖ aucune réponse vérifiable — le nœud est-il en `ecouter --compute` ?");
-                        false
+                        (String::new(), false)
                     }
                 };
-                reputation::ReputationTable::load().record(&ghost, success);
+                let accepted = if shown.is_empty() {
+                    false
+                } else {
+                    display_compute_grant(&shown, "RÉSULTAT")?
+                };
+                // A result that was not reproduced is a failure for reputation:
+                // the ghost did not deliver what an independent run produces.
+                reputation::ReputationTable::load().record(&ghost, accepted && reproduced);
                 net::save_peers(&peers)?;
-                if !success {
+                if !accepted {
                     anyhow::bail!("l'exécution compute distante a échoué ou n'a pas fourni de grant vérifiable");
+                }
+                if !reproduced {
+                    anyhow::bail!("vérification L1 : le recalcul local ne reproduit pas la sortie du producteur");
                 }
                 return Ok(());
             }

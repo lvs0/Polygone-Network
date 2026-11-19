@@ -234,9 +234,17 @@ impl LocalIdentity {
     }
 
     /// FV-SEC-05 — remplace la clé de signature par une neuve, signe la
-    /// nouvelle clé avec l'ancienne, puis révoque l'ancienne. L'identité KEM
-    /// (donc le `node_id`) ne change pas : les pairs n'ont pas à réapprendre
-    /// l'adresse.
+    /// nouvelle clé avec l'ancienne, puis révoque l'ancienne **localement**.
+    ///
+    /// La clé KEM ne change pas, mais le `node_id` **si** : il est dérivé de la
+    /// clé de signature (`node_id_from_sign_pk_hex`). Une rotation produit donc
+    /// une nouvelle adresse sur le relais ; les pairs qui détenaient l'ancienne
+    /// clé voient leurs grants refusés jusqu'à ce qu'ils réapprennent la
+    /// nouvelle. Aucune révocation n'est distribuée : l'ancienne clé reste
+    /// mathématiquement valide pour l'ancien `node_id` (limite suivie dans
+    /// `docs/P0-COMPUTE-SECURITY-2026-11-14.md`).
+    ///
+    /// Test : `net::tests::key_rotation_changes_the_node_id_and_old_grants_stay_with_the_old_key`.
     pub fn rotate_sign_key(&mut self) -> anyhow::Result<RotationOutcome> {
         let old_pk_hex = self.sign_pk_hex.clone();
         let old_signer = self.sign_signer()?;
