@@ -1,0 +1,21 @@
+# Preuve — stabilite du test de perte de bail (collision de port)
+# date: 2026-11-09T15:34:58+01:00
+# HEAD: 9ff9360fed388fd74daf52a80c40e03491ee4933
+
+$ passe 1 : cargo test -p polygone-client --lib node::tests::test_node_stops_when_lease_is_lost
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 1.02s
+
+$ passe 2 : cargo test -p polygone-client --lib node::tests::test_node_stops_when_lease_is_lost
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 1.02s
+
+$ passe 3 : cargo test -p polygone-client --lib node::tests::test_node_stops_when_lease_is_lost
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 1.02s
+
+$ passe 4 : cargo test -p polygone-client --lib node::tests::test_node_stops_when_lease_is_lost
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 1.02s
+
+$ passe 5 : cargo test -p polygone-client --lib node::tests::test_node_stops_when_lease_is_lost
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 1.02s
+
+$ suite lib complete (contient les 5 tests node::)
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s

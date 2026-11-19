@@ -1,4 +1,12 @@
 # Rapport pré-ship — Polygone 2026-09-10 (SANS PUSH)
+
+> ## ⚠ Instantané daté — ne pas lire comme l'état courant
+>
+> Rapport de la lignée septembre (`github/main`, 2026-09-10), conservé comme
+> couche historique par la réconciliation (ADR-0004 §5). Ses vérifications et
+> ses compteurs décrivent l'arbre de septembre, pas le produit actuel ; l'état
+> mesuré courant fait foi dans `project/STATUS.md`.
+
 > Préparé par subagent Ship+Lawyer — **aucun push exécuté**, aucune publication, diffs proposés uniquement. À relire/valider avant `git push`.
 
 ---

@@ -3,14 +3,25 @@
 > *For contributors. Read [`ECOSYSTEM.md`](./ECOSYSTEM.md) first to
 > understand what we are building. This document is about how.*
 >
-> **Status 2026-08-07** : this document describes the **real** workspace
-> (4 crates). The previous `src/` monolith (libp2p, HTTP relay, 4-tab TUI)
-> was archived to `archive/2026-07-src/` — it is not built, not tested, not
-> the product. The code is the source of truth; this document follows it.
+> **Status 2026-11-14** : this document describes the **real** workspace
+> (**8 members**, 4 product binaries + 1 lab opt-in, including the experimental
+> `fabric` crate). The
+> previous `src/` monolith (libp2p, HTTP
+> relay, 4-tab TUI) was archived to `archive/2026-07-src/` — it is not built,
+> not tested, not the product. The code is the source of truth; this document
+> follows it.
+>
+> *Correction du 2026-11-03* : la version précédente de ce document annonçait
+> « 4 crates, ~9 600 LOC, 109 tests » (état du 2026-08-07). C'était vrai à
+> cette date. `gateway`, `petals` et `serverless` ont été intégrés le
+> 2026-10-29 sans que ce fichier suive. Les chiffres ci-dessous ont été
+> **mesurés** : `find -name '*.rs' | wc -l` pour les lignes, et
+> `cargo test --workspace -j 2` (**554 tests, 0 échec**, mesure du 2026-11-15)
+> pour les tests.
 
 ---
 
-## 1. Workspace layout — 4 crates
+## 1. Workspace layout — 8 members, 4 product binaries + 1 lab
 
 ```
 polygone/
@@ -34,20 +45,56 @@ polygone/
 │   ├── client/                   the product — one binary: `polygone`
 │   │   ├── main.rs               clap CLI + command dispatcher
 │   │   ├── msg.rs                offline pipeline: KEM → KDF → AES → Shamir
-│   │   ├── net.rs                real network transport (plane 2)
+│   │   ├── net/                  real network transport (plane 2)
 │   │   ├── identity.rs           ~/.polygone/identity.json (chmod 600)
+│   │   ├── blocks.rs             content-addressed store (BLAKE3), port 7643
+│   │   ├── calc.rs               computation cache, keyed BLAKE3(version‖input)
+│   │   ├── node.rs               daemon lease: serve, stop on lease loss
+│   │   ├── serverless.rs         client side of split/reassemble
 │   │   ├── exec.rs               RES execution (systemd-run + wasmi)
+│   │   ├── hide.rs               SOCKS5 via relay (mono-saut)
 │   │   ├── mesh.rs               LAN discovery (UDP broadcast, port 7642)
 │   │   ├── reputation.rs         ghost-node trust ledger
 │   │   ├── petals.rs             local AI (Ollama HTTP, no cloud)
-│   │   ├── duress.rs             kill-switch (Axiome 5)
+│   │   ├── product.rs            packaging helpers for the single-command product
+│   │   ├── duress.rs             kill-switch (Axiome 5, manuel)
 │   │   ├── demo.rs               flagship E2E demo (in-process)
 │   │   ├── self_test.rs          crypto self-test suite
-│   │   └── tui.rs                vim-style command TUI (:envoyer / :quitter)
+│   │   ├── node_isolation.rs     tests du bail et de l'isolation
+│   │   ├── testutil.rs           fixtures partagées
+│   │   ├── tui.rs                vim-style command TUI (:envoyer / :quitter)
+│   │   ├── drive.rs              PRÉSENT MAIS NON MONTÉ (zéro appelant)
+│   │   └── brain.rs              PRÉSENT MAIS NON MONTÉ (zéro appelant)
 │   │
 │   ├── relay/                    the blind relay — one binary: `polygone-relay`
 │   │   ├── main.rs               CLI (port, bind)
 │   │   └── relay.rs              async TCP server, in-memory routing table
+│   │
+│   ├── gateway/                  HTTP loopback — one binary: `polygone-gateway`
+│   │   ├── lib.rs                Gateway · NetworkStatus · PairRequest
+│   │   ├── http.rs               socket TCP réel (testé dans tests/serve.rs)
+│   │   ├── routes.rs             routes JSON + table de statut
+│   │   ├── static_files.rs       web/ · PWA (POLYGONE_SITE_DIR)
+│   │   └── status.rs             état réseau publié (table en mémoire)
+│   │
+│   ├── petals/                   inference backend planner — library only
+│   │   ├── backends.rs           Ollama · vLLM · llama.cpp
+│   │   ├── pipeline.rs           planner de pipeline (aucun consommateur hors tests)
+│   │   ├── daemon.rs             client de démon petals
+│   │   ├── models.rs             ModelRegistry
+│   │   └── benchmarks.rs         BenchmarkConfig / BenchmarkResult
+│   │
+│   ├── serverless/               split/reassemble + quorum — library only
+│   │   ├── request.rs            Shamir split, reassemble (tests négatifs)
+│   │   └── quorum.rs             seuil de votes (jamais appelé par le CLI)
+│   │
+│   ├── fabric/                   lab opt-in — `polygone-fabric` (feature lab)
+│   │   ├── model.rs              capacités, enveloppe, périmètres
+│   │   ├── planner.rs            placement local/distant
+│   │   ├── transport.rs          NDJSON TCP + nœuds mémoire
+│   │   ├── engine.rs             vérification, reprise
+│   │   ├── learning.rs           EWMA locale
+│   │   └── store.rs              CAS BLAKE3 (explicitement pas Babel)
 │   │
 │   └── (daemon lives at repo root, see §7)
 │
@@ -66,15 +113,83 @@ polygone/
 └── .github/workflows/            ci.yml · release.yml
 ```
 
-**Reality check (2026-08-07) :**
+**Reality check — measured 2026-11-05 :**
 
-| Crate      | LOC (rust) | Binaries              | Tests |
-| ---------- | ---------- | --------------------- | ----- |
-| core       | ~2 200     | — (lib)               | 34    |
-| client     | ~3 600     | `polygone`            | 47    |
-| relay      | ~340       | `polygone-relay`      | 7     |
-| daemon     | ~3 500     | `polygoned`           | 21    |
-| **Total**  | **~9 600** | 4 binaries            | **109** |
+| Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
+| ------------ | -------- | ---------- | -------------------- | ----- |
+| `core` | 15 | 3655 | — (lib) | 77 |
+| `client` | 33 | 16830 | `polygone` | 217 |
+| `relay` | 4 | 1675 | `polygone-relay` | 28 |
+| `gateway` | 9 | 4275 | `polygone-gateway` | 64 |
+| `petals` | 12 | 3104 | — (lib) | 19 |
+| `serverless` | 3 | 776 | — (lib) | 17 |
+| `fabric` | 8 | 3026 | `polygone-fabric` | 32 |
+| `daemon` | 17 | 10991 | `polygoned` | 132 |
+| doc-tests | — | — | — | comptés dans leur crate |
+| **Total** | **101** | **44332** | **5 binaires** | **586** |
+
+> Base de mesure initiale du **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
+> (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
+> 88 fichiers Rust, 35597 lignes et 465 tests, dont le contrôle de couverture de `docs/INDEX.md`.
+> *Mise à jour du 2026-11-09* : la réconciliation canonique (`docs/decisions/ADR-0001`)
+> ajoute quatre fichiers Rust issus de `realign/v2` et du correctif P0
+> (`relay/auth_tests.rs`, `client/net/s1_tests.rs`, `core/sign/node_id_tests.rs`,
+> `client/tests/`) ; les compteurs de tests restent à recomputer par `make test`.
+> Re-mesuré le **2026-11-09** sur `reconcile/2026-11` : **90 fichiers Rust et 37 392 lignes**, après l'ajout du modèle de tâche (`crates/core/src/task.rs`), du magasin et de l'API produit (`crates/gateway/src/tasks.rs`), de leurs 25 tests et des correctifs précédents. Une exécution workspace complète donne **490 tests, 0 échec**.
+> Re-mesuré le **2026-11-13** après `F1-RES-03` (plafond CPU par palier) et
+> `F1-SEC-02` (politique de confiance stricte) : **90 fichiers, 37 929 lignes,
+> 499 tests, 0 échec**. Puis `F1-PROTO-01` (fenêtre v1/v2 et capacités) :
+> **38 439 lignes, 507 tests, 0 échec**. Puis `F1-TASK-02` (exécuteur local
+> `echo`/`blake3` et reprise), puis `F1-TASK-03` (reçu ML-DSA-65 lié à la
+> tâche, au producteur et à la clé) : **38 876 lignes, 512 tests, 0 échec**.
+> **2026-11-14** : ajout du prototype `crates/fabric` (8 fichiers, 3 026 lignes,
+> 32 tests, puis P0 E2E/sandbox). Puis le 2026-11-15 la vérification L1 (recalcul
+> local) et les mesures de quota CPU/mémoire. Total mesuré : **98 fichiers, 42 573 lignes, 5 binaires (dont 1
+> lab opt-in), 554 tests,
+> 0 échec**. Les 512 tests antérieurs restent verts ; les 32 nouveaux couvrent
+> le placement, le TCP loopback, la vérification et le stockage expérimental.
+> **2026-11-15 (session 10)** : `crates/core/src/reuse.rs` (Device Reuse,
+> 8 tests) et `crates/gateway/src/diagnostics.rs` (rapport agrégé, 2 tests)
+> portent la mesure à **100 fichiers, 43 350 lignes, 565 tests, 0 échec**.
+> **2026-11-15 (audit Akash, intégration)** : `crates/core/src/evidence.rs`
+> (preuve canonique `polygone.evidence.v1`, 17 tests, **non câblée**) porte la
+> mesure à **101 fichiers, 44 000 lignes, 582 tests, 0 échec**.
+> **2026-11-19 (production, mandat opérateur)** : câblage de la preuve L1
+> (`net::persist_l1_evidence`, ADR-0003, 4 tests round-trip/disjonction/refus/sujet)
+> et preuve deux hôtes (`docs/proofs/P0-DEUX-HOTES-2026-11-19.md`) :
+> **101 fichiers, 44 332 lignes, 586 tests, 0 échec**.
+> **2026-11-19 (soir, réconciliation)** : re-mesuré après le correctif macOS/BSD
+> `8352c5c` (socket accepté `O_NONBLOCK`) et la fusion `github/main` (ADR-0004,
+> **aucun fichier Rust modifié** — 24 ajouts documentaires/scripts de septembre) :
+> **101 fichiers, 44 332 lignes, 586 tests, 0 échec** ; clippy workspace RC=0,
+> `check-ci-honesty` OK, gitleaks 313 commits sans fuite.
+> Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
+> `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
+> `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
+> `DOC.3` un bandeau `Instantané daté` sur les 29 documents historiques, dont
+> l'absence fait échouer `scripts/check-docs.mjs` ; `CI.1` une matrice Windows
+> honnête ; `OPS.2` des compteurs de refus par motif, lus par `polygoned status`
+> et `doctor`, avec « non mesurés » plutôt que zéro quand le daemon est absent ;
+> `SEC.8` un test qui refuse un secret suivi par git, avec sa preuve négative ;
+> `CLI.3` trois profils d'usage (`sobre|equilibre|genereux`) qui écrivent une
+> config réellement relue par `polygoned`, sans jamais annoncer de limite OS ;
+> `GW.1` un heartbeat ML-DSA-65 vérifié contre la clé épinglée à l'appairage,
+> avec `last_seen` écrit atomiquement et rechargé au démarrage ; `GW.2` une
+> latence mesurée par ping/pong signé, challenge à usage unique et médiane qui
+> n'utilise que des nœuds réellement mesurés ; `SEC.1` un modèle de menace par
+> service (`docs/THREAT-MODEL-SERVICES.md`) qui cite les tests existants ;
+> `CLI.6` une table exhaustive des motifs de refus avec cause et action,
+> le code technique toujours affiché ; `FV-SEC-10` une limite par identité
+> (100 env/s) partagée entre reconnexions, qui n'affecte jamais les autres pairs ;
+> `FV-SEC-05` une rotation de clé de signature qui signe la nouvelle clé avec
+> l'ancienne, révoque l'ancienne et survit au redémarrage.
+> Le contrôleur `scripts/check-docs.mjs` recalcule ces valeurs et échoue si elles
+> divergent — c'est lui qui a trouvé les six écarts précédents.
+
+Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **586 tests, 0 échec**
+> (recompté le 2026-11-19 après le câblage de la preuve L1 et la preuve deux hôtes).
+Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is
 real: `pqcrypto-mlkem` (FIPS 203) and `pqcrypto-mldsa` (FIPS 204) with
@@ -244,16 +359,25 @@ files (Axiome 5).
 ## 7. The daemon (polygoned)
 
 A 5-second loop: `SystemSnapshot::capture` → `GlowUpEngine::tick` →
-`apply`. It measures CPU, RAM, GPU, bandwidth and computes an
-allocation; `apply()` re-nices the daemon and writes `memory.max` into
-its own cgroup. A command socket (`~/.polygone/daemon.sock`) accepts
-`set_alloc / shrink / grow / status`.
+`apply` → publication of the live IPC state. On Unix, `polygoned` starts
+`~/.polygone/daemon.sock` (unless `--dry-run`) and serves protocol v1
+requests: `status`, `ping`, `alloc_request` and `release`. The socket is
+owner-only (`0600`) and is removed after a graceful shutdown.
 
-> **Honest status :** no process currently reads the daemon socket, and
-> `user_active()` returns `false` on Linux — the "throttle on user
-> activity" is not wired. Bandwidth/GPU numbers are *reported, not
-> enforced*. `allocator.rs` (the "Wozniak" allocator) is legacy code not
-> used by the loop — the policy engine is `GlowUpEngine`.
+> **Honest status — 2026-11-02:** `apply()` only changes the daemon's
+> `nice` priority. The client now exposes `polygone node servir/status`: it
+> obtains a lease before opening the block-store port, and stops on daemon loss
+> or a `shrinking` policy signal. That signal persists through the full RAM
+> contraction; new leases are refused with `policy_shrinking` during that phase.
+> The transfer ceiling is self-imposed. On Linux, `polygone node servir
+> --isoler` can relaunch the consumer into a dedicated user-systemd cgroup v2
+> scope and verifies `memory.max` + `cpu.max`; the scope is outside the desktop
+> session cgroup. Without that explicit flag, no CPU/RAM OS quota is imposed.
+> macOS has no equivalent wired yet. `user_active()` remains `Unknown` on
+> Linux/macOS, not a verified idle state.
+> Bandwidth/GPU values are measured/reported, not enforced.
+> `allocator.rs` (the "Wozniak" allocator) is legacy code not used by the
+> active `GlowUpEngine` policy.
 
 ---
 
@@ -268,8 +392,8 @@ are written by hand.
 
 ## 9. Testing
 
-`cargo test --workspace` — 109 tests (client 47, core 34, relay 7,
-daemon 21). Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
+`cargo test --workspace` is the source of truth; do not rely on stale hard-coded
+counts. The workspace had **431 passing tests** on 2026-11-05. Highlights: 35/35 Shamir combinations (C(7,4)), ML-DSA-65
 exact sizes, wrong-key KEM failure, full network pipeline round-trips,
 relay routing/drop/ignore tests.
 
@@ -278,8 +402,8 @@ relay routing/drop/ignore tests.
 ## 10. Build
 
 ```bash
-cargo build --release            # all 4 binaries
-cargo test --workspace           # 109 tests
+cargo build --release            # 4 binaires produit (fabric : --features lab)
+cargo test --workspace           # 554 tests
 cargo clippy --all --all-targets -- -D warnings
 ```
 

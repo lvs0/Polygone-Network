@@ -7,10 +7,12 @@ members = [
     "crates/client",
     "crates/gateway",
     "crates/petals",
+    "crates/serverless",
+    "crates/fabric",
 ]
 
 [workspace.package]
-version = "2.0.0"
+version = "2.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 authors = ["Lévy Verpoort Scherpereel <relay-lvs0@protonmail.com>"]
@@ -19,6 +21,7 @@ repository = "https://github.com/lvs0/Polygone-Network"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+blake3 = "1"
 anyhow = "1"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }

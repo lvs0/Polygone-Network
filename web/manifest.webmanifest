@@ -1,0 +1,38 @@
+{
+  "name": "Polygone — Console",
+  "short_name": "Polygone",
+  "description": "Console locale du réseau de transit éphémère post-quantique. Aucun serveur ne voit le message.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "./node.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#030306",
+  "theme_color": "#030306",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Console du nœud",
+      "short_name": "Console",
+      "url": "./node.html"
+    },
+    {
+      "name": "Drive",
+      "short_name": "Drive",
+      "url": "./drive.html"
+    },
+    {
+      "name": "Mesh",
+      "short_name": "Mesh",
+      "url": "./mesh.html"
+    }
+  ]
+}

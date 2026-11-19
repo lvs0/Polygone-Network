@@ -47,6 +47,7 @@ pub mod backends;
 pub mod benchmarks;
 pub mod daemon;
 pub mod models;
+pub mod pipeline;
 pub mod types;
 
 pub use backends::InferenceBackend;
@@ -286,6 +287,10 @@ impl PetalsEngine {
 
 /// Re-export commonly used types
 pub mod prelude {
+    pub use crate::pipeline::{
+        plan, plan_with_peers, stages, validate, LayerRange, PeerCapacity, PipelinePlan,
+        PipelineStage, PlanError, ShardAssignment,
+    };
     pub use crate::{
         BackendType, BenchmarkConfig, BenchmarkResult, ChatRequest, ChatResponse,
         CompletionRequest, CompletionResponse, DeviceType, EngineConfig, GenerationConfig,

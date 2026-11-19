@@ -1,94 +1,101 @@
-//! Polygone Serverless — run functions on the network.
+//! `polygone serverless` — la commande utilisateur de Polygone Serverless.
 //!
-//! Request → Shamir 4-of-7 → ≥4 nodes execute → result reassembled.
+//! Elle s'appuie sur le crate `polygone-serverless`, qui porte la seule
+//! mécanique honnête du service :
+//!
+//! - la charge utile est découpée en **vraies parts Shamir 4-of-7** pour le
+//!   transit (`request::shards`) ;
+//! - le résultat, lui, ne se « reconstitue » pas à partir des parts : il est
+//!   accepté par **quorum**, c'est-à-dire quand `seuil` nœuds distincts
+//!   renvoient le même hash de sortie (`quorum::tally`).
+//!
+//! État : la commande prépare et vérifie la demande localement. **Aucun nœud
+//! n'est contacté** — le transport vers les nœuds fantômes (`ecouter
+//! --compute`) n'est pas branché sur ce chemin. Le dire à l'écran fait partie
+//! du contrat de la maison : on n'affiche pas un résultat qui n'existe pas.
 
-use polygone_core::NodeId;
-use polygone_core::crypto::shamir::{split, reconstruct, Fragment, FragmentId};
-use serde::{Deserialize, Serialize};
+use anyhow::Result;
 
-use anyhow::{Result, anyhow};
+use polygone_serverless::{reassemble, FunctionKind, ServerlessRequest};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ServerlessRequest {
-    pub id: String,
-    pub payload: Vec<u8>,
-    pub threshold: u8,
-    pub total: u8,
-}
+/// Construit la demande, vérifie la fragmentation, et rend un rapport lisible.
+///
+/// Retourne `true` si la vérification locale (4 parts sur 7 → même charge
+/// utile) a réussi.
+pub fn run(commande: &str, payload: &str, seuil: u8, parts: u8) -> Result<bool> {
+    let function = FunctionKind::Shell {
+        command: commande.to_string(),
+    };
+    let mut request = ServerlessRequest::new(function, payload.as_bytes().to_vec());
+    request.threshold = seuil;
+    request.total = parts;
+    request.validate()?;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct ServerlessResult {
-    pub request_id: String,
-    pub result: Vec<u8>,
-    pub nodes: Vec<NodeId>,
-}
+    let shards = request.shards()?;
+    let hash = request.request_hash();
 
-impl ServerlessRequest {
-    pub fn new(payload: Vec<u8>) -> Self {
-        let id = uuid_short();
-        Self {
-            id,
-            payload,
-            threshold: 4,
-            total: 7,
+    println!("⬡ Serverless — demande {}", request.id);
+    println!("  fonction      : shell `{commande}`");
+    println!(
+        "  charge utile  : {} octets · hash {}",
+        payload.len(),
+        hex::encode(&hash[..8])
+    );
+    println!(
+        "  politique     : {seuil}-of-{parts} — Shamir pour le transit, quorum pour le résultat"
+    );
+    println!("  parts :");
+    for shard in &shards {
+        println!(
+            "    · part {}  {} octets  hash {}",
+            shard.index,
+            shard.payload.len(),
+            hex::encode(&shard.content_hash[..8])
+        );
+    }
+
+    // Vérification locale réelle : on ne l'affirme pas, on la calcule.
+    let threshold = usize::from(seuil);
+    let sample = &shards[..threshold.min(shards.len())];
+    let restored = reassemble(sample, seuil)?;
+    let ok = restored == payload.as_bytes();
+    println!(
+        "  vérification  : {} parts sur {} → {} ",
+        threshold.min(shards.len()),
+        shards.len(),
+        if ok {
+            "charge utile identique"
+        } else {
+            "ÉCHEC — les parts ne se reconstituent pas"
         }
-    }
+    );
 
-    /// Split payload into Shamir 4-of-7 fragments using polygone_core (sharks crate).
-    /// Returns 7 fragments, each as Vec<u8> with [index][data] wire format.
-    pub fn shards(&self) -> Result<Vec<Vec<u8>>> {
-        let fragments = split(&self.payload, self.threshold, self.total)
-            .map_err(|e| anyhow!(e))?;
-        Ok(fragments
-            .into_iter()
-            .map(|f| {
-                let mut v = Vec::with_capacity(1 + f.data.len());
-                v.push(f.id.0);
-                v.extend_from_slice(&f.data);
-                v
-            })
-            .collect())
-    }
+    println!();
+    println!("  Aucun nœud n'a été contacté : le transport vers les nœuds fantômes");
+    println!("  n'est pas branché (état « partiel » dans STAGING.md). La demande");
+    println!("  et sa politique sont prêtes ; l'envoi reste à câbler.");
+
+    Ok(ok)
 }
 
-/// Reconstruct secret from ≥4 Shamir fragments (wire format: [index][data]).
-#[allow(dead_code)]
-pub fn reconstruct_from_shards(shards: &[Vec<u8>]) -> Result<Vec<u8>> {
-    let fragments: Vec<Fragment> = shards
-        .iter()
-        .filter_map(|s| {
-            if s.is_empty() {
-                return None;
-            }
-            let id = FragmentId(s[0]);
-            let data = s[1..].to_vec();
-            Some(Fragment { id, data })
-        })
-        .collect();
-    if fragments.len() < 4 {
-        anyhow::bail!("need ≥4 shares");
-    }
-    reconstruct(&fragments, 4).map_err(|e| anyhow!(e))
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl ServerlessResult {
-    #[allow(dead_code)]
-    pub fn new(request_id: String, result: Vec<u8>, nodes: Vec<NodeId>) -> Self {
-        Self {
-            request_id,
-            result,
-            nodes,
-        }
+    #[test]
+    fn split_and_reassemble_roundtrip() {
+        let ok = run("echo", "salut", 4, 7).expect("la demande doit être valide");
+        assert!(ok, "4 parts sur 7 doivent reconstituer la charge utile");
     }
-}
 
-fn uuid_short() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let mut s = String::new();
-    for _ in 0..8 {
-        s.push(char::from(b'A' + rng.gen_range(0..26)));
+    #[test]
+    fn rejects_policy_below_two() {
+        // Un seuil de 1 ne protège rien : le crate doit refuser.
+        assert!(run("echo", "salut", 1, 7).is_err());
     }
-    s
+
+    #[test]
+    fn rejects_more_parts_than_protocol_allows() {
+        assert!(run("echo", "salut", 4, 9).is_err());
+    }
 }

@@ -1,0 +1,22 @@
+# Preuve — compatibilite inter-versions du relais
+# date: 2026-11-09T15:41:01+01:00
+# HEAD: 9ff9360fed388fd74daf52a80c40e03491ee4933
+# client anterieur: polygone 2.0.0
+
+
+== 0. binaires ==
+relais courant   : /home/lvs0/Polygone-canonical/target/debug/polygone-relay
+client antérieur : /home/lvs0/Projects/Polygone-real/target/debug/polygone
+version antérieure : polygone 2.0.0
+
+== A. relais strict (défaut) : un HELLO hérité est refusé ==
+refus explicite : HELLO_DENIED auth_required
+
+== B. relais --allow-insecure-hello : le client hérité est accepté ==
+acceptation explicite : HELLO_OK (mode transition, journalisé)
+
+== C. le client hérité sait encore produire une identité v1 ==
+identité héritée : bcb256e41a001fb3… (16 caractères)
+
+== PASS ==
+compatibilité de transition prouvée ; incompatibilité client-à-client assumée et documentée

@@ -2,18 +2,13 @@
 
 use crate::resources::{
     BandwidthInfo, CpuInfo, GpuAllocation, GpuInfo, IpcEndpoint, MemoryInfo, NetInterface,
-    Platform, PlatformCaps, ProcessMemory, ServiceConfig,
+    Platform, PlatformCaps, ProcessMemory, ServiceConfig, StorageInfo, UserActivity,
 };
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::Command;
 
+#[derive(Default)]
 pub struct MacOSPlatform;
-
-impl Default for MacOSPlatform {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 impl MacOSPlatform {
     pub fn new() -> Self {
@@ -118,6 +113,24 @@ impl Platform for MacOSPlatform {
         })
     }
 
+    // Stockage : l'espace libre du montage qui héberge le répertoire de
+    // données. Même sémantique que Linux — un plafond mesuré, pas une
+    // réservation. En cas d'échec, `Err` : l'appelant publiera zéro (refus),
+    // jamais une valeur inventée.
+    fn storage_info(&self) -> anyhow::Result<StorageInfo> {
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let mounts = disks
+            .list()
+            .iter()
+            .map(|d| (d.mount_point(), d.total_space(), d.available_space()));
+        let (total, available) = crate::resources::mount_for_path(mounts, &self.data_dir())
+            .ok_or_else(|| anyhow::anyhow!("aucun montage ne couvre {:?}", self.data_dir()))?;
+        Ok(StorageInfo {
+            total_bytes: total,
+            available_bytes: available,
+        })
+    }
+
     fn process_memory(&self) -> anyhow::Result<ProcessMemory> {
         let out = Command::new("ps")
             .args(["-o", "rss,vsz", "-p", &std::process::id().to_string()])
@@ -137,10 +150,6 @@ impl Platform for MacOSPlatform {
             vms_bytes: vms,
             working_set_bytes: rss,
         })
-    }
-
-    fn set_memory_limit(&self, _bytes: u64) -> anyhow::Result<()> {
-        Err(anyhow::anyhow!("Memory limits not supported on macOS"))
     }
 
     fn bandwidth_info(&self) -> anyhow::Result<BandwidthInfo> {
@@ -253,8 +262,11 @@ impl Platform for MacOSPlatform {
     fn uptime(&self) -> anyhow::Result<u64> {
         Ok(0)
     }
-    fn user_active(&self) -> anyhow::Result<bool> {
-        Ok(false)
+    fn user_active(&self) -> anyhow::Result<UserActivity> {
+        // Même constat que sous Linux : aucune source branchée n'alimente cette
+        // information, donc `Unknown` — et surtout pas `false`, qui ferait
+        // passer une ignorance pour une mesure (docs/PLAN_FREIN.md §2).
+        Ok(UserActivity::Unknown)
     }
 
     fn config_dir(&self) -> std::path::PathBuf {

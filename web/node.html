@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Nœud — Polygone</title>
+<title>Console — Polygone</title>
+<link rel="manifest" href="./manifest.webmanifest" />
+<meta name="theme-color" content="#030306" />
+<link rel="icon" href="./icon.svg" type="image/svg+xml" />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="dashboard.css" />
 </head>
@@ -20,7 +23,7 @@
     </a>
     <nav>
       <a href="index.html">Accueil</a>
-      <a href="node.html" class="active">Nœud</a>
+      <a href="node.html" class="active">Console</a>
       <a href="drive.html">Drive</a>
       <a href="mesh.html">Mesh</a>
     </nav>
@@ -28,65 +31,77 @@
 </header>
 
 <main class="dashboard">
-  <!-- ── Status banner ─────────────────────────────────────────── -->
-  <section class="banner" data-state="active">
+  <!-- ── État de la gateway ─────────────────────────────────────── -->
+  <section class="banner" data-state="unknown">
     <div class="banner__left">
       <span class="banner__dot"></span>
       <div>
-        <h1>Nœud actif</h1>
-        <p>polygone · lvs0 · 127.0.0.1:4001</p>
+        <h1 id="banner-title">Connexion…</h1>
+        <p id="banner-sub">interrogation de la gateway locale</p>
       </div>
     </div>
     <div class="banner__right">
       <dl class="kv">
-        <dt>Uptime</dt><dd id="uptime">00:00:00</dd>
-        <dt>Peers</dt><dd id="peers">0</dd>
-        <dt>Version</dt><dd>v1.0.0</dd>
+        <dt>Nœuds connus</dt><dd id="nodes">—</dd>
+        <dt>Actifs (5 min)</dt><dd id="active">—</dd>
+        <dt>Latence médiane</dt><dd id="latency">—</dd>
       </dl>
     </div>
   </section>
 
-  <!-- ── Stats grid ────────────────────────────────────────────── -->
+  <!-- ── Mesures ──────────────────────────────────────────────── -->
   <section class="stats">
     <div class="stat">
-      <div class="stat__label">Trafic entrant</div>
-      <div class="stat__value" id="traffic-in">0 <span>b/s</span></div>
-      <div class="stat__spark"><svg viewBox="0 0 100 24" preserveAspectRatio="none" id="spark-in"><polyline points="" fill="none" stroke="currentColor" stroke-width="1.2" /></svg></div>
+      <div class="stat__label">Nœuds actifs</div>
+      <div class="stat__value"><span id="stat-active">—</span></div>
+      <div class="stat__sub">vus dans les 5 dernières minutes</div>
     </div>
 
     <div class="stat">
-      <div class="stat__label">Trafic sortant</div>
-      <div class="stat__value" id="traffic-out">0 <span>b/s</span></div>
-      <div class="stat__spark"><svg viewBox="0 0 100 24" preserveAspectRatio="none" id="spark-out"><polyline points="" fill="none" stroke="currentColor" stroke-width="1.2" /></svg></div>
+      <div class="stat__label">Nœuds connus</div>
+      <div class="stat__value"><span id="stat-nodes">—</span></div>
+      <div class="stat__sub">appairés, vivants ou non</div>
     </div>
 
     <div class="stat">
-      <div class="stat__label">Fragments Shamir</div>
-      <div class="stat__value"><span id="frag-ready">0</span><span class="stat__sep">/</span><span id="frag-needed">4</span></div>
-      <div class="bar"><div class="bar__fill" id="frag-bar" style="width:0%"></div></div>
-    </div>
-
-    <div class="stat stat--accent">
-      <div class="stat__label">Solde POLY</div>
-      <div class="stat__value" id="balance">0</div>
-      <div class="stat__sub"><span id="consumption">0</span> /min consommés</div>
+      <div class="stat__label">Latence médiane</div>
+      <div class="stat__value"><span id="stat-latency">—</span> <span id="stat-latency-unit"></span></div>
+      <div class="stat__sub" id="latency-note">aucune mesure disponible</div>
     </div>
   </section>
 
-  <!-- ── Modules + Log ─────────────────────────────────────────── -->
+  <!-- ── Services + limites ───────────────────────────────────── -->
   <section class="panels">
     <div class="panel">
-      <h2 class="panel__title">Modules</h2>
+      <h2 class="panel__title">Services annoncés</h2>
       <ul class="modules" id="modules">
-        <!-- populated by JS -->
+        <!-- rempli par dashboard.js -->
       </ul>
     </div>
 
-    <div class="panel panel--log">
-      <h2 class="panel__title">Activité</h2>
-      <ol class="log" id="log">
-        <!-- populated by JS -->
-      </ol>
+    <div class="panel">
+      <h2 class="panel__title">Diagnostic agrégé</h2>
+      <dl class="kv">
+        <dt>Tâches suivies</dt><dd id="diag-tasks">—</dd>
+        <dt>Exécuteur local</dt><dd id="diag-executor">—</dd>
+        <dt>Latences mesurées</dt><dd id="diag-latency-measured">—</dd>
+        <dt>Nœuds sans mesure</dt><dd id="diag-latency-unmeasured">—</dd>
+        <dt>Compteurs du daemon</dt><dd id="diag-daemon">—</dd>
+      </dl>
+      <p class="panel__hint" id="diag-note">rapport <code>/api/v1/diagnostics</code></p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__title">Ce que cette console ne montre pas</h2>
+      <ul class="limits">
+        <li>Aucun contenu de message : le relais et la gateway ne le lisent pas.</li>
+        <li>Aucun compteur de trafic ni de fragments : la gateway ne les expose pas, donc la console affiche « — » au lieu d'inventer un chiffre.</li>
+        <li>Aucune identité locale : les clés privées restent dans le binaire <code>polygone</code>, jamais dans le navigateur.</li>
+        <li>Une gateway arrêtée ou injoignable laisse toutes les valeurs inconnues ; rien n'est simulé.</li>
+      </ul>
+      <p class="panel__hint">
+        Démarrer la gateway : <code>polygone-gateway --site-dir ./web</code>.
+      </p>
     </div>
   </section>
 </main>
@@ -100,13 +115,7 @@
   </li>
 </template>
 
-<template id="log-template">
-  <li class="log__entry">
-    <span class="log__time"></span>
-    <span class="log__msg"></span>
-  </li>
-</template>
-
 <script src="dashboard.js"></script>
+<script src="pwa.js" defer></script>
 </body>
 </html>

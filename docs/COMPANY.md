@@ -1,5 +1,12 @@
 # ⬡ POLYGONE — Company OS (Apple en agents)
 
+> ## ⚠ Instantané daté — ne pas lire comme l'état courant
+>
+> Vision d'organisation de **septembre 2026** (lignée `github/main`, 15 rôles
+> SUPERPAW), conservée comme couche historique par la réconciliation
+> (ADR-0004 §5). Elle ne décrit ni la gouvernance ni l'état actuel du produit :
+> l'état mesuré courant fait foi dans `project/STATUS.md`.
+
 > **Source** : `DOSSIER-POLYGONE-DREAM.md` §4 — ta demande Q4 : "un système d'agent qui représente le nombre de salariés d'une grosse entreprise comme Apple pour qu'il travaille ensemble en continue chacun dans leurs rôles et qui réalise Polygone à la hauteur la plus haute."
 > **Statut** : v1.0 — org chart + RACI + KPIs + cadence. Implémentation : `.claude/company/` + `scripts/company-loop.sh` + Ruflo `hierarchical-mesh` 15 agents.
 > **Licence** : AGPL-3.0.

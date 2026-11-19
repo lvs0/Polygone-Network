@@ -5,11 +5,17 @@
 //! Embeddable library + standalone binary.
 
 pub mod allocator;
+// `cli.rs` n'était atteignable depuis aucune cible : ses tests ne tournaient
+// jamais. Le module est déclaré ici pour que le chemin testé et le chemin
+// compilé soient le même.
 pub mod bandwidth;
+pub mod cli;
+pub mod client;
 pub mod cpu;
 pub mod gpu;
 pub mod policy;
 pub mod resources;
+pub mod runtime;
 pub mod socket;
 pub mod system;
 
@@ -20,12 +26,12 @@ pub mod system;
 // everything from the crate root.
 pub use allocator::Allocation;
 pub use bandwidth::BandwidthAllocation;
+pub use client::DaemonClient;
 pub use cpu::CpuAllocation;
 pub use gpu::GpuAllocation;
 pub use resources::{
     create_platform,
     BandwidthInfo,
-    CpuAffinityMode,
     CpuInfo,
     // Also expose resources types that glow_up.rs depends on
     CpuTopology,
@@ -37,6 +43,7 @@ pub use resources::{
     Platform,
     PlatformCaps,
     ServiceConfig,
+    UserActivity,
 };
 pub use system::{BandwidthSnapshot, CpuSnapshot, GpuSnapshot, MemorySnapshot, SystemSnapshot};
 

@@ -4,7 +4,6 @@
 //! into concrete allocations. Lightweight, deterministic, no ML.
 
 use crate::allocator::Allocation;
-use crate::resources::CpuAffinityMode;
 use crate::system::SystemSnapshot;
 use crate::Platform;
 use anyhow::Result;
@@ -238,8 +237,6 @@ pub struct DaemonConfig {
     #[serde(default)]
     pub safety: SafetyMargins,
     /// Platform-specific feature toggles
-    #[serde(default)]
-    pub cpu_affinity_mode: CpuAffinityMode,
     #[serde(default = "default_true")]
     pub memory_limit_enabled: bool,
     #[serde(default = "default_true")]
@@ -264,7 +261,6 @@ impl Default for DaemonConfig {
             custom_limits: None,
             behavior: BehaviorConfig::default(),
             safety: SafetyMargins::default(),
-            cpu_affinity_mode: CpuAffinityMode::Auto,
             memory_limit_enabled: true,
             bandwidth_shaping: true,
             gpu_allocation_enabled: true,
@@ -349,15 +345,6 @@ impl AllocationHistory {
         }
     }
 
-    fn trend_ram(&self) -> i64 {
-        if self.ram_allocations.len() < 2 {
-            return 0;
-        }
-        let first = *self.ram_allocations.front().unwrap() as i64;
-        let last = *self.ram_allocations.back().unwrap() as i64;
-        last - first
-    }
-
     fn len(&self) -> usize {
         self.ram_allocations.len()
     }
@@ -372,9 +359,27 @@ impl GlowUpEngine {
             .map(|(_, p)| *p)
             .unwrap_or(TIER_PRESETS[1].1);
 
+        // L'état initial est publié avant le premier tick. Il doit donc déjà
+        // respecter le plafond configuré, sinon `ram_headroom_bytes()`
+        // pourrait devenir négatif (saturé à zéro) pendant toute l'hystérésis.
+        // En l'absence de mesure mémoire fiable, démarrer à zéro est plus sûr
+        // que d'inventer une capacité initiale.
+        let configured_ram_percent = config
+            .custom_limits
+            .map(|limits| limits.max_ram_percent)
+            .unwrap_or(preset.ram_pct);
+        let measured_total_ram = platform
+            .memory_info()
+            .map(|memory| memory.total_bytes)
+            .unwrap_or(0);
+        let configured_ram_cap = (measured_total_ram as u128 * configured_ram_percent as u128 / 100)
+            .min(u64::MAX as u128) as u64;
+        let bootstrap_ram = (preset.ram_pct as u64 * 1024 * 1024 * 1024 / 100)
+            .min(2 * 1024 * 1024 * 1024)
+            .min(configured_ram_cap);
+
         let initial = Allocation {
-            ram_bytes: (preset.ram_pct as u64 * 1024 * 1024 * 1024 / 100)
-                .min(2 * 1024 * 1024 * 1024),
+            ram_bytes: bootstrap_ram,
             bandwidth_mbps: 10,
             shrink_streak: 0,
             free_mem_avg_bytes: 0,
@@ -431,7 +436,7 @@ impl GlowUpEngine {
         }
 
         // User activity throttle
-        if behavior.throttle_on_user_activity && snap.user_active {
+        if behavior.throttle_on_user_activity && snap.user_active.is_active() {
             alloc.ram_bytes = (alloc.ram_bytes as f32 * 0.5) as u64;
             alloc.bandwidth_mbps = (alloc.bandwidth_mbps as f32 * 0.5) as u32;
         }
@@ -453,22 +458,38 @@ impl GlowUpEngine {
         let mut result = target;
         let current = &self.current;
 
-        // RAM: grow fast, shrink slow + hysteresis
+        // L'hystérésis doit mesurer la pression de la cible, pas la pente de
+        // l'allocation déjà lissée. L'ancienne condition (historique décroissant)
+        // était auto-bloquante : tant que le daemon retenait son allocation,
+        // l'historique restait plat et le premier retrait ne pouvait jamais partir.
+        let ram_under_pressure = target.ram_bytes < current.ram_bytes;
+        result.shrink_streak = if ram_under_pressure {
+            current.shrink_streak.saturating_add(1)
+        } else {
+            0
+        };
+        let allow_ram_shrink = result.shrink_streak >= behavior.shrink_hysteresis_ticks.max(1);
+        result.shrinking = false;
+
+        // RAM : croissance rapide, retrait progressif après N cycles de pression
+        // consécutifs. Une fois le seuil atteint, `shrinking` reste vrai pendant
+        // toute la contraction, pas seulement sur un tick : les consommateurs
+        // qui interrogent le socket peuvent ainsi observer le signal sans course
+        // contre l'intervalle de polling.
         if target.ram_bytes > current.ram_bytes {
             let step =
                 (current.ram_bytes * behavior.grow_step_pct as u64 / 100).max(64 * 1024 * 1024);
             result.ram_bytes = (current.ram_bytes + step).min(target.ram_bytes);
-        } else if target.ram_bytes < current.ram_bytes {
-            if self.history.trend_ram() < 0
-                && self.history.len() >= behavior.shrink_hysteresis_ticks as usize
-            {
+        } else if ram_under_pressure {
+            if allow_ram_shrink {
                 let step = (current.ram_bytes * behavior.shrink_step_pct as u64 / 100)
                     .max(64 * 1024 * 1024);
                 result.ram_bytes = current.ram_bytes.saturating_sub(step).max(target.ram_bytes);
             } else {
-                result.ram_bytes = current.ram_bytes; // Hold
+                result.ram_bytes = current.ram_bytes; // Hystérésis : maintien
             }
         }
+        result.shrinking = ram_under_pressure && allow_ram_shrink;
 
         // Bandwidth
         if target.bandwidth_mbps > current.bandwidth_mbps {
@@ -493,7 +514,14 @@ impl GlowUpEngine {
         result
     }
 
-    /// Apply allocation to platform (CPU affinity, priority, memory limit)
+    /// Apply allocation to platform (CPU priority).
+    ///
+    /// Le plafond mémoire n'est **plus** posé ici, et c'est une décision, pas un
+    /// oubli : le daemon n'écrit jamais le cgroup qui le contient. Ce fichier
+    /// appartient à `systemd` (`MemoryMax=` de l'unité `--user`) ; un daemon qui
+    /// le réécrit à chaque tick se bat contre son gestionnaire et plafonne le
+    /// cgroup de son lanceur — terminal, navigateur, session graphique — pas
+    /// lui-même. Voir `docs/PLAN_PRIORITES_2B5.md` §1/§4.
     pub fn apply(&self, alloc: &Allocation) -> Result<()> {
         // CPU priority via nice value
         let nice = if alloc.ram_bytes > 512 * 1024 * 1024 {
@@ -502,8 +530,6 @@ impl GlowUpEngine {
             5
         };
         self.platform.set_cpu_priority(nice)?;
-        // Memory limit (best-effort)
-        let _ = self.platform.set_memory_limit(alloc.ram_bytes);
         Ok(())
     }
 
@@ -527,6 +553,169 @@ mod tests {
     use super::*;
     use crate::CpuTopology;
 
+    fn test_snapshot(total_ram: u64, available_ram: u64) -> SystemSnapshot {
+        SystemSnapshot {
+            storage: Default::default(),
+            cpu: crate::CpuSnapshot {
+                usage_percent: 10.0,
+                per_core: vec![10.0; 4],
+                load_average: [0.1, 0.1, 0.1],
+                frequency_mhz: 2_000.0,
+                topology: CpuTopology::default(),
+            },
+            memory: crate::MemorySnapshot {
+                total_bytes: total_ram,
+                used_bytes: total_ram.saturating_sub(available_ram),
+                free_bytes: available_ram,
+                available_bytes: available_ram,
+                swap_used_bytes: 0,
+                swap_total_bytes: 0,
+            },
+            bandwidth: crate::BandwidthSnapshot {
+                interface: "test0".into(),
+                rx_mbps: 5.0,
+                tx_mbps: 5.0,
+                total_mbps: 10.0,
+            },
+            gpu: Vec::new(),
+            timestamp: 1,
+            user_active: crate::UserActivity::Idle,
+        }
+    }
+
+    #[test]
+    fn test_ram_shrink_starts_after_consecutive_pressure_and_is_reported() {
+        let config = DaemonConfig {
+            tier: AllocationTier::Balanced,
+            custom_limits: Some(ResourceLimits {
+                max_cpu_percent: 85,
+                max_ram_percent: 10,
+                max_bandwidth_percent: 60,
+                max_gpu_percent: 40,
+            }),
+            behavior: BehaviorConfig {
+                grow_step_pct: 10,
+                shrink_step_pct: 20,
+                shrink_hysteresis_ticks: 3,
+                throttle_on_user_activity: false,
+                tick_interval_secs: 1,
+            },
+            safety: SafetyMargins {
+                min_free_ram_gb: 15.92,
+                ..SafetyMargins::default()
+            },
+            ..DaemonConfig::default()
+        };
+        let mut engine = GlowUpEngine::new(config, crate::create_platform());
+        let initial_ram = engine.current.ram_bytes;
+        let snap = test_snapshot(16 * 1024 * 1024 * 1024, 15 * 1024 * 1024 * 1024);
+
+        // Les deux premiers ticks confirment la pression mais ne retirent rien.
+        for expected_streak in 1..3 {
+            let allocation = engine.tick(&snap).expect("tick sous pression");
+            assert_eq!(allocation.ram_bytes, initial_ram);
+            assert_eq!(allocation.shrink_streak, expected_streak);
+            assert!(!allocation.shrinking, "pas de signal avant le vrai retrait");
+        }
+
+        // Au troisième tick, la baisse est effective et le consommateur peut
+        // voir le signal dans le même état que l'allocation publiée.
+        let allocation = engine.tick(&snap).expect("tick de retrait");
+        assert!(allocation.ram_bytes < initial_ram);
+        assert_eq!(allocation.shrink_streak, 3);
+        assert!(allocation.shrinking, "un retrait engagé doit être annoncé");
+
+        // Le signal reste visible à chaque tick pendant que la cible n'est pas
+        // encore atteinte, afin qu'un client ne le rate pas entre deux polls.
+        let mut last = allocation;
+        for _ in 0..10 {
+            if !last.shrinking {
+                break;
+            }
+            last = engine.tick(&snap).expect("tick pendant la contraction");
+            if last.ram_bytes > (16 * 1024 * 1024 * 1024) / 100 {
+                assert!(last.shrinking, "signal maintenu avant la cible");
+            }
+        }
+        assert!(
+            !last.shrinking,
+            "le signal s'efface une fois la cible atteinte"
+        );
+        assert_eq!(last.ram_bytes, 64 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_ram_shrink_streak_resets_when_pressure_disappears() {
+        let config = DaemonConfig {
+            tier: AllocationTier::Balanced,
+            custom_limits: Some(ResourceLimits {
+                max_cpu_percent: 85,
+                max_ram_percent: 10,
+                max_bandwidth_percent: 60,
+                max_gpu_percent: 40,
+            }),
+            behavior: BehaviorConfig {
+                shrink_hysteresis_ticks: 3,
+                throttle_on_user_activity: false,
+                ..BehaviorConfig::default()
+            },
+            safety: SafetyMargins {
+                min_free_ram_gb: 15.92,
+                ..SafetyMargins::default()
+            },
+            ..DaemonConfig::default()
+        };
+        let mut engine = GlowUpEngine::new(config, crate::create_platform());
+        let low = test_snapshot(16 * 1024 * 1024 * 1024, 15 * 1024 * 1024 * 1024);
+        engine.tick(&low).expect("premier tick sous pression");
+        engine.tick(&low).expect("deuxième tick sous pression");
+        assert_eq!(engine.current.shrink_streak, 2);
+
+        engine.set_custom_limits(ResourceLimits {
+            max_cpu_percent: 85,
+            max_ram_percent: 80,
+            max_bandwidth_percent: 60,
+            max_gpu_percent: 40,
+        });
+        // La marge de sûreté revient à zéro dans cette contre-épreuve : la
+        // cible doit redevenir supérieure à l'allocation courante.
+        engine.config.safety.min_free_ram_gb = 0.0;
+        let before_recovery = engine.current.ram_bytes;
+        let high = test_snapshot(16 * 1024 * 1024 * 1024, 15 * 1024 * 1024 * 1024);
+        let allocation = engine
+            .tick(&high)
+            .expect("tick après disparition de la pression");
+        assert_eq!(allocation.shrink_streak, 0);
+        assert!(!allocation.shrinking);
+        assert!(
+            allocation.ram_bytes > before_recovery,
+            "la croissance doit reprendre"
+        );
+    }
+
+    #[test]
+    fn test_initial_allocation_respects_custom_ram_cap() {
+        let platform = crate::create_platform();
+        let total_ram = platform.memory_info().expect("mesure RAM").total_bytes;
+        let config = DaemonConfig {
+            tier: AllocationTier::Balanced,
+            custom_limits: Some(ResourceLimits {
+                max_cpu_percent: 85,
+                max_ram_percent: 1,
+                max_bandwidth_percent: 60,
+                max_gpu_percent: 40,
+            }),
+            ..DaemonConfig::default()
+        };
+        let engine = GlowUpEngine::new(config, platform);
+        let allowed = (total_ram as u128 / 100) as u64;
+        assert!(
+            engine.current.ram_bytes <= allowed,
+            "l'état initial ne doit pas dépasser le plafond personnalisé : {} > {allowed}",
+            engine.current.ram_bytes
+        );
+    }
+
     #[test]
     fn test_tier_presets() {
         assert_eq!(TIER_PRESETS[0].0, "eco");
@@ -539,6 +728,7 @@ mod tests {
     fn test_safety_application() {
         let config = DaemonConfig::default();
         let snap = SystemSnapshot {
+            storage: Default::default(),
             cpu: crate::CpuSnapshot {
                 usage_percent: 90.0,
                 per_core: vec![90.0; 8],
@@ -575,7 +765,7 @@ mod tests {
                 power_watts: 50,
             }],
             timestamp: 0,
-            user_active: false,
+            user_active: crate::UserActivity::Idle,
         };
         let limits = ResourceLimits {
             max_cpu_percent: 60,
@@ -594,7 +784,6 @@ mod tests {
         // Format actuel (écrit par --gen-config depuis it.16) : tier scalaire.
         let toml_str = r#"
 tier = "Balanced"
-cpu_affinity_mode = "Auto"
 memory_limit_enabled = true
 bandwidth_shaping = true
 gpu_allocation_enabled = true
@@ -653,7 +842,6 @@ mode = "linux"
             toml::from_str(toml_str).expect("config legacy (table [tier]) lisible");
         assert_eq!(config.tier, AllocationTier::Balanced);
         // Champs absents du format legacy → defaults, jamais d'erreur.
-        assert_eq!(config.cpu_affinity_mode, CpuAffinityMode::Auto);
         assert!(config.memory_limit_enabled);
         assert!(config.service_integration);
     }

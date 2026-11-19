@@ -8,7 +8,7 @@ use crate::types::{
     ModelCapabilities, ModelInfo, ModelSource,
 };
 use anyhow::Result;
-use futures::{Stream, TryStreamExt};
+use futures::{Stream, StreamExt};
 use reqwest::Client;
 use std::time::Instant;
 
@@ -236,26 +236,28 @@ impl OllamaBackend {
 
         let stream = response.bytes_stream();
         let stream = stream
-            .map_err(anyhow::Error::from)
-            .try_filter_map(|bytes| async move {
-                let text = String::from_utf8_lossy(&bytes);
-                // Parse SSE format
-                for line in text.lines() {
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        if data == "[DONE]" {
-                            return Ok(None);
-                        }
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                            if let Some(response_text) =
-                                json.get("response").and_then(|r| r.as_str())
-                            {
-                                return Ok(Some(response_text.to_string()));
+            .map(|chunk| {
+                chunk.map_err(anyhow::Error::from).map(|bytes| {
+                    let text = String::from_utf8_lossy(&bytes);
+                    // Parse SSE format
+                    for line in text.lines() {
+                        if let Some(data) = line.strip_prefix("data: ") {
+                            if data == "[DONE]" {
+                                return None;
+                            }
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                                if let Some(response_text) =
+                                    json.get("response").and_then(|r| r.as_str())
+                                {
+                                    return Some(response_text.to_string());
+                                }
                             }
                         }
                     }
-                }
-                Ok(None)
-            });
+                    None
+                })
+            })
+            .filter_map(|r| async move { r.transpose() });
 
         Ok(Box::new(Box::pin(stream)))
     }

@@ -2,19 +2,40 @@ name: Release
 
 # Publie les binaires précompilés sur GitHub Releases à chaque tag `v*`,
 # avec un SHA256SUMS que l'installateur vérifie avant extraction :
-#   curl -fsSL https://github.com/lvs0/Polygone-Network/releases/latest/download/install.sh | bash
+#   curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/lvs0/Polygone-Network/main/install.sh | bash
 #   → https://github.com/lvs0/Polygone-Network/releases/download/<tag>/polygone-<os>-<arch>.tar.gz
 
 on:
   push:
     tags: ['v*']
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
+  prepare_release:
+    name: Create release once
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure the tag release exists before parallel uploads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; assets will be appended."
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes
+          fi
+
   release:
+    needs: prepare_release
     name: Release (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -23,40 +44,49 @@ jobs:
         include:
           - os: ubuntu-latest
             target: linux-x86_64
+            rust_target: x86_64-unknown-linux-gnu
           - os: ubuntu-24.04-arm
             target: linux-aarch64
+            rust_target: aarch64-unknown-linux-gnu
+          - os: macos-latest
+            target: macos-aarch64
+            rust_target: aarch64-apple-darwin
+          # macos-latest est ARM64 (macos-26-arm64) : le x86_64 est
+          # CROSS-compilé, pas natif. macos-14 (intel) est retiré : un job
+          # qui le demande est annulé à l'assignation (vérifié 2026-11-19).
           - os: macos-latest
             target: macos-x86_64
-          - os: macos-14
-            target: macos-aarch64
+            rust_target: x86_64-apple-darwin
     steps:
-      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608 # v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable, 2026-08-05
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_target }}
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, 2026-08-06
+        with:
+          key: ${{ matrix.rust_target }}
 
       - name: Build release binaries
-        run: cargo build --release -p polygone-client -p polygone-relay -p polygoned
+        run: cargo build --release --target ${{ matrix.rust_target }} -p polygone-client -p polygone-relay -p polygoned -p polygone-gateway
 
       - name: Package tarball
         shell: bash
         run: |
           mkdir -p dist
           tar -czf "dist/polygone-${{ matrix.target }}.tar.gz" \
-            -C target/release \
-            polygone polygone-client polygone-relay polygoned
-          sha256sum "dist/polygone-${{ matrix.target }}.tar.gz" | awk '{print $1}' > "dist/polygone-${{ matrix.target }}.tar.gz.sha256"
-          echo "SHA256 $(cat dist/polygone-${{ matrix.target }}.tar.gz.sha256)  polygone-${{ matrix.target }}.tar.gz"
+            -C "target/${{ matrix.rust_target }}/release" \
+            polygone polygone-relay polygoned polygone-gateway \
+            -C "$GITHUB_WORKSPACE" web
 
       - name: Upload binaries
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2, 2026-04-12
         with:
-          files: |
-            dist/polygone-${{ matrix.target }}.tar.gz
-            dist/polygone-${{ matrix.target }}.tar.gz.sha256
+          files: dist/polygone-${{ matrix.target }}.tar.gz
 
   checksums:
     name: SHA256SUMS
@@ -64,19 +94,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all release assets
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2, 2026-04-12
-        with:
-          download_assets: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'polygone-*.tar.gz' \
+            --dir dist
 
-      - name: Generate and upload SHA256SUMS
-        shell: bash
+      - name: Generate SHA256SUMS
+        working-directory: dist
         run: |
           sha256sum polygone-*.tar.gz > SHA256SUMS
           echo "SHA256SUMS generated:"
           cat SHA256SUMS
-        # Re-upload via the release action (second invocation appends).
+
       - name: Upload SHA256SUMS
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2, 2026-04-12
         with:
-          files: SHA256SUMS
-          generate_release_notes: true
+          tag_name: ${{ github.ref_name }}
+          files: dist/SHA256SUMS
+          fail_on_unmatched_files: true

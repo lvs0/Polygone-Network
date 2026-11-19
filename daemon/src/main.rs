@@ -12,10 +12,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use polygoned::{
-    create_platform,
-    socket::{notify_allocation, notify_shrink, socket_path},
-    Allocation, DaemonConfig, GlowUpEngine, SystemSnapshot,
+    create_platform, socket::socket_path, Allocation, DaemonConfig, GlowUpEngine, SystemSnapshot,
 };
+
+use polygoned::client::DaemonClient;
+use polygoned::runtime::{publish_runtime_state, run_tick, runtime_state};
+use polygoned::socket::Reply;
+#[cfg(unix)]
+use polygoned::socket::{bind_listener, serve};
+use std::sync::RwLock;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -80,7 +85,7 @@ fn main() -> Result<()> {
     }
 
     if args.gen_config {
-        return generate_config_file(&config, &*platform);
+        return generate_config_file(&config, &*platform, args.config.as_deref());
     }
 
     // Setup Ctrl+C handler
@@ -104,6 +109,32 @@ fn main() -> Result<()> {
 
     let mut engine = GlowUpEngine::new(config, platform);
 
+    // État partagé construit depuis une vraie mesure ; run_tick en sera
+    // l'unique chemin de publication. DaemonState::new reste réservé aux tests.
+    let initial_snapshot = SystemSnapshot::capture(&*engine.platform);
+    let shared = Arc::new(RwLock::new(runtime_state(
+        &engine,
+        &initial_snapshot,
+        started_at_secs,
+        0,
+    )));
+
+    // Le serveur IPC était implémenté et testé, mais jamais démarré par le
+    // binaire. En dry-run, aucun socket n'est ouvert.
+    #[cfg(unix)]
+    let ipc = if args.dry_run {
+        None
+    } else {
+        let path = socket_path();
+        let listener = bind_listener(&path)?;
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let server_state = Arc::clone(&shared);
+        let server_shutdown = Arc::clone(&shutdown);
+        let server = std::thread::spawn(move || serve(listener, server_state, server_shutdown));
+        log::info!("polygoned: IPC prêt sur {}", path.display());
+        Some((shutdown, server, path))
+    };
+
     // Shared live-status for --expose HTTP endpoint, if enabled
     let status_state: Arc<std::sync::Mutex<DaemonStatus>> =
         Arc::new(std::sync::Mutex::new(DaemonStatus {
@@ -126,27 +157,18 @@ fn main() -> Result<()> {
     while RUNNING.load(Ordering::SeqCst) {
         std::thread::sleep(tick);
 
-        // Capture system snapshot
-        let snap = SystemSnapshot::capture(&*engine.platform);
-
-        // Compute allocation
-        let alloc = match engine.tick(&snap) {
-            Ok(a) => a,
-            Err(e) => {
-                log::error!("tick error: {}", e);
+        // Capture → décision → application éventuelle → publication : un seul
+        // chemin testé, y compris en dry-run (sans exposer de socket).
+        let seq = tick_count.saturating_add(1);
+        let outcome = match run_tick(&mut engine, &shared, started_at_secs, seq, !args.dry_run) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                log::error!("tick error: {}", error);
                 continue;
             }
         };
-
-        // Apply to platform
-        if !args.dry_run {
-            if let Err(e) = engine.apply(&alloc) {
-                log::warn!("apply failed: {}", e);
-            }
-            if let Err(e) = notify_allocation(&alloc, alloc.shrinking) {
-                log::debug!("notify: {}", e);
-            }
-        }
+        let snap = outcome.snapshot;
+        let alloc = outcome.allocation;
 
         // Log
         log_alloc(&alloc, &snap);
@@ -157,6 +179,7 @@ fn main() -> Result<()> {
         }
 
         tick_count += 1;
+
         if tick_count.is_multiple_of(60) {
             log::info!(
                 "polygoned: status | CPU:{:.0}% RAM:{:.1}/{:.1}GB Alloc:{:.1}GB BW:{}Mbps GPU:{}MB tier:{} {}",
@@ -172,13 +195,33 @@ fn main() -> Result<()> {
         }
     }
 
-    // Clean shutdown
+    // Clean shutdown. Publier zéro AVANT de fermer l'IPC, puis arrêter le
+    // serveur et retirer uniquement le socket que ce processus vient de créer.
     if !args.dry_run {
         log::info!("polygoned: final shutdown — shrinking allocation to zero");
         engine.current.ram_bytes = 0;
         engine.current.bandwidth_mbps = 0;
-        if let Err(e) = notify_shrink("shutdown") {
-            log::debug!("shrink notify: {}", e);
+
+        let final_snapshot = SystemSnapshot::capture(&*engine.platform);
+        publish_runtime_state(
+            &shared,
+            runtime_state(&engine, &final_snapshot, started_at_secs, tick_count + 1),
+        );
+
+        #[cfg(unix)]
+        if let Some((shutdown, server, path)) = ipc {
+            shutdown.store(true, Ordering::SeqCst);
+            if server.join().is_err() {
+                log::error!("polygoned: le thread IPC s'est arrêté sur panic");
+            }
+            if let Err(error) = std::fs::remove_file(&path) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!(
+                        "polygoned: impossible de retirer le socket {}: {error}",
+                        path.display()
+                    );
+                }
+            }
         }
     }
 
@@ -223,7 +266,13 @@ fn handle_command(
             );
             println!(
                 "  User active : {}",
-                if snap.user_active { "yes" } else { "no" }
+                match snap.user_active {
+                    polygoned::UserActivity::Active => "yes",
+                    polygoned::UserActivity::Idle => "no",
+                    // Ne jamais afficher « no » pour une ignorance : c'est
+                    // exactement le mensonge d'origine (docs/PLAN_FREIN.md §2).
+                    polygoned::UserActivity::Unknown => "unknown (no source)",
+                }
             );
             println!();
 
@@ -243,12 +292,22 @@ fn handle_command(
                 sock.display(),
                 if sock.exists() { "✅" } else { "❌" }
             );
+            // Les compteurs vivent dans le serveur : les lire ici, c'est le
+            // seul chemin qui répond à « pourquoi mes nœuds sont refusés ? ».
+            println!("  Refus       : {}", refusal_lines().join(" | "));
             println!();
             Ok(())
         }
         Commands::Stop => {
-            notify_shrink("user_requested")?;
-            println!("polygoned: shrink signal sent.");
+            // Le protocole socket n'expose pas de requête d'arrêt : le daemon
+            // s'arrête sur signal système (SIGTERM), que `systemd` envoie via
+            // `systemctl --user stop polygoned`. On ne prétend donc pas avoir
+            // « envoyé un signal » depuis ici — on indique la vraie commande.
+            // L'ancien `notify_shrink` visait une fonction inexistante : il
+            // échouait en silence et n'arrêtait rien.
+            println!(
+                "polygoned: pour arrêter le daemon, utilisez « systemctl --user stop polygoned »."
+            );
             Ok(())
         }
         Commands::Doctor => {
@@ -349,7 +408,35 @@ fn run_doctor(platform: &dyn polygoned::Platform) {
         if sock.exists() { "✅" } else { "❌" }
     );
 
+    // Aucun chiffre inventé quand le daemon ne répond pas : « non mesurés »
+    // n'est pas « zéro refus ».
+    println!("\n  Refus d'allocation :");
+    for line in refusal_lines() {
+        println!("    {line}");
+    }
+
     println!("\n  ✅ All checks complete");
+}
+
+/// Refus d'allocation lus depuis le daemon qui les compte (OPS.2).
+///
+/// Sans daemon joignable : « non mesurés », jamais une carte vide présentée
+/// comme un zéro mesuré.
+fn refusal_lines() -> Vec<String> {
+    let sock = socket_path();
+    match DaemonClient::connect_with_timeout(&sock, Duration::from_millis(800))
+        .and_then(|mut client| client.refusals())
+    {
+        Ok(Reply::Refusals { counts, .. }) if counts.is_empty() => {
+            vec!["aucun depuis le démarrage".to_string()]
+        }
+        Ok(Reply::Refusals { counts, .. }) => counts
+            .iter()
+            .map(|(reason, count)| format!("{reason}: {count}"))
+            .collect(),
+        Ok(other) => vec![format!("non mesurés (réponse inattendue : {other:?})")],
+        Err(_) => vec!["non mesurés (daemon absent)".to_string()],
+    }
 }
 
 fn load_or_create_config(args: &Args) -> Result<DaemonConfig> {
@@ -380,9 +467,19 @@ fn load_or_create_config(args: &Args) -> Result<DaemonConfig> {
     }
 }
 
-fn generate_config_file(config: &DaemonConfig, platform: &dyn polygoned::Platform) -> Result<()> {
-    let path = platform.config_dir().join("daemon.toml");
-    std::fs::create_dir_all(platform.config_dir())?;
+fn generate_config_file(
+    config: &DaemonConfig,
+    platform: &dyn polygoned::Platform,
+    explicit_path: Option<&str>,
+) -> Result<()> {
+    let path = explicit_path
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| platform.config_dir().join("daemon.toml"));
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    std::fs::create_dir_all(parent)?;
 
     // Sérialisé par serde : le format écrit == le format relu par
     // `toml::from_str`. (Bug corrigé : l'ancienne écriture manuelle
@@ -521,5 +618,31 @@ fn run_status_http(addr: SocketAddr, state: Arc<std::sync::Mutex<DaemonStatus>>)
             use std::io::Write;
             let _ = stream.write_all(resp.as_bytes());
         });
+    }
+}
+
+#[cfg(test)]
+mod config_generation_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_config_path_is_created_and_roundtrips() {
+        let unique = format!(
+            "polygone-config-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let directory = std::env::temp_dir().join(unique);
+        let path = directory.join("custom").join("daemon.toml");
+        let platform = create_platform();
+        let config = DaemonConfig::default();
+        generate_config_file(&config, &*platform, Some(path.to_str().unwrap())).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        let parsed: DaemonConfig = toml::from_str(&content).unwrap();
+        assert_eq!(parsed.tier, config.tier);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

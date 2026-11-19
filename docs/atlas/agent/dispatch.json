@@ -1,0 +1,129 @@
+{
+  "repo": "../../..",
+  "agentCommand": null,
+  "agentCommandNote": [
+    "null = dry-run : le brief est écrit, aucune tâche n’est exécutée.",
+    "Configurer un runner explicitement après audit.",
+    "[\"bun\", \"run\", \"cli\", \"--prompt-file\", \"{prompt}\"]",
+    "Les jetons {prompt}, {repo} et {task} sont substitués.",
+    "Le chemin repo est résolu relativement au fichier orchestrateur.",
+    "maxParallel est indicatif ; ce script ne lance pas de workers parallèles.",
+    "Aucun push sans allowPush: true."
+  ],
+  "maxParallel": 2,
+  "taskTimeoutMs": 1800000,
+  "commitPrefix": "polygone",
+  "checks": [
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ]
+    },
+    {
+      "name": "docs",
+      "command": [
+        "node",
+        "scripts/check-docs.mjs",
+        "--tests",
+        "372"
+      ]
+    },
+    {
+      "name": "atlas",
+      "command": [
+        "node",
+        "scripts/check-atlas.mjs"
+      ]
+    },
+    {
+      "name": "agent-tests",
+      "command": [
+        "node",
+        "--test",
+        "docs/atlas/agent/tests/backlog.test.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "-j",
+        "2"
+      ]
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ]
+    },
+    {
+      "name": "diff-check",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ]
+    }
+  ],
+  "lanes": [
+    {
+      "id": "resources",
+      "phase": "P1",
+      "owns": [
+        "daemon/",
+        "crates/client/src/node_isolation.rs",
+        "crates/client/src/node.rs"
+      ],
+      "brief": "Contrat de ressources : mesuré / réservable / contraint. Isolation OS prouvée."
+    },
+    {
+      "id": "network",
+      "phase": "P2",
+      "owns": [
+        "crates/relay/",
+        "crates/client/src/net/",
+        "crates/core/src/"
+      ],
+      "brief": "Transport, découverte, authentification des pairs, cas négatifs."
+    },
+    {
+      "id": "product",
+      "phase": "P3",
+      "owns": [
+        "crates/client/src/main.rs",
+        "crates/gateway/",
+        "web/",
+        "install.sh"
+      ],
+      "brief": "Parcours utilisateur : installer, appairer, envoyer, pauser, désinstaller."
+    },
+    {
+      "id": "docs",
+      "phase": "P0",
+      "owns": [
+        "README.md",
+        "ARCHITECTURE.md",
+        "docs/",
+        "FEATURE_SPEC",
+        "IMPL_PLAN"
+      ],
+      "brief": "Vérité documentaire : aucune promesse sans appelant de production."
+    }
+  ],
+  "allowPush": false,
+  "allowAutoCommit": true
+}

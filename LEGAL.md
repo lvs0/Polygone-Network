@@ -30,7 +30,7 @@ Polygone **n'est pas** :
 | Audience | Adversaire typique | Ce que Polygone protège | Ce que Polygone ne protège PAS |
 |----------|--------------------|------------------------|-------------------------------|
 | **Utilisateur quotidien** | FAI curieux, GAFA, colocataire, malware opportuniste | Lien message ↔ identité chiffré en clair (ML-KEM-1024) · Persistance des messages après TTL | Keylogger sur la machine endpoint · Malware persistant · Coercition physique |
-| **Journaliste / activiste** | Adversaire étatique, FAI national, observateur réseau | Pattern de messagerie hors TTL (≤ 30 s sur relay) · Mécanisme de subpoena documenté (`docs/kill-switch.md`) | Reconnaissance physique · Ingénierie sociale (Mitnick) |
+| **Journaliste / activiste** | Adversaire étatique, FAI national, observateur réseau | Pattern de messagerie hors TTL (≤ 30 s côté destinataire ; le relais ne conserve aucun fragment) · Mécanisme de subpoena documenté (`docs/kill-switch.md`) | Reconnaissance physique · Ingénierie sociale (Mitnick) |
 | **Dissident organisé** | Adversaire étatique avec subpoena et accès physique | Contenu chiffré de bout-en-bout (mathématiquement hors-atteinte) · Mode duress documenté (§5) | Divulgation humaine forcée (rubber-hose attack) |
 
 Détail complet dans :

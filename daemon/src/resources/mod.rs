@@ -12,9 +12,6 @@ mod platform_impl;
 #[path = "windows.rs"]
 mod platform_impl;
 
-#[cfg(target_os = "windows")]
-pub use platform_impl::WindowsPlatform;
-#[cfg(not(target_os = "windows"))]
 pub use platform_impl::*;
 
 // ============================================================================
@@ -57,6 +54,47 @@ impl MemoryInfo {
             self.available_bytes as f64 / self.total_bytes as f64 * 100.0
         }
     }
+}
+
+/// Mesure du stockage d'un montage disque.
+///
+/// `Default` vaut zéro partout, et c'est volontairement fail-closed : une
+/// mesure manquante ne se distingue pas d'un disque plein, donc aucun
+/// consommateur ne peut allouer du stockage sur une ignorance — même règle que
+/// `UserActivity::Unknown` du côté de l'activité utilisateur.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StorageInfo {
+    /// Taille totale du montage.
+    pub total_bytes: u64,
+    /// Espace libre réellement disponible (équivaut `f_bavail` de statvfs).
+    pub available_bytes: u64,
+}
+
+impl StorageInfo {
+    pub fn free_percent(&self) -> f64 {
+        if self.total_bytes == 0 {
+            0.0
+        } else {
+            self.available_bytes as f64 / self.total_bytes as f64 * 100.0
+        }
+    }
+}
+
+/// Choisit le montage qui couvre `path`, par plus long préfixe.
+///
+/// Entrée : une liste de `(point de montage, total, disponible)`. Sortie :
+/// le couple `(total, disponible)` du montage le plus spécifique dont le point
+/// de montage est un préfixe de `path`. `None` si aucun montage ne couvre —
+/// l'appelant décide alors du comportement conservateur.
+pub(crate) fn mount_for_path<'a, I>(mounts: I, path: &std::path::Path) -> Option<(u64, u64)>
+where
+    I: IntoIterator<Item = (&'a std::path::Path, u64, u64)>,
+{
+    mounts
+        .into_iter()
+        .filter(|(mount, _, _)| path.starts_with(mount))
+        .max_by_key(|(mount, _, _)| mount.components().count())
+        .map(|(_, total, available)| (total, available))
 }
 
 /// Network interface statistics
@@ -167,6 +205,14 @@ pub struct ServiceConfig {
 pub struct PlatformCaps {
     pub cpu_affinity: bool,
     pub cpu_priority: bool,
+    /// Capacité de la PLATEFORME (cgroup v2 présent), pas promesse du daemon.
+    ///
+    /// Depuis 2b-5b, le daemon ne pose plus lui-même de limite mémoire : elle
+    /// appartient à `systemd` (`MemoryMax=` de l'unité `--user`). Le drapeau
+    /// reste utile — c'est lui qui dira à `install_service` s'il faut émettre un
+    /// `MemoryMax=` — mais l'étiquette « Memory limit » du `doctor`
+    /// (`main.rs:414`) reste, elle, trompeuse : elle sera corrigée dans
+    /// l'incrément qui câblera `install_service`.
     pub memory_limit: bool,
     pub bandwidth_monitor: bool,
     pub gpu_monitor: bool,
@@ -177,46 +223,47 @@ pub struct PlatformCaps {
     pub windows_service: bool,
 }
 
-/// CPU affinity mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
-pub enum CpuAffinityMode {
-    #[default]
-    Auto,
-    Spread,
-    Compact,
-    Performance,
-    Off,
-}
-
-impl std::fmt::Display for CpuAffinityMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CpuAffinityMode::Auto => write!(f, "auto"),
-            CpuAffinityMode::Spread => write!(f, "spread"),
-            CpuAffinityMode::Compact => write!(f, "compact"),
-            CpuAffinityMode::Performance => write!(f, "performance"),
-            CpuAffinityMode::Off => write!(f, "off"),
-        }
-    }
-}
-
-impl std::str::FromStr for CpuAffinityMode {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "auto" => Ok(CpuAffinityMode::Auto),
-            "spread" => Ok(CpuAffinityMode::Spread),
-            "compact" => Ok(CpuAffinityMode::Compact),
-            "performance" => Ok(CpuAffinityMode::Performance),
-            "off" => Ok(CpuAffinityMode::Off),
-            _ => Err(format!("unknown cpu affinity mode: {}", s)),
-        }
-    }
-}
+// `CpuAffinityMode` vivait ici (Auto / Spread / Compact / Performance / Off) et
+// a été RETIRÉ à l'incrément 2b-8, avec la clé de config `cpu_affinity_mode` qui
+// était son unique usage : le mode était lu par personne, et `set_cpu_affinity`
+// n'a aucun appelant. Un type public dont la seule raison d'être est une clé
+// morte est la même dette que la clé (docs/PLAN_PRIORITES_2B5.md §2).
+//
+// Le trait `Platform::set_cpu_affinity` reste : il peut servir, et l'enlever
+// toucherait linux.rs/macos.rs.
 
 // ============================================================================
 // Platform trait
 // ============================================================================
+
+/// Ce que l'on sait de l'activité de l'utilisateur devant la machine.
+///
+/// Trois états, et non un booléen : « je ne sais pas » n'est pas « personne ».
+/// Les confondre a fait croire pendant plusieurs incréments qu'un frein
+/// fonctionnait alors qu'il ne recevait jamais qu'un `false` de complaisance —
+/// voir `docs/PLAN_FREIN.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserActivity {
+    /// L'utilisateur interagit : le daemon doit s'effacer.
+    Active,
+    /// Personne devant la machine : le daemon peut prendre la place.
+    Idle,
+    /// Aucune source de vérité disponible — l'état réel est INCONNU.
+    Unknown,
+}
+
+impl UserActivity {
+    /// L'utilisateur est-il **positivement** devant la machine ?
+    ///
+    /// Seul `Active` répond oui. `Unknown` répond non, délibérément : on ne
+    /// réduit pas l'allocation du réseau sur une ignorance. Confondre « je ne
+    /// sais pas » avec « quelqu'un est là » priverait le partage de ressources
+    /// sans qu'aucune mesure ne le justifie — l'inverse exact du bug d'origine,
+    /// où `false` de complaisance faisait croire au frein qu'il fonctionnait.
+    pub fn is_active(self) -> bool {
+        matches!(self, UserActivity::Active)
+    }
+}
 
 /// Platform abstraction trait — one implementation per OS.
 pub trait Platform: Send + Sync + 'static {
@@ -230,9 +277,24 @@ pub trait Platform: Send + Sync + 'static {
     fn set_cpu_priority(&self, level: i32) -> anyhow::Result<()>;
 
     // Memory
+    //
+    // Il n'y a plus de `set_memory_limit` ici, et c'est une décision, pas un
+    // oubli : le daemon n'écrit jamais le plafond mémoire du cgroup qui le
+    // contient. Ce fichier appartient à `systemd` (`MemoryMax=` de l'unité
+    // `--user`) ; un daemon qui le réécrit à chaque tick se bat contre son
+    // gestionnaire et plafonne le cgroup de son LANCEUR (terminal, navigateur,
+    // session graphique), pas lui-même. Voir `docs/PLAN_PRIORITES_2B5.md` §1/§4.
     fn memory_info(&self) -> anyhow::Result<MemoryInfo>;
     fn process_memory(&self) -> anyhow::Result<ProcessMemory>;
-    fn set_memory_limit(&self, bytes: u64) -> anyhow::Result<()>;
+
+    // Storage
+    //
+    // Implémentation par défaut volontairement vide (tout à zéro) : une
+    // plateforme sans mesure fiable n'annonce PAS de capacité — elle refuse.
+    // Les implémentations qui savent mesurer (Linux, macOS) surchargent.
+    fn storage_info(&self) -> anyhow::Result<StorageInfo> {
+        Ok(StorageInfo::default())
+    }
 
     // Bandwidth
     fn bandwidth_info(&self) -> anyhow::Result<BandwidthInfo>;
@@ -248,7 +310,7 @@ pub trait Platform: Send + Sync + 'static {
 
     // System
     fn uptime(&self) -> anyhow::Result<u64>;
-    fn user_active(&self) -> anyhow::Result<bool>;
+    fn user_active(&self) -> anyhow::Result<UserActivity>;
     fn config_dir(&self) -> std::path::PathBuf;
     fn data_dir(&self) -> std::path::PathBuf;
     fn log_dir(&self) -> std::path::PathBuf;
@@ -276,9 +338,102 @@ pub fn create_platform() -> Box<dyn Platform> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn create_platform() -> Box<dyn Platform> {
-    Box::new(WindowsPlatform::new())
-}
+compile_error!(
+    "polygoned: Windows n'est pas implémenté — le daemon supporte Linux et \
+     macOS (cf. ARCHITECTURE.md §11). Définir WindowsPlatform dans \
+     resources/windows.rs pour un vrai portage."
+);
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 compile_error!("Polygone daemon only supports Linux, macOS, and Windows");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mounts() -> Vec<(&'static std::path::Path, u64, u64)> {
+        vec![
+            (
+                std::path::Path::new("/"),
+                500 * 1024 * 1024 * 1024,
+                100 * 1024 * 1024 * 1024,
+            ),
+            (
+                std::path::Path::new("/home"),
+                250 * 1024 * 1024 * 1024,
+                50 * 1024 * 1024 * 1024,
+            ),
+            (
+                std::path::Path::new("/home/lvs0/data"),
+                10 * 1024 * 1024 * 1024,
+                1024 * 1024 * 1024,
+            ),
+        ]
+    }
+
+    #[test]
+    fn mount_for_path_picks_longest_prefix() {
+        let path = std::path::Path::new("/home/lvs0/data/polygone/blocks");
+        assert_eq!(
+            mount_for_path(mounts(), path),
+            Some((10 * 1024 * 1024 * 1024, 1024 * 1024 * 1024)),
+            "le montage le plus spécifique gagne, pas le premier trouvé"
+        );
+    }
+
+    #[test]
+    fn mount_for_path_falls_back_to_shallower_mount() {
+        let path = std::path::Path::new("/home/lvs0/Documents");
+        assert_eq!(
+            mount_for_path(mounts(), path),
+            Some((250 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024)),
+            "un chemin hors du montage dédié retombe sur /home"
+        );
+    }
+
+    #[test]
+    fn mount_for_path_no_match_is_none() {
+        // Sans montage racine dans la liste, un chemin extérieur ne couvre
+        // rien. (Avec "/" présent, tout chemin absolu couvre — c'est voulu :
+        // la racine est le fallback universel.)
+        let no_root = vec![
+            (
+                std::path::Path::new("/home"),
+                250 * 1024 * 1024 * 1024,
+                50 * 1024 * 1024 * 1024,
+            ),
+            (
+                std::path::Path::new("/home/lvs0/data"),
+                10 * 1024 * 1024 * 1024,
+                1024 * 1024 * 1024,
+            ),
+        ];
+        assert_eq!(
+            mount_for_path(no_root, std::path::Path::new("/mnt/autre-disque/x")),
+            None,
+            "aucun montage couvrant : None, l'appelant applique le fail-closed"
+        );
+    }
+
+    #[test]
+    fn mount_for_path_root_covers_every_absolute_path() {
+        // Le montage "/" est un fallback universel : un chemin inconnu
+        // retombe dessus plutôt que de renvoyer None.
+        assert_eq!(
+            mount_for_path(mounts(), std::path::Path::new("/mnt/autre-disque/x")),
+            Some((500 * 1024 * 1024 * 1024, 100 * 1024 * 1024 * 1024)),
+        );
+    }
+
+    #[test]
+    fn storage_info_default_is_zero_fail_closed() {
+        let info = StorageInfo::default();
+        assert_eq!(info.total_bytes, 0);
+        assert_eq!(info.available_bytes, 0);
+        assert_eq!(
+            info.free_percent(),
+            0.0,
+            "un disque non mesuré n'est pas un disque vide à 0 % libre"
+        );
+    }
+}

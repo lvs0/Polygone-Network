@@ -1,0 +1,30 @@
+# Preuve — réservation et publication du stockage
+# date: 2026-11-09T17:05:06+01:00
+# HEAD: e2936a3e94ae2d7bd95afb9c21be8dd23c2641f2
+
+Code vérifié dans daemon/src/socket.rs :
+- Ledger::reserve ajoute les octets réservés au compteur.
+- Ledger::release les soustrait.
+- Ledger::renew conserve la réservation et actualise son expiration.
+- persist/load conservent les compteurs après redémarrage.
+- Le refus d'une demande supérieure au headroom est testé.
+
+Tests ciblés exécutés :
+$ cargo test -p polygoned runtime::tests::test_runtime_state_publishes_measured_storage_fail_closed -- --exact
+test result: ok. 1 passed; 0 failed
+
+$ cargo test -p polygoned socket::tests::test_ledger_reserves_and_frees_storage -- --exact
+test result: ok. 1 passed; 0 failed
+
+$ cargo test -p polygoned socket::tests::test_ledger_restart_conserves_reserved_bytes -- --exact
+test result: ok. 1 passed; 0 failed
+
+Suite complète :
+$ cargo test --workspace
+test result: 463 tests/doc-tests réussis au total ; 0 échec ; exit 0.
+
+Smoke réseau local :
+$ make smoke
+PASS — relais, émetteur et récepteur distincts ; livraison authentifiée ; identité non prouvée refusée ; aucun secret dans les journaux.
+
+Limite : ces tests ne remplacent pas un essai entre deux machines physiques distinctes.

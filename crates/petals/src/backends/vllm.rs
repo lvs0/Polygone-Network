@@ -8,7 +8,7 @@ use crate::types::{
     ModelCapabilities, ModelInfo, ModelSource,
 };
 use anyhow::Result;
-use futures::{Stream, TryStreamExt};
+use futures::{Stream, StreamExt};
 use reqwest::Client;
 use std::time::Instant;
 
@@ -295,28 +295,33 @@ impl VllmBackend {
         let response = req.send().await?;
         let stream = response.bytes_stream();
         let stream = stream
-            .map_err(anyhow::Error::from)
-            .try_filter_map(|bytes| async move {
-                let text = String::from_utf8_lossy(&bytes);
-                for line in text.lines() {
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        if data == "[DONE]" {
-                            return Ok(None);
-                        }
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                            if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
-                                if let Some(choice) = choices.first() {
-                                    if let Some(text) = choice.get("text").and_then(|t| t.as_str())
-                                    {
-                                        return Ok(Some(text.to_string()));
+            .map(|chunk| {
+                chunk.map_err(anyhow::Error::from).map(|bytes| {
+                    let text = String::from_utf8_lossy(&bytes);
+                    for line in text.lines() {
+                        if let Some(data) = line.strip_prefix("data: ") {
+                            if data == "[DONE]" {
+                                return None;
+                            }
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                                if let Some(choices) =
+                                    json.get("choices").and_then(|c| c.as_array())
+                                {
+                                    if let Some(choice) = choices.first() {
+                                        if let Some(text) =
+                                            choice.get("text").and_then(|t| t.as_str())
+                                        {
+                                            return Some(text.to_string());
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                Ok(None)
-            });
+                    None
+                })
+            })
+            .filter_map(|r| async move { r.transpose() });
 
         Ok(Box::new(Box::pin(stream)))
     }

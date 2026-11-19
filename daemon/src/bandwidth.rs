@@ -227,16 +227,13 @@ mod tests {
         assert!(bw.alloc_mbps <= 100); // sanity
     }
 
+    // sysfs Linux (/sys/class/net/lo/statistics) : sur macOS les compteurs
+    // passent par netstat -ibn (lo0), pas par read_counters.
+    #[cfg(target_os = "linux")]
     #[test]
     fn read_counters_on_lo() {
-        match read_counters("lo") {
-            Ok((rx, tx)) => assert!(rx > 0 || tx > 0, "lo should have some traffic"),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                // macOS / Windows don't have /sys/class/net — expected on CI
-                eprintln!("skipping: /sys/class/net/lo not found ({e}) — not Linux");
-            }
-            Err(e) => panic!("unexpected read_counters error: {e}"),
-        }
+        let (rx, tx) = read_counters("lo").unwrap();
+        assert!(rx > 0 || tx > 0, "lo should have some traffic");
     }
 
     #[test]

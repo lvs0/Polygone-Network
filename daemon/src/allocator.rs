@@ -168,7 +168,7 @@ impl Allocator {
         }
 
         // 4. User active: pull back to half (but stay above floor)
-        if snap.user_active {
+        if snap.user_active.is_active() {
             let reduced = (target as f64 * 0.5) as u64;
             target = reduced.max(self.config.min_alloc_bytes);
         }
@@ -246,11 +246,12 @@ mod tests {
     use super::*;
     use crate::system::{BandwidthSnapshot, CpuSnapshot, MemorySnapshot};
 
-    fn fake_snap(free_gb: f64, cpu_pct: f32, user: bool) -> SystemSnapshot {
+    fn fake_snap(free_gb: f64, cpu_pct: f32, user: crate::UserActivity) -> SystemSnapshot {
         let total_bytes = (free_gb.max(1.0) * 1_073_741_824.0 * 2.0) as u64;
         let free_bytes = (free_gb * 1_073_741_824.0) as u64;
         let used_bytes = total_bytes.saturating_sub(free_bytes);
         SystemSnapshot {
+            storage: Default::default(),
             cpu: CpuSnapshot {
                 usage_percent: cpu_pct,
                 per_core: vec![],
@@ -289,7 +290,7 @@ mod tests {
     #[test]
     fn test_computes_something() {
         let mut alloc = Allocator::new();
-        let snap = fake_snap(4.0, 10.0, false);
+        let snap = fake_snap(4.0, 10.0, crate::UserActivity::Idle);
         let _ = alloc.tick(&snap);
         let c = alloc.current();
         assert!(c.ram_bytes >= alloc.config().min_alloc_bytes);
@@ -312,12 +313,12 @@ mod tests {
         a_big.set_ram_bytes(cfg.max_alloc_bytes);
         // warm up the moving-avg window
         for _ in 0..MEM_WINDOW {
-            a_small.tick(&fake_snap(1.0, 10.0, false));
-            a_big.tick(&fake_snap(8.0, 10.0, false));
+            a_small.tick(&fake_snap(1.0, 10.0, crate::UserActivity::Idle));
+            a_big.tick(&fake_snap(8.0, 10.0, crate::UserActivity::Idle));
         }
         // one more tick so a_big.grow kicks in while a_small.shrink kicks in
-        a_small.tick(&fake_snap(1.0, 10.0, false));
-        a_big.tick(&fake_snap(8.0, 10.0, false));
+        a_small.tick(&fake_snap(1.0, 10.0, crate::UserActivity::Idle));
+        a_big.tick(&fake_snap(8.0, 10.0, crate::UserActivity::Idle));
         // reset shrinking flag so the comparison is about *allocation*, not hysteresis
         a_small.shrinking = false;
         a_big.shrinking = false;
@@ -334,8 +335,8 @@ mod tests {
             cpu_ceiling_pct: 100.0,
         };
         let mut a = Allocator::with_config(cfg);
-        let idle = fake_snap(4.0, 5.0, false);
-        let busy = fake_snap(4.0, 5.0, true);
+        let idle = fake_snap(4.0, 5.0, crate::UserActivity::Idle);
+        let busy = fake_snap(4.0, 5.0, crate::UserActivity::Active);
         // warm up window
         for _ in 0..MEM_WINDOW {
             a.tick(&idle);

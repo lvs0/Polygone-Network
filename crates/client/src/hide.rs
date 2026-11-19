@@ -15,9 +15,14 @@
 //! - The exit node sees the real destination (like a Tor exit) — documented.
 //! - Single hop (MVP): relay + exit node together could correlate — said
 //!   out loud, no Tor-level promise.
+//! - DNS : un CONNECT sur un **nom** ne le résout pas localement. Le nom
+//!   part chiffré vers le nœud de sortie, qui fait la résolution réseau ;
+//!   aucune requête DNS ne quitte donc le client (pas de fuite DNS).
+//!   Conséquence honnête : c'est l'exit node qui voit le nom résolu, comme
+//!   il voit déjà la destination — même niveau de confiance que Tor.
 
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
@@ -40,11 +45,53 @@ const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 // SOCKS5 (RFC 1928) — client side
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Destination d'un CONNECT, dans la forme exacte où elle a été reçue.
+///
+/// La distinction compte : une [`Socks5Target::Domain`] ne doit **jamais**
+/// être résolue par le client, sinon la requête DNS fuit en clair à côté du
+/// tunnel. Le nom voyage tel quel dans l'enveloppe chiffrée et c'est le nœud
+/// de sortie qui appelle le résolveur du système.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Socks5Target {
+    /// Nom d'hôte (ATYP 0x03) — résolu par l'exit node, pas ici.
+    Domain(String),
+    /// Adresse littérale (ATYP 0x01).
+    Ipv4([u8; 4]),
+    /// Adresse littérale (ATYP 0x04).
+    Ipv6([u8; 16]),
+}
+
+impl Socks5Target {
+    /// Forme textuelle `host` : nom conservé verbatim, IP rendue en notation
+    /// usuelle. C'est ce qui est envoyé au nœud de sortie.
+    pub fn as_connect_string(&self) -> String {
+        match self {
+            Self::Domain(name) => name.clone(),
+            Self::Ipv4(octets) => {
+                format!("{}.{}.{}.{}", octets[0], octets[1], octets[2], octets[3])
+            }
+            Self::Ipv6(octets) => std::net::Ipv6Addr::from(*octets).to_string(),
+        }
+    }
+}
+
 /// A parsed SOCKS5 CONNECT request.
+///
+/// `host` reste la forme rendue de [`Self::target`] : les appelants existants
+/// (et `net::hide_establish`) n'ont pas à changer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Socks5Connect {
     pub host: String,
     pub port: u16,
+    pub target: Socks5Target,
+}
+
+impl Socks5Connect {
+    /// Construit la requête depuis la destination typée ; `host` en découle.
+    pub fn from_target(target: Socks5Target, port: u16) -> Self {
+        let host = target.as_connect_string();
+        Self { host, port, target }
+    }
 }
 
 /// Parse a SOCKS5 CONNECT request. Returns the destination host/port.
@@ -68,32 +115,40 @@ pub fn parse_socks5_connect(buf: &[u8]) -> Result<Socks5Connect> {
             if buf.len() < 10 {
                 anyhow::bail!("adresse IPv4 tronquée");
             }
-            let host = format!("{}.{}.{}.{}", buf[4], buf[5], buf[6], buf[7]);
+            let target = Socks5Target::Ipv4([buf[4], buf[5], buf[6], buf[7]]);
             let port = u16::from_be_bytes([buf[8], buf[9]]);
-            Ok(Socks5Connect { host, port })
+            Ok(Socks5Connect::from_target(target, port))
         }
         0x03 => {
             if buf.len() < 5 {
                 anyhow::bail!("domaine tronqué");
             }
+            // La longueur est portée par un octet : > 255 est impossible à
+            // encoder, il suffit donc de refuser le vide et l'UTF-8 invalide.
             let len = buf[4] as usize;
+            if len == 0 {
+                anyhow::bail!("domaine vide");
+            }
             if buf.len() < 5 + len + 2 {
                 anyhow::bail!("domaine tronqué (len {len})");
             }
-            let host = String::from_utf8_lossy(&buf[5..5 + len]).to_string();
+            // Pas de `from_utf8_lossy` ici : un nom non UTF-8 est refusé
+            // plutôt que remplacé par des caractères de substitution, qui
+            // enverraient l'exit node vers un hôte qui n'a jamais été demandé.
+            let name = std::str::from_utf8(&buf[5..5 + len])
+                .map_err(|_| anyhow::anyhow!("domaine non UTF-8"))?
+                .to_string();
             let port = u16::from_be_bytes([buf[5 + len], buf[6 + len]]);
-            Ok(Socks5Connect { host, port })
+            Ok(Socks5Connect::from_target(Socks5Target::Domain(name), port))
         }
         0x04 => {
             if buf.len() < 22 {
                 anyhow::bail!("adresse IPv6 tronquée");
             }
-            let ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(&buf[4..20])?);
+            let octets = <[u8; 16]>::try_from(&buf[4..20])?;
+            let target = Socks5Target::Ipv6(octets);
             let port = u16::from_be_bytes([buf[20], buf[21]]);
-            Ok(Socks5Connect {
-                host: ip.to_string(),
-                port,
-            })
+            Ok(Socks5Connect::from_target(target, port))
         }
         other => anyhow::bail!("ATYP inconnu : 0x{other:02x}"),
     }
@@ -107,6 +162,153 @@ pub fn socks5_success() -> Vec<u8> {
 /// The SOCKS5 failure reply (general failure = 0x01).
 pub fn socks5_failure() -> Vec<u8> {
     vec![0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Circuit — planification multi-hop (NON transportée aujourd'hui)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `Circuit` décrit un chemin que le protocole du relay ne sait pas encore
+// emprunter : à ce jour `net::hide_establish` ouvre UN saut (client → relay →
+// exit). Ce type sert à préparer et valider un chemin (2 ou 3 nœuds, sans
+// doublon, clés bien formées) sans prétendre que le chaînage est actif. Le
+// jour où le protocole relayera des enveloppes imbriquées, c'est cette
+// validation qui sera réutilisée — pas un nouveau format.
+
+/// Nombre maximum de sauts d'un circuit (au-delà, latence et corrélation
+/// deviennent pires que le gain d'anonymat).
+pub const MAX_HOPS: usize = 3;
+
+/// Un saut : un nœud joignable et sa clé publique (hex).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Hop {
+    pub node_id: String,
+    pub public_key_hex: String,
+}
+
+/// Un chemin ordonné du premier relais vers le nœud de sortie.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Circuit {
+    pub hops: Vec<Hop>,
+}
+
+impl Circuit {
+    /// Construit un circuit et le valide immédiatement.
+    pub fn new(hops: Vec<Hop>) -> Result<Self> {
+        let circuit = Self { hops };
+        circuit.validate()?;
+        Ok(circuit)
+    }
+
+    /// Refuse : circuit vide, trop long, nœud dupliqué, identifiant ou clé
+    /// absents, clé qui n'est pas un hexadécimal de longueur paire.
+    /// Aucune taille de clé n'est imposée ici : la clé d'un nœud peut être
+    /// une clé KEM comme une clé de test, et le format exact appartient au
+    /// transport, pas au plan.
+    pub fn validate(&self) -> Result<()> {
+        if self.hops.is_empty() {
+            anyhow::bail!("circuit vide");
+        }
+        if self.hops.len() > MAX_HOPS {
+            anyhow::bail!(
+                "circuit trop long : {} sauts (max {MAX_HOPS})",
+                self.hops.len()
+            );
+        }
+        let mut seen: HashSet<&str> = HashSet::new();
+        for hop in &self.hops {
+            let id = hop.node_id.trim();
+            if id.is_empty() {
+                anyhow::bail!("nœud sans node_id");
+            }
+            if !seen.insert(id) {
+                anyhow::bail!("nœud dupliqué dans le circuit : {id}");
+            }
+            let key = hop.public_key_hex.trim();
+            if key.is_empty() {
+                anyhow::bail!("nœud {id} sans clé publique");
+            }
+            if key.len() % 2 != 0 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!("clé publique du nœud {id} n'est pas un hexadécimal pair");
+            }
+        }
+        Ok(())
+    }
+
+    /// Le même circuit parcouru de la sortie vers l'entrée — l'ordre dans
+    /// lequel un chiffrement en couches doit être appliqué.
+    pub fn reversed(&self) -> Circuit {
+        Circuit {
+            hops: self.hops.iter().rev().cloned().collect(),
+        }
+    }
+
+    /// Le nœud de sortie (dernier saut), seul à voir la destination réelle.
+    pub fn exit(&self) -> Option<&Hop> {
+        self.hops.last()
+    }
+
+    pub fn len(&self) -> usize {
+        self.hops.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.hops.is_empty()
+    }
+}
+
+/// Analyse un chemin `node_id:clef,node_id:clef` et affiche le plan.
+///
+/// N'ouvre **aucune** connexion et ne démarre pas de proxy : c'est le mode
+/// « dry-run » du multi-hop, branché sur `polygone hide --circuit`. Le
+/// transport reste mono-saut, et la sortie de cette fonction le dit.
+pub fn plan_circuit(spec: &str) -> Result<()> {
+    let hops: Vec<Hop> = spec
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| {
+            let (node_id, key) = entry
+                .split_once(':')
+                .ok_or_else(|| anyhow::anyhow!("saut « {entry} » : format attendu node_id:clef"))?;
+            Ok(Hop {
+                node_id: node_id.trim().to_string(),
+                public_key_hex: key.trim().to_string(),
+            })
+        })
+        .collect::<Result<Vec<Hop>>>()?;
+
+    let circuit = Circuit::new(hops)?;
+    if circuit.is_empty() {
+        anyhow::bail!("circuit vide");
+    }
+
+    println!(
+        "⬡ Hide — circuit planifié ({} saut(s) max {MAX_HOPS})",
+        circuit.len()
+    );
+    for (index, hop) in circuit.hops.iter().enumerate() {
+        let preview = &hop.public_key_hex[..hop.public_key_hex.len().min(12)];
+        println!("  {}. {}  clé {preview}…", index + 1, hop.node_id);
+    }
+    if let Some(exit) = circuit.exit() {
+        println!(
+            "  sortie : {} — le seul nœud qui verra la destination",
+            exit.node_id
+        );
+    }
+    let reversed = circuit.reversed();
+    let order: Vec<&str> = reversed
+        .hops
+        .iter()
+        .map(|hop| hop.node_id.as_str())
+        .collect();
+    println!("  ordre de chiffrement : {}", order.join(" → "));
+
+    println!();
+    println!("  Transport : un seul saut aujourd'hui. Le chaînage n'est pas branché ;");
+    println!("  ce plan valide le format, les doublons et l'ordre, rien de plus.");
+    Ok(())
 }
 
 /// Read and answer the SOCKS5 greeting (`05 <nmethods> <methods>`).
@@ -327,7 +529,7 @@ pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
     let writer = Arc::new(Mutex::new(writer));
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
-    let mut known_peers = net::load_peers();
+    let mut known_peers = net::load_peers()?;
     // Active tunnels: session → (session key, real-connection write half).
     let mut tunnels: HashMap<String, (symmetric::SessionKey, OwnedWriteHalf)> = HashMap::new();
 
@@ -389,7 +591,7 @@ pub async fn exit_listen(relay: &str, identity: &LocalIdentity) -> Result<()> {
                 println!("  ✖ hide : requête non authentifiée de {}", env.from);
                 continue;
             }
-            net::save_peers(&known_peers);
+            net::save_peers(&known_peers)?;
 
             // Decapsulate: first CT_SIZE bytes are the ML-KEM ciphertext,
             // the rest is the AES-GCM-encrypted destination.
@@ -560,5 +762,137 @@ mod tests {
         assert_eq!(socks5_success().len(), 10);
         assert_eq!(socks5_success()[1], 0x00);
         assert_eq!(socks5_failure()[1], 0x01);
+    }
+
+    #[test]
+    fn socks5_domain_target_is_kept_unresolved() {
+        let mut req = vec![0x05, 0x01, 0x00, 0x03, 11];
+        req.extend_from_slice(b"example.com");
+        req.extend_from_slice(&[0x01, 0xbb]);
+        let c = parse_socks5_connect(&req).unwrap();
+        assert_eq!(
+            c.target,
+            Socks5Target::Domain("example.com".to_string()),
+            "le nom doit rester un nom : le résoudre ici serait la fuite DNS"
+        );
+        assert_eq!(c.host, "example.com");
+    }
+
+    #[test]
+    fn socks5_ipv4_target_is_typed_and_rendered() {
+        let req = [0x05, 0x01, 0x00, 0x01, 10, 0, 0, 7, 0x00, 0x50];
+        let c = parse_socks5_connect(&req).unwrap();
+        assert_eq!(c.target, Socks5Target::Ipv4([10, 0, 0, 7]));
+        assert_eq!(c.target.as_connect_string(), "10.0.0.7");
+        assert_eq!(c.host, "10.0.0.7");
+        assert_eq!(c.port, 80);
+    }
+
+    #[test]
+    fn socks5_ipv6_target_is_typed_and_rendered() {
+        let mut req = vec![0x05, 0x01, 0x00, 0x04];
+        req.extend_from_slice(&std::net::Ipv6Addr::LOCALHOST.octets());
+        req.extend_from_slice(&[0x01, 0xbb]);
+        let c = parse_socks5_connect(&req).unwrap();
+        assert_eq!(
+            c.target,
+            Socks5Target::Ipv6(std::net::Ipv6Addr::LOCALHOST.octets())
+        );
+        assert_eq!(c.target.as_connect_string(), "::1");
+        assert_eq!(c.port, 443);
+    }
+
+    #[test]
+    fn socks5_rejects_empty_domain() {
+        let req = [0x05, 0x01, 0x00, 0x03, 0x00, 0x00, 0x50];
+        assert!(parse_socks5_connect(&req).is_err());
+    }
+
+    #[test]
+    fn socks5_rejects_non_utf8_domain() {
+        let mut req = vec![0x05, 0x01, 0x00, 0x03, 2];
+        req.extend_from_slice(&[0xff, 0xfe]);
+        req.extend_from_slice(&[0x00, 0x50]);
+        assert!(parse_socks5_connect(&req).is_err());
+    }
+
+    #[test]
+    fn socks5_rejects_truncated_domain() {
+        // len annonce 11 octets, 3 seulement sont présents.
+        let mut req = vec![0x05, 0x01, 0x00, 0x03, 11];
+        req.extend_from_slice(b"exa");
+        assert!(parse_socks5_connect(&req).is_err());
+    }
+
+    fn hop(id: &str) -> Hop {
+        Hop {
+            node_id: id.to_string(),
+            public_key_hex: "00ff11ee22dd33cc".to_string(),
+        }
+    }
+
+    #[test]
+    fn circuit_two_hops_is_valid() {
+        let c = Circuit::new(vec![hop("entry"), hop("exit")]).unwrap();
+        assert_eq!(c.len(), 2);
+        assert!(!c.is_empty());
+        assert_eq!(c.exit().map(|h| h.node_id.as_str()), Some("exit"));
+    }
+
+    #[test]
+    fn circuit_rejects_more_than_max_hops() {
+        let hops = vec![hop("a"), hop("b"), hop("c"), hop("d")];
+        assert!(Circuit::new(hops).is_err());
+    }
+
+    #[test]
+    fn circuit_rejects_duplicate_node() {
+        assert!(Circuit::new(vec![hop("same"), hop("same")]).is_err());
+    }
+
+    #[test]
+    fn circuit_rejects_empty() {
+        assert!(Circuit::new(vec![]).is_err());
+    }
+
+    #[test]
+    fn circuit_rejects_bad_hex_key() {
+        let bad = Hop {
+            node_id: "n".into(),
+            public_key_hex: "zzz".into(),
+        };
+        assert!(Circuit::new(vec![bad]).is_err());
+
+        let odd = Hop {
+            node_id: "n".into(),
+            public_key_hex: "abc".into(),
+        };
+        assert!(Circuit::new(vec![odd]).is_err());
+
+        let empty = Hop {
+            node_id: "n".into(),
+            public_key_hex: String::new(),
+        };
+        assert!(Circuit::new(vec![empty]).is_err());
+    }
+
+    #[test]
+    fn circuit_rejects_blank_node_id() {
+        let blank = Hop {
+            node_id: "   ".into(),
+            public_key_hex: "00ff".into(),
+        };
+        assert!(Circuit::new(vec![blank]).is_err());
+    }
+
+    #[test]
+    fn circuit_reversed_puts_exit_last() {
+        let c = Circuit::new(vec![hop("entry"), hop("middle"), hop("exit")]).unwrap();
+        let r = c.reversed();
+        assert_eq!(r.hops[0].node_id, "exit");
+        assert_eq!(r.hops[2].node_id, "entry");
+        // L'aller-retour redonne l'original.
+        assert_eq!(r.reversed(), c);
+        assert_eq!(r.exit().map(|h| h.node_id.as_str()), Some("entry"));
     }
 }

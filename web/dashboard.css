@@ -19,8 +19,9 @@
   padding: 24px 28px;
   margin-bottom: 16px;
 }
-.banner[data-state="active"] { border-color: rgba(34, 197, 94, 0.3); }
-.banner[data-state="error"]  { border-color: rgba(251, 113, 133, 0.4); }
+.banner[data-state="active"]  { border-color: rgba(34, 197, 94, 0.3); }
+.banner[data-state="error"]   { border-color: rgba(251, 113, 133, 0.4); }
+.banner[data-state="unknown"] { border-color: rgba(251, 191, 36, 0.35); }
 
 .banner__left { display: flex; align-items: center; gap: 16px; }
 .banner__dot {
@@ -153,6 +154,29 @@
 }
 .module[data-status="running"] .module__status { color: var(--green); }
 .module[data-status="error"]   .module__status { color: var(--rose); }
+
+/* ── Liste des limites / état vide ─────────────────────────────── */
+.modules[data-empty="true"] {
+  padding: 8px;
+  color: var(--text-dim);
+  font: 13px/1.5 var(--mono);
+}
+.limits {
+  list-style: none;
+  display: flex; flex-direction: column; gap: 10px;
+  font-size: 13px; line-height: 1.5; color: var(--text-dim);
+}
+.limits li::before {
+  content: "—";
+  color: var(--text-faint);
+  margin-right: 8px;
+}
+.limits code, .panel__hint code { color: var(--cyber); }
+.panel__hint {
+  margin-top: 18px;
+  font: 12px/1.5 var(--mono);
+  color: var(--text-faint);
+}
 
 /* ── Log ────────────────────────────────────────────────────────── */
 .log {

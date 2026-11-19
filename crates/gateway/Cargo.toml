@@ -1,7 +1,7 @@
 [package]
 name = "polygone-gateway"
 version.workspace = true
-edition.workspace = true
+edition = "2024"
 license.workspace = true
 description = "Polygone gateway — HTTP API + static site + pairing"
 

@@ -11,8 +11,16 @@ description = "Petals — local AI inference engine for agentic workloads on CPU
 name = "polygone_petals"
 path = "src/lib.rs"
 
+# Le bench `inference_bench` était déclaré ici sans que le fichier existe sur
+# cette lignée : `cargo fmt --all`, `clippy --all-targets` et tout build de
+# cibles échouaient sur une cible introuvable. Déclaration retirée (P0,
+# 2026-11-09) ; le benchmark reste à réécrire s'il est voulu.
+
 [dependencies]
 polygone-core = { path = "../core" }
+# Le client parle le protocole du daemon : meme socket, meme champ `v`,
+# memes types. Une copie locale derivait sans qu'on le voie.
+polygoned = { path = "../../daemon" }
 tokio = { workspace = true, features = ["full", "process", "signal"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -42,4 +50,5 @@ bench = ["vllm", "llama-cpp"]
 all-backends = ["ollama", "vllm", "llama-cpp"]
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
 tokio = { workspace = true, features = ["full", "test-util"] }
