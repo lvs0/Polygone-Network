@@ -4,7 +4,8 @@
 > (journal des vérifications) : il dit **où en est la mission, quelle est la
 > prochaine action, et comment la prouver.**
 > Règle : aucune ligne `FAIT` sans commande et sortie associées.
-> Dernière mise à jour : 2026-11-14 (ajout du prototype `fabric` ; session 9 + addendum).
+> Dernière mise à jour : 2026-11-19 (production : WIP commité, D2 tranchée, preuve L1
+> persistée, test deux hôtes exécuté, push + PR #4, CI sur l'arbre — voir §11).
 
 ## 1. Où travailler
 
@@ -44,20 +45,23 @@
 | Reçu de résultat signé | FAIT (local) — signature ML-DSA-65 sur `task_id + producer + output_hash + produced_at` ; `NodeId` dérivé de la clé ; résultat non signé, altéré, étranger ou d'une autre tâche refusé | `TaskResult::verify`, `TaskRecord::complete` ; 20 tests `task` |
 | Clé d'exécuteur persistante | FAIT — `gateway-signing.json` à côté de `tasks.json`, atomique `0600`, rechargée au démarrage | `load_or_create_executor_keypair` ; test de rechargement et de permissions |
 | Reprise après interruption | FAIT (local) — une tâche `assigned`/`accepted`/`running` est reprise au démarrage ; une identité différente refuse de signer | `TaskStore::recover` ; 2 tests de reprise sur fichier réel |
-| Publication / push | **INTERDIT** — voir §5 | — |
+| Publication / push | FAIT (branche) — `reconcile/2026-11` poussée sur `lvs0/Polygone-Network`, PR #4, mandat opérateur 2026-11-19 ; fusion `main` = réconciliation distincte | §11 |
 
 ## 3. Prochaine action, dans l'ordre
 
-1. Traiter `F1-API-01` : stabiliser les contrats des domaines encore absents
+1. Vérifier le verdict de la CI GitHub Actions (run 44486416115, branche
+   `reconcile/2026-11`) ; corriger si rouge, ne pas contourner.
+2. Release : `./scripts/release-dry-run.sh` avec les quatre binaires release,
+   puis publication du tag si la CI est verte et le dry-run conforme.
+3. Réconcilier `github/main` ↔ `reconcile/2026-11` (18 conflits, lignées
+   divergentes) — mission distincte, arbitrages ADR-0001 à rejouer.
+4. Mesurer RTT/débit inter-hôtes (Hope ↔ Cue) et porter le planificateur de
+   coût dans Compute (décision C, cible B).
+5. Traiter `F1-API-01` : stabiliser les contrats des domaines encore absents
    (identity, resources, settings, events).
-2. Traiter `F1-OBS-01` : rapport de diagnostic agrégé, sans secret.
-3. Exécuter la CI GitHub Actions sur ce HEAD (pas encore vérifiée).
-4. Organiser un test entre deux machines physiques distinctes ; les tests locaux
-   actuels utilisent plusieurs processus sur une seule machine.
-5. Rejouer Gitleaks sur l'arbre final immédiatement avant toute publication.
-6. Terminer la revue des fichiers `a_examiner` de Polygone-real et corriger le
-   décompte de `project/DIRTY-REVIEW.md` (`F1-DOC-02` / `F2-DOC-02`).
-7. Ne rien pousser sans autorisation explicite.
+6. Test LAN/NAT : un pair derrière une box résidentielle (le WAN Tailscale
+   est prouvé, pas la traversée de NAT).
+7. Quorum L2 (attribution de faute = décision humaine, ADR à porter) ; TEE L3.
 
 La file de tâches (`F1-TASK-01`), l'exécuteur local (`F1-TASK-02`) et le reçu
 signé vérifié de bout en bout (`F1-TASK-03`) sont livrés. Le placement
@@ -81,13 +85,16 @@ make migrate-proof                   # migration peers.json v1 → v2
 ~/bin/gitleaks git . --no-banner --redact
 ```
 
-## 5. Ce qui interdit une publication
+## 5. Gates de publication — état au 2026-11-19
 
-1. **Deux machines physiques** jamais testées.
-2. **CI GitHub Actions** jamais exécutée sur cet arbre.
-3. **Aucune autorisation explicite de publication** n'a été donnée.
-4. Le scan de secrets doit être **rejoué** sur l'arbre final, immédiatement avant
-   le push.
+1. **Deux hôtes distincts** : LEVÉ — exécuté le 2026-11-19, Hope ↔ cue-sandbox
+   (WAN Tailscale, deux noyaux, horloges 0 s). Preuve :
+   `docs/proofs/P0-DEUX-HOTES-2026-11-19.md`. Limite : LAN/NAT non testé.
+2. **CI GitHub Actions sur l'arbre** : run 44486416115 (`workflow_dispatch`,
+   branche `reconcile/2026-11`, HEAD 22cc718) — verdict à vérifier §11.
+3. **Autorisation explicite** : DONNÉE — mandat opérateur 2026-11-19
+   (« finir la production en toute autonomie » ; accès SSH Cue confirmé).
+4. **Gitleaks rejoué avant push** : FAIT — 292 commits, 0 fuite (2026-11-19).
 
 ## 6. Limites de l'environnement
 
@@ -210,6 +217,29 @@ UI, aucun test entre deux machines physiques.
   (`curl /api/v1/diagnostics`) sur un socket TCP.
 - **Ce qui reste absent** : flux d'événements (bus), historique de métriques,
   réglages par API, et toute activation réelle d'un rôle.
-- **Bloqué, inchangé** : deux hôtes physiques, quorum L2, TEE L3, intervention
-  de session deux hôtes, `DEC-028` (Babel). Planificateur toujours non porté :
-  aucun RTT/débit inter-hôtes mesuré.
+- **Bloqué, inchangé** : quorum L2, TEE L3, `DEC-028` (Babel). Planificateur
+  toujours non porté : aucun RTT/débit inter-hôtes mesuré. **Le blocage deux
+  hôtes est levé le 2026-11-19 (§11).**
+
+## 11. Production — 2026-11-19 (mandat opérateur)
+
+Mandat : « finir la production en toute autonomie » ; « tu peux accéder en SSH
+à la sandbox Cue ». Le disque fait foi ; cette section prime sur les §8-10
+pour tout ce qu'elle contredit.
+
+| Élément | État | Preuve |
+|---|---|---|
+| WIP sessions 9-10 commité | FAIT — 5 commits structurés (`8c6704f`→`d8d08f3`), arbre propre | `git log`, sauvegarde `~/Ops/backups/polygone-unification-2026-11-09/canonical-wip-20261119-075311.tar.gz` (SHA256 `dd47b8d6…`) |
+| D2 tranchée | FAIT — ADR-0002, `node_id` = BLAKE3(contexte ‖ clé ML-DSA-65)[..16], DEC-SEC-03 SUPERSEDED | `docs/decisions/ADR-0002-identite-noeud-cle-signature.md`, registre de consolidation |
+| Preuve L1 persistée | FAIT — ADR-0003, `net::persist_l1_evidence`, 4 tests, émission réelle deux hôtes | commit `804d2ee`, `docs/proofs/P0-DEUX-HOTES-2026-11-19.md` §4 |
+| Test deux hôtes | FAIT — Hope ↔ cue-sandbox, WAN Tailscale, deux noyaux, horloges 0 s ; protocole P0 complet + contrôles négatifs sur le fil | `docs/proofs/P0-DEUX-HOTES-2026-11-19.md` (commit `017a6f4`) ; limites §2 : LAN/NAT, pcap non rapatrié |
+| Tests workspace | FAIT — **586 passés, 0 échec**, 24 suites ; clippy `--workspace --all-targets -D warnings` exit 0 ; fmt exit 0 | `TMPDIR=/tmp cargo test --workspace -j 2` (2026-11-19) |
+| Gitleaks | FAIT — 292 commits, 0 fuite, rejoué avant push | `~/bin/gitleaks git . --no-banner --redact` |
+| Push + PR | FAIT — `reconcile/2026-11` → `lvs0/Polygone-Network`, PR #4 | https://github.com/lvs0/Polygone-Network/pull/4 |
+| CI sur l'arbre | run 44486416115 (`workflow_dispatch`) : premier run rouge (sandbox runners CI exit 218 + clippy macos `new_without_default`) → corrigé (probe `sandbox_executable`, `Default` MacOSPlatform) ; second run à vérifier | `.github/workflows/ci.yml` (workflow_dispatch ajouté), commits correctifs |
+| Release dry-run | FAIT — archive `polygone-linux-x86_64.tar.gz` acceptée par les règles de l'installeur, altération détectée | `docs/proofs/release-dry-run-2026-11-19.txt`, `dist/SHA256SUMS` |
+| Version | 2.1.0 (la release v2.0.0 du 2026-08-20 existe déjà ; ne pas l'écraser) | `Cargo.toml` |
+| Fusion github/main | NON FAITE — 18 conflits (lignées divergentes), mission de réconciliation distincte | PR #4 commentée |
+
+**Prochaine action** : verdict du second run CI ; si vert, tag `v2.1.0` et
+publication par `release.yml`, puis vérification des assets et de install.sh.

@@ -6,9 +6,12 @@
 > vérifications) : il les oriente.
 >
 > Règle : aucune ligne « terminé » sans commande et sortie associées.
-> Dernière mise à jour : **2026-11-15** (audit Akash §9–§10, intégration §11–§12).
-> L'audit Akash a été mené en lecture seule ; aucun code fonctionnel de
-> Polygone n'a été modifié par cette étude.
+> Dernière mise à jour : **2026-11-19** (production sur mandat opérateur :
+> WIP commité, D2 tranchée, preuve L1 persistée, test deux hôtes exécuté,
+> push + PR #4, CI corrigée, version 2.1.0 — état complet dans `STATUS.md` §11).
+> Le mandat du 2026-11-19 (« finir la production en toute autonomie ») lève
+> l'interdiction de push/release pour cette mission ; la contrainte « aucun
+> déploiement ni release automatique » ci-dessous vaut hors mandat explicite.
 
 ## 1. Objectif général
 

@@ -3,6 +3,21 @@
 > Mis à jour par l'orchestrateur après chaque bloc de travail.
 > Ne jamais écrire ici une valeur non vérifiée.
 
+## Production — 2026-11-19 (mandat opérateur, CORVUS)
+
+| Champ | Valeur vérifiée |
+|---|---|
+| Branche | `reconcile/2026-11`, HEAD après commits du jour (voir `git log`) |
+| Commits du jour | `8c6704f` core, `734a515` compute, `d3f98f6` gateway, `b341bfb` fabric, `d8d08f3` docs, `804d2ee` preuve L1, `42d8a6b` ADR-0002, `017a6f4` preuve deux hôtes, `22cc718` ci workflow_dispatch (+ correctifs CI et version 2.1.0 à suivre) |
+| Tests | `TMPDIR=/tmp cargo test --workspace -j 2` : **586 passés, 0 échec**, 24 suites (2026-11-19) |
+| Clippy | `cargo clippy --workspace --all-targets -- -D warnings` : exit 0 |
+| Deux hôtes | Hope (7.2.5-3-omarchy) ↔ cue-sandbox (6.18.38+, Ubuntu 24.04, 8 CPU, 24 Go) via SSH root + Tailscale ; horloges 0 s ; protocole P0 exécuté, preuve `docs/proofs/P0-DEUX-HOTES-2026-11-19.md` |
+| D2 | tranchée : ADR-0002 (clé ML-DSA-65), DEC-SEC-03 SUPERSEDED dans le registre |
+| Gitleaks | 292 commits, 0 fuite (avant push) |
+| GitHub | branche poussée, PR #4 (conflictuelle avec main — réconciliation distincte) ; CI run 44486416115 rouge (sandbox CI exit 218, clippy macos) → correctifs probe `sandbox_executable` + `Default` MacOSPlatform |
+| Release | dry-run conforme (`docs/proofs/release-dry-run-2026-11-19.txt`) ; version bumpée 2.1.0 (v2.0.0 existe déjà, 2026-08-20) ; publication après CI verte |
+| Cue SSH | intermittent : la sandbox se suspend, et le port 22 peut passer en « Tailscale SSH check » (authentification interactive) — ne pas ouvrir l'URL de login, réessayer plus tard |
+
 ## Réconciliation canonique — 2026-11-09
 
 Décision `D1` tranchée : **option D1-b**, documentée dans
