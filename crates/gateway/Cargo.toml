@@ -11,6 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 polygone-core = { path = "../core" }
+# Le daemon est une bibliothèque embeddable : la gateway réutilise SON client
+# de protocole et SES types (Reply, DaemonConfig) au lieu de les dupliquer —
+# la parité du relais est garantie par le compilateur, pas par une copie.
+polygoned = { path = "../../daemon" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -22,3 +26,8 @@ base64 = "0.22"
 qrcode = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 rand = "0.8"
+dirs = { workspace = true }
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

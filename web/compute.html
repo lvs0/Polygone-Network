@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Compute — Polygone</title>
+<link rel="manifest" href="./manifest.webmanifest" />
+<meta name="theme-color" content="#030306" />
+<link rel="icon" href="./icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="dashboard.css" />
+</head>
+<body class="page--dashboard">
+
+<header class="nav">
+  <div class="nav__inner">
+    <a class="brand" href="index.html">
+      <svg viewBox="0 0 32 32" class="brand__mark" aria-hidden="true">
+        <polygon points="16,2 30,10 30,22 16,30 2,22 2,10" fill="none" stroke="currentColor" stroke-width="2" />
+        <polygon points="16,8 24,12.5 24,19.5 16,24 8,19.5 8,12.5" fill="none" stroke="currentColor" stroke-width="1.2" />
+      </svg>
+      <span>Polygone</span>
+    </a>
+    <nav>
+      <a href="index.html">Accueil</a>
+      <a href="node.html">Console</a>
+      <a href="compute.html" class="active">Compute</a>
+      <a href="activity.html">Activité</a>
+      <a href="drive.html">Drive</a>
+      <a href="mesh.html">Mesh</a>
+    </nav>
+  </div>
+</header>
+
+<main class="dashboard">
+  <section class="banner" data-state="unknown" id="compute-banner">
+    <div class="banner__left">
+      <span class="banner__dot"></span>
+      <div>
+        <h1 id="compute-title">Connexion…</h1>
+        <p id="compute-sub">tâches locales réelles — exécution signée ML-DSA-65</p>
+      </div>
+    </div>
+    <div class="banner__right">
+      <dl class="kv">
+        <dt>Exécuteur local</dt><dd id="executor-state">—</dd>
+        <dt>Tâches suivies</dt><dd id="task-total">—</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="panels">
+    <div class="panel">
+      <h2 class="panel__title">Nouvelle tâche</h2>
+      <form id="task-form">
+        <dl class="kv">
+          <dt><label for="task-kind">Calcul</label></dt>
+          <dd>
+            <select id="task-kind">
+              <option value="echo">echo — rend l'entrée</option>
+              <option value="blake3">blake3 — empreinte de l'entrée</option>
+            </select>
+          </dd>
+          <dt><label for="task-input">Entrée (texte)</label></dt>
+          <dd><input id="task-input" type="text" value="hello polygone" maxlength="4096" /></dd>
+          <dt><label for="task-deadline">Échéance (s)</label></dt>
+          <dd><input id="task-deadline" type="number" value="300" min="1" max="86400" /></dd>
+        </dl>
+        <p><button type="submit" id="task-submit">Publier la tâche</button></p>
+      </form>
+      <p class="panel__hint" id="form-note">
+        Une tâche publiée sans exécuteur attaché reste <code>published</code> :
+        la console ne prétend jamais qu'un calcul a eu lieu.
+      </p>
+    </div>
+
+    <div class="panel" style="grid-column: span 2;">
+      <h2 class="panel__title">Tâches</h2>
+      <ul class="limits" id="task-list" style="max-height: 480px; overflow-y: auto;">
+        <li id="task-empty">aucune tâche</li>
+      </ul>
+      <p class="panel__hint">
+        <code>/api/v1/tasks</code> — résultats signés par l'exécuteur local ;
+        la vérification cryptographique complète se fait via la CLI.
+      </p>
+    </div>
+  </section>
+</main>
+
+<script src="compute.js"></script>
+<script src="pwa.js" defer></script>
+</body>
+</html>

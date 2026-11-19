@@ -23,6 +23,20 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
+/// Résumé du `hello` d'un daemon, tel que négocié à la connexion.
+///
+/// `protocol_version` est la version RETENUE (min des deux camps), pas la
+/// version maximale annoncée : c'est elle qui décrit ce que cette connexion
+/// parle réellement. Sérialisable pour publication telle quelle par une API.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HelloInfo {
+    pub daemon_version: String,
+    pub platform: String,
+    pub tier: String,
+    pub protocol_version: u8,
+    pub capabilities: Vec<String>,
+}
+
 /// Nom porté par le champ `client` des demandes d'allocation.
 ///
 /// Le serveur ne s'en sert que pour dériver un `allocation_id` stable : le nom
@@ -85,6 +99,11 @@ pub struct DaemonClient {
     /// Capacités annoncées par le daemon, telles quelles. Une capacité absente
     /// se traite comme indisponible, pas comme acquise.
     capabilities: Vec<String>,
+    /// Identité du daemon lue dans le `hello` : version, plateforme, tier.
+    /// Le client les conserve pour qui veut les afficher sans les redemander.
+    daemon_version: String,
+    platform: String,
+    tier: String,
 }
 
 impl DaemonClient {
@@ -126,6 +145,9 @@ impl DaemonClient {
             next_id: 0,
             protocol_version: MIN_PROTOCOL_VERSION,
             capabilities: Vec::new(),
+            daemon_version: String::new(),
+            platform: String::new(),
+            tier: String::new(),
         };
 
         match client.read_reply()? {
@@ -134,7 +156,9 @@ impl DaemonClient {
                 max_protocol_version,
                 min_protocol_version: daemon_min,
                 capabilities,
-                ..
+                daemon_version,
+                platform,
+                tier,
             } => {
                 let daemon_max = max_protocol_version.unwrap_or(daemon_base);
                 let negotiated = PROTOCOL_VERSION.min(daemon_max);
@@ -147,6 +171,9 @@ impl DaemonClient {
                 }
                 client.protocol_version = negotiated;
                 client.capabilities = capabilities;
+                client.daemon_version = daemon_version;
+                client.platform = platform;
+                client.tier = tier;
             }
             other => {
                 return Err(ClientError::Protocol(format!(
@@ -234,6 +261,27 @@ impl DaemonClient {
         self.request(Request::Refusals { id: None })
     }
 
+    /// Instantané du ledger : réservations actives + agrégats + refus
+    /// (F1-API-01, domaine usage).
+    ///
+    /// À n'appeler que si `capabilities()` contient `"ledger"` : un daemon
+    /// antérieur répond `unknown_type`, ce qui n'est pas un instantané vide.
+    pub fn ledger(&mut self) -> Result<Reply, ClientError> {
+        self.request(Request::Ledger { id: None })
+    }
+
+    /// Résumé du `hello` reçu à la connexion : qui est le daemon, quelle
+    /// version de protocole a été négociée, ce qu'il sait faire.
+    pub fn hello_info(&self) -> HelloInfo {
+        HelloInfo {
+            daemon_version: self.daemon_version.clone(),
+            platform: self.platform.clone(),
+            tier: self.tier.clone(),
+            protocol_version: self.protocol_version,
+            capabilities: self.capabilities.clone(),
+        }
+    }
+
     /// Demande une allocation.
     ///
     /// Un accord est une **licence, pas une contrainte** (voir `Reply::AllocGranted`) :
@@ -287,6 +335,7 @@ fn with_id(request: Request, id: String) -> Request {
     match request {
         Request::Status { .. } => Request::Status { id: Some(id) },
         Request::Refusals { .. } => Request::Refusals { id: Some(id) },
+        Request::Ledger { .. } => Request::Ledger { id: Some(id) },
         Request::Ping { .. } => Request::Ping { id: Some(id) },
         Request::Alloc {
             client,
@@ -320,6 +369,7 @@ fn reply_id(reply: &Reply) -> Option<&str> {
         Reply::Hello { .. } => None,
         Reply::Status { id, .. }
         | Reply::Refusals { id, .. }
+        | Reply::Ledger { id, .. }
         | Reply::AllocGranted { id, .. }
         | Reply::AllocDenied { id, .. }
         | Reply::Released { id, .. }
@@ -617,6 +667,75 @@ mod tests {
             outcome, "granted",
             "la marge d'un client disparu doit revenir au client suivant"
         );
+
+        stop_server(&shutdown, handle);
+    }
+
+    #[test]
+    fn test_ledger_reflete_allocations_releases_et_capacite() {
+        let (path, shutdown, handle, _dir) = start_server();
+        let mut client = DaemonClient::connect(&path).expect("connexion");
+
+        // La capacité est annoncée : un client peut savoir avant de demander.
+        assert!(
+            client.capabilities().iter().any(|c| c == "ledger"),
+            "le daemon doit annoncer la capacité ledger"
+        );
+
+        // Ledger vide au départ : jamais de réservation fantôme.
+        match client.ledger().expect("ledger initial") {
+            Reply::Ledger {
+                grants,
+                reserved_ram_bytes,
+                reserved_cpu_cores,
+                ..
+            } => {
+                assert!(grants.is_empty());
+                assert_eq!(reserved_ram_bytes, 0);
+                assert_eq!(reserved_cpu_cores, 0);
+            }
+            other => panic!("ledger_response attendu, reçu {other:?}"),
+        }
+
+        // Une allocation réelle apparaît dans l'instantané, avec son bail.
+        let allocation_id = match client.allocate(5.0, 1).expect("allocation") {
+            Reply::AllocGranted { allocation_id, .. } => allocation_id,
+            other => panic!("alloc_granted attendu, reçu {other:?}"),
+        };
+        match client.ledger().expect("ledger après allocation") {
+            Reply::Ledger {
+                grants,
+                reserved_ram_bytes,
+                reserved_cpu_cores,
+                ..
+            } => {
+                assert_eq!(grants.len(), 1);
+                assert_eq!(grants[0].allocation_id, allocation_id);
+                assert_eq!(grants[0].cores, 1);
+                assert!(grants[0].ram_bytes > 0);
+                assert!(
+                    grants[0].expires_at.is_some(),
+                    "un bail courant porte une échéance"
+                );
+                assert!(reserved_ram_bytes > 0);
+                assert_eq!(reserved_cpu_cores, 1);
+            }
+            other => panic!("ledger_response attendu, reçu {other:?}"),
+        }
+
+        // Libération : le ledger se vide, les agrégats reviennent à zéro.
+        client.release(&allocation_id).expect("libération");
+        match client.ledger().expect("ledger après release") {
+            Reply::Ledger {
+                grants,
+                reserved_ram_bytes,
+                ..
+            } => {
+                assert!(grants.is_empty());
+                assert_eq!(reserved_ram_bytes, 0);
+            }
+            other => panic!("ledger_response attendu, reçu {other:?}"),
+        }
 
         stop_server(&shutdown, handle);
     }

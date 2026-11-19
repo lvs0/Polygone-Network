@@ -24,6 +24,8 @@
     <nav>
       <a href="index.html">Accueil</a>
       <a href="node.html" class="active">Console</a>
+      <a href="compute.html">Compute</a>
+      <a href="activity.html">Activité</a>
       <a href="drive.html">Drive</a>
       <a href="mesh.html">Mesh</a>
     </nav>
@@ -96,12 +98,71 @@
       <ul class="limits">
         <li>Aucun contenu de message : le relais et la gateway ne le lisent pas.</li>
         <li>Aucun compteur de trafic ni de fragments : la gateway ne les expose pas, donc la console affiche « — » au lieu d'inventer un chiffre.</li>
-        <li>Aucune identité locale : les clés privées restent dans le binaire <code>polygone</code>, jamais dans le navigateur.</li>
+        <li>Identité <strong>publique</strong> seulement : les clés secrètes restent dans le fichier local, jamais servies par l'API.</li>
+        <li>Réglages en lecture seule : les modifications passent par la CLI <code>polygone</code>.</li>
         <li>Une gateway arrêtée ou injoignable laisse toutes les valeurs inconnues ; rien n'est simulé.</li>
       </ul>
       <p class="panel__hint">
         Démarrer la gateway : <code>polygone-gateway --site-dir ./web</code>.
       </p>
+    </div>
+  </section>
+
+  <!-- ── Mon nœud : identité, daemon, ressources, réglages (F1-API-01) ── -->
+  <section class="panels">
+    <div class="panel">
+      <h2 class="panel__title">Mon identité (publique)</h2>
+      <dl class="kv">
+        <dt>Pseudo</dt><dd id="id-pseudo">—</dd>
+        <dt>Node ID</dt><dd id="id-node-id">—</dd>
+        <dt>Clé ML-DSA-65</dt><dd id="id-sign-pk">—</dd>
+        <dt>Clé ML-KEM-1024</dt><dd id="id-kem-pk">—</dd>
+        <dt>Rotation</dt><dd id="id-rotated">—</dd>
+        <dt>Clés révoquées</dt><dd id="id-revoked">—</dd>
+      </dl>
+      <p class="panel__hint" id="id-note">route <code>/api/v1/identity</code></p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__title">Daemon local</h2>
+      <dl class="kv">
+        <dt>Version</dt><dd id="daemon-version">—</dd>
+        <dt>Plateforme</dt><dd id="daemon-platform">—</dd>
+        <dt>Tier</dt><dd id="daemon-tier">—</dd>
+        <dt>Protocole négocié</dt><dd id="daemon-protocol">—</dd>
+        <dt>Capacités</dt><dd id="daemon-caps">—</dd>
+      </dl>
+      <p class="panel__hint" id="daemon-note">route <code>/api/v1/daemon</code></p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__title">Ressources mesurées</h2>
+      <dl class="kv">
+        <dt>Tier</dt><dd id="res-tier">—</dd>
+        <dt>Seq (publication)</dt><dd id="res-seq">—</dd>
+        <dt>RAM totale</dt><dd id="res-ram">—</dd>
+        <dt>RAM mesurée</dt><dd id="res-ram-measured">—</dd>
+        <dt>RAM réservable</dt><dd id="res-ram-reservable">—</dd>
+        <dt>RAM appliquée</dt><dd id="res-ram-enforced">—</dd>
+        <dt>Cœurs</dt><dd id="res-cpu">—</dd>
+        <dt>Bande passante</dt><dd id="res-bandwidth">—</dd>
+        <dt>VRAM GPU libre</dt><dd id="res-gpu">—</dd>
+        <dt>Stockage réservable</dt><dd id="res-storage">—</dd>
+        <dt>Repli (shrinking)</dt><dd id="res-shrinking">—</dd>
+        <dt>Uptime daemon</dt><dd id="res-uptime">—</dd>
+      </dl>
+      <p class="panel__hint" id="res-note">route <code>/api/v1/resources</code></p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__title">Réglages (lecture seule)</h2>
+      <dl class="kv">
+        <dt>Source</dt><dd id="set-source">—</dd>
+        <dt>Tier</dt><dd id="set-tier">—</dd>
+        <dt>Limite mémoire</dt><dd id="set-memory-limit">—</dd>
+        <dt>Bandwidth shaping</dt><dd id="set-bandwidth">—</dd>
+      </dl>
+      <p class="panel__hint" id="set-note">route <code>/api/v1/settings</code></p>
     </div>
   </section>
 </main>
@@ -116,6 +177,7 @@
 </template>
 
 <script src="dashboard.js"></script>
+<script src="node-local.js"></script>
 <script src="pwa.js" defer></script>
 </body>
 </html>

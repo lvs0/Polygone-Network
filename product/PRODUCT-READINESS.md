@@ -4,22 +4,34 @@
 > Verdict fondé sur `project/FOUNDATION-STATUS.md` et
 > `product/UI-API-MAPPING.md`. Aucune capacité n'est supposée disponible sans
 > API et sans preuve.
+>
+> **Mise à jour 2026-11-19 — prototype `prototype-complet` CONSTRUIT.**
+> Les domaines `identity`, `resources`, `settings` (lecture), `usage` (ledger
+> actif + refus) et `events` (F1-EVT-01) sont livrés, contractés
+> (`API-CONTRACTS.md` §2.4) et testés (14 tests de contrat `local_api.rs` +
+> tests unitaires `local.rs`/`events.rs` + test ledger daemon). Les écrans
+> Console étendu, Compute et Activité sont construits dessus (`UI-API-MAPPING`
+> §9) et vérifiés en vivant sur daemon + gateway réels (tâches `echo`/`blake3`
+> signées, événements, relais 503 si daemon absent, refus `policy_shrinking`
+> relayés). Le verdict « PAS PRÊT pour l'activité » est levé ; restent bloqués
+> l'historique de consommation, le placement multi-nœuds et les écritures.
 
 ---
 
 ## 1. Verdict
 
-**PARTIELLEMENT PRÊT — pour une application de lecture et de contrôle local.
-PAS PRÊT pour une application de calcul distribué, d'historique ou d'activité.**
+**PRÊT pour une application de lecture et de contrôle local — prototype
+construit et vérifié le 2026-11-19. PAS PRÊT pour une application de calcul
+distribué ou d'historique de consommation.**
 
 | Type d'application | Prêt ? | Justification |
 |---|---|---|
-| Tableau de bord local (état, ressources, identité) | **OUI, avec réserves** | données réelles via daemon + gateway |
-| Gestion du partage (profil, pause, reprise) | **OUI via CLI**, non via API | aucune API d'écriture de configuration |
+| Tableau de bord local (état, ressources, identité) | **OUI — construit** | `node.html` + `node-local.js` sur `/identity`, `/daemon`, `/resources`, `/settings` |
+| Gestion du partage (profil, pause, reprise) | **lecture via API, écriture via CLI** | `/settings` lecture seule livrée ; écriture = F1-SEC-02 |
 | Réseau (pairs appairés, latence) | **PARTIEL** | nœuds appairés seulement ; pas de graphe live |
-| Calcul / tâches | **PARTIEL** | file réelle (créer, lire, annuler, expirer), exécution locale `echo`/`blake3` et résultat signé vérifiable ; aucun placement multi-nœuds, aucun historique |
-| Activité / consommation | **NON** | aucun événement, aucune métrique exportée |
-| Paramètres avancés | **NON** | pas d'API settings, pas de révocation par API |
+| Calcul / tâches | **PARTIEL — écran construit** | `compute.html` : file réelle, exécution locale `echo`/`blake3`, résultat signé ; aucun placement multi-nœuds |
+| Activité / consommation | **OUI pour le flux et le ledger actif — construit** | `activity.html` : événements bornés (F1-EVT-01) + réservations actives + refus ; l'historique de consommation n'est pas enregistré |
+| Paramètres avancés | **lecture OUI, écriture NON** | `/settings` livrée ; pas de révocation par API |
 | Application mobile / distante | **NON** | gateway loopback sans TLS, pensée pour l'hôte local |
 
 ---
@@ -48,12 +60,12 @@ Chaque valeur ci-dessus a une source réelle et un contrat documenté.
 
 | Écran | Blocage | Tâche qui débloque |
 |---|---|---|
-| Overview | aucun blocage majeur | — |
-| Network | pas de routage live exposé ; `voisins` non exposé par API | `F1-API-01` (domaine `network`) |
-| My Node | réservations détaillées non listées ; écriture config sans API | `F1-API-01` (domaines `resources`, `settings`) |
-| Compute | exécution locale et résultat signé disponibles ; placement multi-nœuds et progression en temps réel absents | `F1-API-01`, `F1-EVT-01` |
-| Activity | aucun événement ni métrique | `F1-EVT-01`, `F1-OBS-01`, `F1-MET-01` |
-| Settings | pas d'API d'écriture, pas de révocation par API | `F1-API-01`, `F1-SEC-02` |
+| Overview | aucun blocage majeur — **construit** | — |
+| Network | pas de routage live exposé ; `voisins` non exposé par API | `F1-API-01` (domaine `network`), mesures inter-hôtes |
+| My Node | réservations actives **listées** (`/usage`) ; écriture config sans API | `F1-SEC-02` (écriture) |
+| Compute | exécution locale et résultat signé **affichés** ; placement multi-nœuds absent ; progression couverte par les événements de cycle de vie | `F1-API-01` (placement), mesures inter-hôtes |
+| Activity | événements et ledger actif **affichés** ; historique de consommation non enregistré ; journal de diagnostic non structuré | `F1-USG` (à ouvrir), `F1-OBS-01`, `F1-MET-01` |
+| Settings | lecture **affichée** ; pas d'API d'écriture, pas de révocation par API | `F1-SEC-02` |
 
 ---
 
@@ -61,14 +73,14 @@ Chaque valeur ci-dessus a une source réelle et un contrat documenté.
 
 | Prérequis | État |
 |---|---|
-| Contrats d'API stables pour les domaines affichés | partiel (`API-CONTRACTS.md`) |
+| Contrats d'API stables pour les domaines affichés | **fait pour les domaines locaux** (`API-CONTRACTS.md` §2.4, `beta`) ; `network`/`tasks` distribués encore partiels |
 | Distinction mesuré / réservable / contraint | fait |
-| Valeurs absentes représentées par `null`, jamais `0` | fait côté gateway ; à respecter côté UI |
+| Valeurs absentes représentées par `null`, jamais `0` | fait côté gateway **et UI** (`node-local.js`, `activity.js`, `compute.js`) |
 | Authentification locale de l'UI | absente : loopback seulement |
-| Gestion des erreurs avec code + action | fait côté CLI ; à exposer |
-| Tests de contrat par domaine | partiel : contrat des tâches testé (13 tests de magasin), autres domaines à écrire |
+| Gestion des erreurs avec code + action | **fait** : codes stables (`daemon_absent`, `identity_absent`, `config_invalid`, `ledger_unsupported`…) + hint, affichés par l'UI |
+| Tests de contrat par domaine | **fait pour les domaines locaux** : 14 tests `local_api.rs` (parité relais sur vrai daemon, secrets, absence, gap, 501) + unitaires `local.rs`/`events.rs` + ledger daemon |
 | Preuve multi-machine | absente — bloque toute promesse réseau publique |
-| CI réelle | absente — bloque une release crédible |
+| CI réelle | **existe** (`.github/workflows/ci.yml`, verte sur `main` depuis la réconciliation du 2026-11-19) |
 
 ---
 
@@ -87,13 +99,13 @@ Chaque valeur ci-dessus a une source réelle et un contrat documenté.
 ## 6. Chemin le plus court vers une première application utile
 
 ```
-1. F1-API-01 (lecture)      → exposer proprement les données déjà réelles
-2. UI Overview + My Node    → construire sur ces contrats
-3. F1-OBS-01                → diagnostic exportable, sans secret
+1. F1-API-01 (lecture)      → FAIT 2026-11-19 (identity, resources, settings, usage)
+2. UI Overview + My Node    → FAIT 2026-11-19 (node.html + node-local.js)
+3. F1-OBS-01                → diagnostic exportable, sans secret (à faire)
 4. F1-TASK-01 (fait)        → modèle, file et API de tâches
 5. F1-TASK-02/03 (fait)     → exécuteur local, reprise et résultat signé
-6. UI Compute + Activity    → file et résultat maintenant ; progression après 7
-7. F1-EVT-01                → remplacer le polling par des événements
+6. UI Compute + Activity    → FAIT 2026-11-19 (compute.html, activity.html)
+7. F1-EVT-01                → FAIT 2026-11-19 (flux borné à curseur, 13 kinds)
 ```
 
 ---
@@ -119,3 +131,12 @@ possible : tâche, exécution `echo`/`blake3`, reprise et résultat signé véri
 Il manque encore le placement multi-nœuds, les événements et l'historique pour
 une application de calcul distribué. La prochaine étape technique est
 `F1-API-01`, puis `F1-OBS-01`.
+
+**Mise à jour 2026-11-19** : le prototype de contrôle local est CONSTRUIT.
+`F1-API-01` (lecture des domaines locaux) et `F1-EVT-01` sont livrés et testés ;
+les écrans Console, Compute et Activité existent et consomment les contrats.
+La prochaine étape technique est `F1-OBS-01` (diagnostic exportable), puis
+`F1-SEC-02` (écritures bornées) et le placement multi-nœuds (mesures
+inter-hôtes requises). L'historique de consommation reste un ticket à ouvrir
+(`F1-USG`) : le ledger n'enregistre pas les baux clos, et aucune UI ne doit
+prétendre le contraire.

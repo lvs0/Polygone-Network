@@ -29,7 +29,10 @@
 //!   POST /api/v1/tasks/:id/cancel→ annulation
 
 pub mod diagnostics;
+pub mod events;
 pub mod http;
+pub mod local;
+pub mod relay;
 pub mod routes;
 pub mod static_files;
 pub mod status;
@@ -116,6 +119,12 @@ pub struct Gateway {
     pub tasks: tasks::TaskStore,
     /// Instant de démarrage, en secondes Unix : sert à un uptime mesuré.
     pub started_at: u64,
+    /// Chemins des données locales (identité, configuration, socket daemon),
+    /// injectables pour que les tests ne lisent jamais `$HOME`.
+    pub local: local::LocalPaths,
+    /// Bus d'événements borné (F1-EVT-01) : transitions réelles de tâches,
+    /// appariements, nœuds, ressources du daemon.
+    pub events: events::EventBus,
 }
 
 impl Gateway {
@@ -162,6 +171,7 @@ impl Gateway {
             })
             .unwrap_or_default();
 
+        let events = events::EventBus::new();
         Self {
             site_dir,
             pairs: Arc::new(RwLock::new(HashMap::new())),
@@ -187,13 +197,23 @@ impl Gateway {
                             polygone_core::sign::generate_keypair().expect("ML-DSA-65 keygen")
                         }
                     };
-                    tasks::TaskStore::with_executor(Some(path), keypair)
+                    tasks::TaskStore::with_executor(Some(path), keypair).with_events(events.clone())
                 }
-                None => tasks::TaskStore::new(None),
+                None => tasks::TaskStore::new(None).with_events(events.clone()),
             },
             persist_lock: Arc::new(tokio::sync::Mutex::new(())),
             started_at: now_secs(),
+            local: local::LocalPaths::default(),
+            events,
         }
+    }
+
+    /// Remplace les chemins locaux (identité, configuration, socket daemon).
+    /// Réservé aux tests et aux déploiements explicites : le défaut suit les
+    /// conventions du client et du daemon, il ne s'invente pas.
+    pub fn with_local(mut self, local: local::LocalPaths) -> Self {
+        self.local = local;
+        self
     }
 
     /// Écrit la table des nœuds de façon atomique (temporaire puis `rename`).
@@ -291,6 +311,49 @@ impl Gateway {
         if recovered > 0 {
             info!("⬡ gateway : {recovered} tâche(s) reprise(s) après arrêt");
         }
+        gateway.events.emit(
+            "gateway_up",
+            serde_json::json!({ "version": env!("CARGO_PKG_VERSION"), "address": address.to_string() }),
+        );
+        // Sonde périodique du daemon local (F1-EVT-01) : émet `resources`
+        // quand le `seq` publié change, et `daemon_up`/`daemon_absent` sur
+        // transition de joignabilité. Aucune valeur simulée : sans daemon,
+        // un seul événement d'absence, puis silence.
+        let poller = gateway.clone();
+        tokio::spawn(async move {
+            let mut last_seq: Option<u64> = None;
+            let mut last_reachable: Option<bool> = None;
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+            loop {
+                tick.tick().await;
+                match relay::status(poller.local.daemon_socket.clone()).await {
+                    Ok(value) => {
+                        if last_reachable != Some(true) {
+                            poller.events.emit(
+                                "daemon_up",
+                                serde_json::json!({ "socket": poller.local.daemon_socket }),
+                            );
+                        }
+                        let seq = value.get("seq").and_then(serde_json::Value::as_u64);
+                        if seq != last_seq {
+                            poller.events.emit("resources", value);
+                            last_seq = seq;
+                        }
+                        last_reachable = Some(true);
+                    }
+                    Err(_) => {
+                        if last_reachable != Some(false) {
+                            poller.events.emit(
+                                "daemon_absent",
+                                serde_json::json!({ "socket": poller.local.daemon_socket }),
+                            );
+                        }
+                        last_reachable = Some(false);
+                        last_seq = None;
+                    }
+                }
+            }
+        });
         let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
         loop {
             let (stream, peer) = match listener.accept().await {

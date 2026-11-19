@@ -95,7 +95,16 @@ pub const PROTOCOL_VERSION: u8 = 2;
 pub const MIN_PROTOCOL_VERSION: u8 = 1;
 
 /// Capacités annoncées dans `hello`, en plus de la version.
-pub const CAPABILITIES: [&str; 4] = ["refusals", "renew", "storage_capacity", "cpu_tier_cap"];
+pub const CAPABILITIES: [&str; 5] = [
+    "refusals",
+    "renew",
+    "storage_capacity",
+    "cpu_tier_cap",
+    // F1-API-01 (domaine usage) : instantané du ledger + refus, servi par le
+    // serveur lui-même. Additif : un daemon antérieur ne l'annonce pas et
+    // répond `unknown_type` — le client traite l'absence comme indisponible.
+    "ledger",
+];
 
 /// Valeur de repli pour un `hello` v1 qui ne porte pas encore ce champ.
 fn default_min_protocol_version() -> u8 {
@@ -117,7 +126,7 @@ pub const MAX_LINE_BYTES: usize = 64 * 1024;
 /// Cette liste est vérifiée par `test_known_request_types_covers_every_variant` :
 /// un variant ajouté au type mais oublié ici serait refusé en `unknown_type`,
 /// des deux côtés du fil.
-pub const KNOWN_REQUEST_TYPES: [&str; 6] = [
+pub const KNOWN_REQUEST_TYPES: [&str; 7] = [
     "status_request",
     "ping",
     "alloc_request",
@@ -128,6 +137,10 @@ pub const KNOWN_REQUEST_TYPES: [&str; 6] = [
     // Compteurs de refus (OPS.2) : requête séparée pour ne pas faire grossir
     // `Reply::Status`, déjà au plafond de taille porté par `NodeError`.
     "refusals_request",
+    // Instantané du ledger (F1-API-01, domaine usage) : réservations actives +
+    // agrégats + refus. Même logique que `refusals_request` : donnée du
+    // serveur, pas de l'état partagé, requête séparée.
+    "ledger_request",
 ];
 
 /// Types de réponses que le client sait lire (noms sérialisés des variants de
@@ -135,7 +148,7 @@ pub const KNOWN_REQUEST_TYPES: [&str; 6] = [
 ///
 /// Vérifiée par `test_known_reply_types_covers_every_variant` : sans ce test, la
 /// liste dériverait du type au premier variant ajouté, en silence.
-pub const KNOWN_REPLY_TYPES: [&str; 9] = [
+pub const KNOWN_REPLY_TYPES: [&str; 10] = [
     "hello",
     "status_response",
     "alloc_granted",
@@ -145,6 +158,7 @@ pub const KNOWN_REPLY_TYPES: [&str; 9] = [
     "pong",
     "error",
     "refusals_response",
+    "ledger_response",
 ];
 
 /// Codes d'erreur publiés sur le fil (champ `code` d'un `Reply::Error`).
@@ -305,6 +319,12 @@ pub enum Request {
     /// « non mesuré », il n'invente pas zéro.
     #[serde(rename = "refusals_request")]
     Refusals { id: Option<String> },
+    /// Instantané du ledger : réservations actives, agrégats réservés et
+    /// refus (F1-API-01, domaine usage). Le serveur y répond lui-même, comme
+    /// pour `Refusals` : ces données vivent hors de l'état partagé. Un daemon
+    /// antérieur à la capacité `ledger` répond `unknown_type`.
+    #[serde(rename = "ledger_request")]
+    Ledger { id: Option<String> },
 }
 
 /// Message daemon → client.
@@ -434,6 +454,47 @@ pub enum Reply {
         /// Motifs triés par nom ; vide = aucun refus depuis le démarrage.
         counts: BTreeMap<String, u64>,
     },
+    /// Instantané du ledger (F1-API-01, domaine usage).
+    ///
+    /// **Réservations ACTIVES seulement** : le ledger évince les baux libérés
+    /// ou expirés. Ce n'est pas un historique de consommation — l'historique
+    /// n'est pas enregistré, et cette réponse ne prétend pas l'être.
+    #[serde(rename = "ledger_response")]
+    Ledger {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// Réservations triées par `allocation_id` (ordre déterministe).
+        grants: Vec<LedgerEntry>,
+        reserved_ram_bytes: u64,
+        reserved_cpu_cores: u32,
+        reserved_storage_bytes: u64,
+        /// Refus par motif, même copie triée que `refusals_response`.
+        refusals: BTreeMap<String, u64>,
+    },
+}
+
+/// Une réservation active, publiée dans `ledger_response`.
+///
+/// Forme normalisée : un `Grant::Legacy` (triplet d'avant les baux) est publié
+/// avec les mêmes champs qu'un `Grant::Current`, `expires_at` omis — le client
+/// n'a pas à connaître les formes de stockage internes du daemon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LedgerEntry {
+    pub allocation_id: String,
+    pub cores: u32,
+    pub ram_bytes: u64,
+    pub storage_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+}
+
+/// Copie publiable du ledger : réservations + agrégats O(1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LedgerSnapshot {
+    pub grants: Vec<LedgerEntry>,
+    pub reserved_ram_bytes: u64,
+    pub reserved_cpu_cores: u32,
+    pub reserved_storage_bytes: u64,
 }
 
 /// État déjà en mémoire, lu par `dispatch` — jamais recalculé.
@@ -948,6 +1009,33 @@ impl Ledger {
         ledger.path = Some(path);
         ledger
     }
+    /// Copie publiable du ledger (F1-API-01, domaine usage).
+    ///
+    /// Les réservations sont triées par `allocation_id` : deux instantanés
+    /// du même état produisent le même JSON, ce qui rend le contrat testable.
+    /// Un `Grant::Legacy` est normalisé via ses accesseurs — `expires_at`
+    /// reste omis, jamais inventé.
+    pub fn snapshot(&self) -> LedgerSnapshot {
+        let mut grants: Vec<LedgerEntry> = self
+            .grants
+            .iter()
+            .map(|(allocation_id, grant)| LedgerEntry {
+                allocation_id: allocation_id.clone(),
+                cores: grant.cores(),
+                ram_bytes: grant.ram_bytes(),
+                storage_bytes: grant.storage_bytes(),
+                expires_at: grant.expires_at(),
+            })
+            .collect();
+        grants.sort_by(|a, b| a.allocation_id.cmp(&b.allocation_id));
+        LedgerSnapshot {
+            grants,
+            reserved_ram_bytes: self.reserved_ram_bytes,
+            reserved_cpu_cores: self.reserved_cpu_cores,
+            reserved_storage_bytes: self.reserved_storage_bytes,
+        }
+    }
+
     /// RAM encore réservable **après** les réservations en cours.
     pub fn free_ram_bytes(&self, state: &DaemonState) -> u64 {
         state
@@ -1169,6 +1257,17 @@ pub fn dispatch(request: Request, state: &DaemonState, ledger: &mut Ledger) -> R
         Request::Refusals { id } => Reply::Refusals {
             id,
             counts: BTreeMap::new(),
+        },
+        // Même logique que `Refusals` : le serveur répond lui-même avec le
+        // vrai ledger (voir `handle_client`) ; un appel direct à `dispatch`
+        // obtient un instantané vide, jamais des chiffres inventés.
+        Request::Ledger { id } => Reply::Ledger {
+            id,
+            grants: Vec::new(),
+            reserved_ram_bytes: 0,
+            reserved_cpu_cores: 0,
+            reserved_storage_bytes: 0,
+            refusals: BTreeMap::new(),
         },
         Request::Ping { id } => Reply::Pong { id },
         Request::Release { id, allocation_id } => {
@@ -2064,6 +2163,21 @@ pub fn handle_client(
                             id,
                             counts: lock_refusals(&refusals).snapshot(),
                         },
+                        // Le ledger et les refus vivent dans le serveur :
+                        // instantané sous verrou, verrous relâchés AVANT
+                        // l'écriture réseau (même politique que Refusals).
+                        Request::Ledger { id } => {
+                            let snapshot = lock_ledger(&bookings.ledger).snapshot();
+                            let refusals = lock_refusals(&refusals).snapshot();
+                            Reply::Ledger {
+                                id,
+                                grants: snapshot.grants,
+                                reserved_ram_bytes: snapshot.reserved_ram_bytes,
+                                reserved_cpu_cores: snapshot.reserved_cpu_cores,
+                                reserved_storage_bytes: snapshot.reserved_storage_bytes,
+                                refusals,
+                            }
+                        }
                         other => {
                             let snapshot = read_shared(&state);
                             let reply = bookings.dispatch(other, &snapshot);

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Activité — Polygone</title>
+<link rel="manifest" href="./manifest.webmanifest" />
+<meta name="theme-color" content="#030306" />
+<link rel="icon" href="./icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="dashboard.css" />
+</head>
+<body class="page--dashboard">
+
+<header class="nav">
+  <div class="nav__inner">
+    <a class="brand" href="index.html">
+      <svg viewBox="0 0 32 32" class="brand__mark" aria-hidden="true">
+        <polygon points="16,2 30,10 30,22 16,30 2,22 2,10" fill="none" stroke="currentColor" stroke-width="2" />
+        <polygon points="16,8 24,12.5 24,19.5 16,24 8,19.5 8,12.5" fill="none" stroke="currentColor" stroke-width="1.2" />
+      </svg>
+      <span>Polygone</span>
+    </a>
+    <nav>
+      <a href="index.html">Accueil</a>
+      <a href="node.html">Console</a>
+      <a href="compute.html">Compute</a>
+      <a href="activity.html" class="active">Activité</a>
+      <a href="drive.html">Drive</a>
+      <a href="mesh.html">Mesh</a>
+    </nav>
+  </div>
+</header>
+
+<main class="dashboard">
+  <section class="banner" data-state="unknown" id="activity-banner">
+    <div class="banner__left">
+      <span class="banner__dot"></span>
+      <div>
+        <h1 id="activity-title">Connexion…</h1>
+        <p id="activity-sub">flux d'événements borné de la gateway locale</p>
+      </div>
+    </div>
+    <div class="banner__right">
+      <dl class="kv">
+        <dt>Événements retenus</dt><dd id="ev-retained">—</dd>
+        <dt>Évincés (cumul)</dt><dd id="ev-dropped">—</dd>
+        <dt>Dernier id</dt><dd id="ev-latest">—</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="panels">
+    <div class="panel" style="grid-column: 1 / -1;">
+      <h2 class="panel__title">Flux d'événements</h2>
+      <p class="panel__hint" id="gap-note" hidden>
+        ⚠ Des événements ont été évincés avant d'être lus (anneau borné).
+        Le flux reprend à l'instant présent ; les événements manqués ne sont pas rejouables.
+      </p>
+      <ul class="limits" id="event-list" style="max-height: 420px; overflow-y: auto;">
+        <li id="event-empty">aucun événement pour l'instant</li>
+      </ul>
+      <p class="panel__hint">
+        <code>/api/v1/events?since=…</code> — ordre monotone, perte signalée, polling toutes les 3 s.
+      </p>
+    </div>
+  </section>
+
+  <section class="panels">
+    <div class="panel">
+      <h2 class="panel__title">Réservations actives (ledger)</h2>
+      <dl class="kv">
+        <dt>RAM réservée</dt><dd id="usage-ram">—</dd>
+        <dt>Cœurs réservés</dt><dd id="usage-cpu">—</dd>
+        <dt>Stockage réservé</dt><dd id="usage-storage">—</dd>
+        <dt>Baux actifs</dt><dd id="usage-count">—</dd>
+      </dl>
+      <ul class="limits" id="usage-grants"></ul>
+      <p class="panel__hint" id="usage-note">route <code>/api/v1/usage</code></p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__title">Refus d'allocation (depuis le démarrage)</h2>
+      <ul class="limits" id="usage-refusals">
+        <li>aucun refus enregistré</li>
+      </ul>
+      <p class="panel__hint">
+        Compteurs du daemon, relayés avec le ledger. Un historique de consommation
+        n'est pas enregistré : seules les réservations <strong>actives</strong> sont publiées.
+      </p>
+    </div>
+  </section>
+</main>
+
+<script src="activity.js"></script>
+<script src="pwa.js" defer></script>
+</body>
+</html>

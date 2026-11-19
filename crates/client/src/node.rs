@@ -832,6 +832,18 @@ mod tests {
                                 counts: Default::default(),
                             }
                         }
+                        // Pas de ledger dans le faux daemon : instantané vide,
+                        // jamais de réservation inventée.
+                        polygoned::socket::Request::Ledger { id } => {
+                            polygoned::socket::Reply::Ledger {
+                                id,
+                                grants: Vec::new(),
+                                reserved_ram_bytes: 0,
+                                reserved_cpu_cores: 0,
+                                reserved_storage_bytes: 0,
+                                refusals: Default::default(),
+                            }
+                        }
                         polygoned::socket::Request::Status { id } => status_reply(id),
                         polygoned::socket::Request::Release { id, allocation_id } => {
                             polygoned::socket::Reply::Released { id, allocation_id }
