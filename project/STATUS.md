@@ -90,8 +90,9 @@ make migrate-proof                   # migration peers.json v1 → v2
 1. **Deux hôtes distincts** : LEVÉ — exécuté le 2026-11-19, Hope ↔ cue-sandbox
    (WAN Tailscale, deux noyaux, horloges 0 s). Preuve :
    `docs/proofs/P0-DEUX-HOTES-2026-11-19.md`. Limite : LAN/NAT non testé.
-2. **CI GitHub Actions sur l'arbre** : run 44486416115 (`workflow_dispatch`,
-   branche `reconcile/2026-11`, HEAD 22cc718) — verdict à vérifier §11.
+2. **CI GitHub Actions sur l'arbre** : LEVÉ — run 44501139127 **vert**
+   (Test ubuntu ✓, Test macos ✓, Smoke ubuntu ✓ ; canari Windows : échec
+   attendu et documenté). HEAD 26c52d9.
 3. **Autorisation explicite** : DONNÉE — mandat opérateur 2026-11-19
    (« finir la production en toute autonomie » ; accès SSH Cue confirmé).
 4. **Gitleaks rejoué avant push** : FAIT — 292 commits, 0 fuite (2026-11-19).
@@ -236,10 +237,11 @@ pour tout ce qu'elle contredit.
 | Tests workspace | FAIT — **586 passés, 0 échec**, 24 suites ; clippy `--workspace --all-targets -D warnings` exit 0 ; fmt exit 0 | `TMPDIR=/tmp cargo test --workspace -j 2` (2026-11-19) |
 | Gitleaks | FAIT — 292 commits, 0 fuite, rejoué avant push | `~/bin/gitleaks git . --no-banner --redact` |
 | Push + PR | FAIT — `reconcile/2026-11` → `lvs0/Polygone-Network`, PR #4 | https://github.com/lvs0/Polygone-Network/pull/4 |
-| CI sur l'arbre | run 44486416115 (`workflow_dispatch`) : premier run rouge (sandbox runners CI exit 218 + clippy macos `new_without_default`) → corrigé (probe `sandbox_executable`, `Default` MacOSPlatform) ; second run à vérifier | `.github/workflows/ci.yml` (workflow_dispatch ajouté), commits correctifs |
+| CI sur l'arbre | **VERTE** — run 44501139127 (HEAD 26c52d9) : Test ubuntu ✓, Test macos ✓, Smoke ubuntu ✓ (installeur, p0-two-process, smoke-commands, gateway-smoke, CI honesty, secrets) ; canari Windows échec attendu. 9 runs : probe sandbox discriminant (exit 218 runners), Default MacOSPlatform, cfg cgroup linux/test, **socket accepté repassé bloquant (bug produit macOS/BSD : O_NONBLOCK hérité)**, tests sysfs/PrivateTmp gatés Linux | commits `22cc718`→`26c52d9` |
 | Release dry-run | FAIT — archive `polygone-linux-x86_64.tar.gz` acceptée par les règles de l'installeur, altération détectée | `docs/proofs/release-dry-run-2026-11-19.txt`, `dist/SHA256SUMS` |
 | Version | 2.1.0 (la release v2.0.0 du 2026-08-20 existe déjà ; ne pas l'écraser) | `Cargo.toml` |
 | Fusion github/main | NON FAITE — 18 conflits (lignées divergentes), mission de réconciliation distincte | PR #4 commentée |
 
-**Prochaine action** : verdict du second run CI ; si vert, tag `v2.1.0` et
-publication par `release.yml`, puis vérification des assets et de install.sh.
+**Prochaine action** : tag `v2.1.0` → `release.yml` (4 cibles + SHA256SUMS),
+vérification des assets et du contrat install.sh. Puis : réconciliation
+github/main (mission distincte), RTT/débit inter-hôtes, F1-API-01.

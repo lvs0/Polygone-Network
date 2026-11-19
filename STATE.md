@@ -14,8 +14,8 @@
 | Deux hôtes | Hope (7.2.5-3-omarchy) ↔ cue-sandbox (6.18.38+, Ubuntu 24.04, 8 CPU, 24 Go) via SSH root + Tailscale ; horloges 0 s ; protocole P0 exécuté, preuve `docs/proofs/P0-DEUX-HOTES-2026-11-19.md` |
 | D2 | tranchée : ADR-0002 (clé ML-DSA-65), DEC-SEC-03 SUPERSEDED dans le registre |
 | Gitleaks | 292 commits, 0 fuite (avant push) |
-| GitHub | branche poussée, PR #4 (conflictuelle avec main — réconciliation distincte) ; CI run 44486416115 rouge (sandbox CI exit 218, clippy macos) → correctifs probe `sandbox_executable` + `Default` MacOSPlatform |
-| Release | dry-run conforme (`docs/proofs/release-dry-run-2026-11-19.txt`) ; version bumpée 2.1.0 (v2.0.0 existe déjà, 2026-08-20) ; publication après CI verte |
+| GitHub | branche poussée, PR #4 (conflictuelle avec main — réconciliation distincte) ; **CI VERTE run 44501139127** (ubuntu+macos+smoke, HEAD 26c52d9) après 9 runs ; bug produit macOS/BSD corrigé (socket accepté O_NONBLOCK hérité → bloquant) |
+| Release | dry-run conforme ; version 2.1.0 ; tag v2.1.0 poussé → release.yml (4 cibles + SHA256SUMS) |
 | Cue SSH | intermittent : la sandbox se suspend, et le port 22 peut passer en « Tailscale SSH check » (authentification interactive) — ne pas ouvrir l'URL de login, réessayer plus tard |
 
 ## Réconciliation canonique — 2026-11-09
