@@ -588,7 +588,9 @@ fn run_pause(duree: &str) -> Result<()> {
 
 #[cfg(test)]
 mod doctor_tests {
-    use super::node_isolation::{measure_from, OsIsolation};
+    #[cfg(target_os = "linux")]
+    use super::node_isolation::measure_from;
+    use super::node_isolation::OsIsolation;
     use super::{doctor_report, format_doctor_report};
     use polygoned::socket::{Capacity, Reply};
     use std::path::PathBuf;
@@ -706,6 +708,7 @@ mod doctor_tests {
 
     /// La preuve CLI.1 : le chiffre affiché est celui du fichier cgroup, relu
     /// dans le même test — pas une valeur recopiée depuis la configuration.
+    #[cfg(target_os = "linux")]
     #[test]
     fn doctor_prints_the_cgroup_limit_it_read() {
         let reply = status(Some(Capacity {
@@ -737,6 +740,7 @@ mod doctor_tests {
         assert!(report.contains("scope Polygone : non"), "{report}");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn doctor_says_unlimited_instead_of_zero_when_the_kernel_says_max() {
         let reply = status(Some(Capacity {

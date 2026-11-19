@@ -90,6 +90,7 @@ impl Iface {
 /// Parse `ip -4 -o addr show` output. Unknown or malformed lines are skipped:
 /// a line the parser does not understand must never become an interface we
 /// broadcast on.
+#[cfg(any(target_os = "linux", test))]
 pub fn parse_ip_addr_output(text: &str) -> Vec<Iface> {
     let mut interfaces = Vec::new();
     for line in text.lines() {
