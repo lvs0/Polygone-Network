@@ -8,8 +8,11 @@
 #[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
 
+#[cfg(any(target_os = "linux", test))]
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
+#[cfg(any(target_os = "linux", test))]
 const MEMORY_FILE: &str = "memory.max";
+#[cfg(any(target_os = "linux", test))]
 const CPU_FILE: &str = "cpu.max";
 
 /// Convertit une demande RAM en octets selon la même convention Gio que le daemon.

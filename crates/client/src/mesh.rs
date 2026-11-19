@@ -395,6 +395,7 @@ pub async fn announce(node_id: &str, relay: &str) -> Result<()> {
 
 /// Remaining memory under a finite cgroup v2 memory.max. `None` means no
 /// finite limit or the cgroup measurement is unavailable.
+#[cfg(any(target_os = "linux", test))]
 fn cgroup_memory_headroom(limit: &str, current: &str) -> Option<u64> {
     let limit = limit.trim().parse::<u64>().ok()?;
     let current = current.trim().parse::<u64>().ok()?;
