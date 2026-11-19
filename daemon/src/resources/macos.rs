@@ -7,6 +7,7 @@ use crate::resources::{
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::Command;
 
+#[derive(Default)]
 pub struct MacOSPlatform;
 
 impl MacOSPlatform {

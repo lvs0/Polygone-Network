@@ -368,6 +368,30 @@ mod tests {
         output.status.success() && !output.stdout.is_empty()
     }
 
+    /// True si le sandbox RÉEL (jeu complet de propriétés) s'exécute sur cet
+    /// hôte. Un `systemd-run /bin/echo` nu n'est pas discriminant : les runners
+    /// CI acceptent echo mais refusent l'unité durcie (exit 218
+    /// EXIT_CAPABILITIES). Le probe exécute donc le même chemin que les tests,
+    /// une seule fois (OnceLock). Sur un hôte incapable, les tests sandbox
+    /// sautent avec un message — ils ne paniquent pas et ne simulent rien.
+    fn sandbox_executable() -> bool {
+        static PROBE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *PROBE.get_or_init(|| {
+            if !systemd_run_available() {
+                return false;
+            }
+            match run_sandboxed(
+                "printf polygone-sandbox-probe",
+                64,
+                10,
+                Duration::from_secs(15),
+            ) {
+                Ok(out) => out.contains("polygone-sandbox-probe"),
+                Err(_) => false,
+            }
+        })
+    }
+
     use super::*;
 
     /// The production guard `ACTIVE_EXEC` caps concurrent exec at
@@ -397,8 +421,8 @@ mod tests {
 
     #[test]
     fn sandbox_runs_simple_command() {
-        if !systemd_run_available() {
-            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+        if !sandbox_executable() {
+            eprintln!("skip: sandbox non exécutable sur cet hôte (systemd-run --user absent ou unité durcie refusée)");
             return;
         }
         let _g = exec_test_guards();
@@ -479,8 +503,8 @@ mod tests {
 
     #[test]
     fn sandbox_enforces_wall_clock_timeout() {
-        if !systemd_run_available() {
-            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+        if !sandbox_executable() {
+            eprintln!("skip: sandbox non exécutable sur cet hôte (systemd-run --user absent ou unité durcie refusée)");
             return;
         }
         let _g = exec_test_guards();
@@ -496,8 +520,8 @@ mod tests {
 
     #[test]
     fn sandbox_enforces_memory_limit() {
-        if !systemd_run_available() {
-            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+        if !sandbox_executable() {
+            eprintln!("skip: sandbox non exécutable sur cet hôte (systemd-run --user absent ou unité durcie refusée)");
             return;
         }
         if std::process::Command::new("python3")
@@ -525,8 +549,8 @@ mod tests {
 
     #[test]
     fn sandbox_memory_cap_is_configured_in_the_cgroup_and_enforced() {
-        if !systemd_run_available() {
-            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+        if !sandbox_executable() {
+            eprintln!("skip: sandbox non exécutable sur cet hôte (systemd-run --user absent ou unité durcie refusée)");
             return;
         }
         if std::process::Command::new("python3")
@@ -588,8 +612,8 @@ mod tests {
 
     #[test]
     fn sandbox_cpu_quota_slows_a_cpu_bound_workload() {
-        if !systemd_run_available() {
-            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+        if !sandbox_executable() {
+            eprintln!("skip: sandbox non exécutable sur cet hôte (systemd-run --user absent ou unité durcie refusée)");
             return;
         }
         if std::process::Command::new("sha256sum")
@@ -625,8 +649,8 @@ mod tests {
 
     #[test]
     fn sandbox_blocks_identity_and_network_access() {
-        if !systemd_run_available() {
-            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+        if !sandbox_executable() {
+            eprintln!("skip: sandbox non exécutable sur cet hôte (systemd-run --user absent ou unité durcie refusée)");
             return;
         }
         let _g = exec_test_guards();
@@ -653,8 +677,8 @@ mod tests {
 
     #[test]
     fn sandbox_nonzero_exit_is_a_failure() {
-        if !systemd_run_available() {
-            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+        if !sandbox_executable() {
+            eprintln!("skip: sandbox non exécutable sur cet hôte (systemd-run --user absent ou unité durcie refusée)");
             return;
         }
         let result = run_sandboxed(
@@ -670,8 +694,8 @@ mod tests {
 
     #[test]
     fn sandbox_blocks_privilege_escalation() {
-        if !systemd_run_available() {
-            eprintln!("skip: systemd-run --user indisponible (CI/sans session)");
+        if !sandbox_executable() {
+            eprintln!("skip: sandbox non exécutable sur cet hôte (systemd-run --user absent ou unité durcie refusée)");
             return;
         }
         let _g = exec_test_guards();
