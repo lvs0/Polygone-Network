@@ -7,7 +7,7 @@
 
 | Champ | Valeur vérifiée |
 |---|---|
-| Branche | `prototype-complet` (depuis `main` = `b63e3a8`) — prototype F1-API-01/F1-EVT-01 + écrans ; PR en cours |
+| Branche | `main` = `1956f36` (PR #6 prototype fusionnée le 2026-11-19, CI verte run 44582207237 ; `prototype-complet`, `f1-api-01-contrats`, `reconcile/2026-11` conservées) |
 | Réconciliation | **FAITE** — merge `78e9447` (deux parents `c13cdf6` + `23d27ac`), PR #4 **MERGED** 2026-11-19T16:07:42Z, `github/main` = `8307094`, arbre identique à `78e9447` (`git diff` vide) |
 | Arbitrage | ADR-0004 **accepté** : 20 conflits + 11 auto-fusions inspectées → version canonique partout ; 24 ajouts purs de septembre en couche historique (bandeaux + INDEX) ; 2 fichiers mock exclus ; **0 fichier Rust modifié** (`git diff c13cdf6 78e9447 -- '*.rs'` = 0) |
 | Gates locaux | fmt 0 ; clippy workspace `-D warnings` 0 ; **612 tests / 25 suites / 0 échec** (`--no-fail-fast`, TMPDIR=/tmp, -j 2) ; check-docs 96 documents ; check-ci-honesty OK ; gitleaks avant push (voir §13 STATUS) |

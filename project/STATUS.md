@@ -295,5 +295,8 @@ consommation (F1-USG à ouvrir — le ledger n'enregistre pas les baux clos),
 livraison push d'événements. LAN/NAT et quorum L2 : physiques / second
 opérateur, hors autonomie.
 
-**Prochaine action** : fusionner la PR du prototype après CI verte, puis
-F1-OBS-01 (diagnostic exportable sans secret).
+**Prochaine action** : PR #6 **FUSIONNÉE** le 2026-11-19 (`main` = `1956f36`,
+CI verte run 44582207237 : ubuntu ✓ macos ✓ smoke ✓, canari Windows échec
+attendu). Prototype livré et publié. Suite : F1-OBS-01 (diagnostic exportable
+sans secret), puis F1-SEC-02 (écritures bornées) ; mesures inter-hôtes dès Cue
+réveillé (RTT/débit → placement et planificateur de coût).
