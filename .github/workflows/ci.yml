@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  # Déclenchement manuel sur n'importe quelle branche : une PR conflictuelle
+  # ne produit pas de merge ref, et le gate « CI exécutée sur l'arbre » doit
+  # pouvoir être satisfait sur la branche vérifiée sans fusion préalable.
+  workflow_dispatch:
 
 permissions:
   contents: read
