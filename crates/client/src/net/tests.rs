@@ -1950,3 +1950,171 @@ fn strict_policy_accepts_an_anchored_peer() {
         _ => panic!("message attendu"),
     }
 }
+
+// --- Preuve L1 persistée (ADR-0003) -----------------------------------------
+
+/// Isole HOME dans un répertoire temporaire sous /tmp, restaure l'original.
+/// Sérialisé par le verrou global (race HOME ↔ sandbox, 2026-08-08).
+fn with_temp_home<F: FnOnce()>(label: &str, f: F) {
+    let _guard = crate::testutil::with_global_state_guard();
+    let prev = std::env::var_os("HOME");
+    let tmp = std::env::temp_dir().join(format!("polygone-{label}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("HOME", &tmp);
+    f();
+    match prev {
+        Some(p) => std::env::set_var("HOME", p),
+        None => std::env::remove_var("HOME"),
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+fn l1_grant(output: &str) -> String {
+    serde_json::json!({
+        "node": "a".repeat(32),
+        "ok": true,
+        "output": output,
+        "verification": VERIFICATION_PRODUCER_SIGNED,
+    })
+    .to_string()
+}
+
+#[test]
+fn l1_evidence_round_trips_from_disk() {
+    use polygone_core::evidence::{
+        Commitments, ComparisonOutcome, EvidenceKind, EvidenceMethod, EvidenceV1, Provenance,
+    };
+    with_temp_home("l1-roundtrip", || {
+        let (annotated, reproduced) =
+            annotate_local_recomputation(&l1_grant("hello"), "hello").unwrap();
+        assert!(reproduced);
+        let path = persist_l1_evidence(&annotated, "echo hello", &"a".repeat(32), &"b".repeat(32))
+            .unwrap()
+            .expect("une vérification L1 doit laisser une preuve");
+        let bytes = std::fs::read(&path).unwrap();
+        let evidence = EvidenceV1::from_json(&bytes).unwrap();
+        assert!(evidence.digest_matches(&evidence.digest_hex().unwrap()));
+        assert_eq!(evidence.provenance.method, EvidenceMethod::LocalRecompute);
+        assert_eq!(evidence.provenance.producer, "b".repeat(32));
+        assert_eq!(
+            evidence.commitments.committed_blake3.as_deref(),
+            Some(blake3::hash(b"hello").to_hex().to_string().as_str())
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600,
+                "la preuve est privée"
+            );
+        }
+        // Miroir : un second opérateur qui recalcule la même sortie engage le
+        // même digest antérieur et observe le même digest → Match.
+        let mirror = EvidenceV1::new(
+            EvidenceKind::TaskOutput,
+            evidence.subject.clone(),
+            Commitments {
+                committed_blake3: evidence.commitments.committed_blake3.clone(),
+                observed_blake3: evidence
+                    .commitments
+                    .committed_blake3
+                    .clone()
+                    .expect("l'engagement du producteur est présent"),
+            },
+            Provenance {
+                method: EvidenceMethod::LocalRecompute,
+                measured_at: evidence.provenance.measured_at,
+                producer: "c".repeat(32),
+                host: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(evidence.compare(&mirror).outcome, ComparisonOutcome::Match);
+    });
+}
+
+#[test]
+fn l1_evidence_records_divergence() {
+    use polygone_core::evidence::{ComparisonOutcome, ComparisonReason, EvidenceV1};
+    with_temp_home("l1-divergence", || {
+        let (annotated, reproduced) =
+            annotate_local_recomputation(&l1_grant("hello"), "HELLO").unwrap();
+        assert!(!reproduced, "une sortie différente n'est pas reproduite");
+        let path = persist_l1_evidence(&annotated, "echo hello", &"a".repeat(32), &"b".repeat(32))
+            .unwrap()
+            .expect("une divergence doit être persistée, pas seulement affichée");
+        let evidence = EvidenceV1::from_json(&std::fs::read(&path).unwrap()).unwrap();
+        assert_ne!(
+            evidence.commitments.observed_blake3,
+            evidence.commitments.committed_blake3.clone().unwrap()
+        );
+        // La preuve divergente se compare à ce qu'un recalcul conforme aurait
+        // enregistré : Divergent, raison typée, jamais un accord silencieux.
+        let conforming = EvidenceV1::new(
+            polygone_core::evidence::EvidenceKind::TaskOutput,
+            evidence.subject.clone(),
+            polygone_core::evidence::Commitments {
+                committed_blake3: evidence.commitments.committed_blake3.clone(),
+                observed_blake3: evidence
+                    .commitments
+                    .committed_blake3
+                    .clone()
+                    .expect("l'engagement du producteur est présent"),
+            },
+            polygone_core::evidence::Provenance {
+                method: polygone_core::evidence::EvidenceMethod::LocalRecompute,
+                measured_at: evidence.provenance.measured_at,
+                producer: "c".repeat(32),
+                host: None,
+            },
+        )
+        .unwrap();
+        let comparison = evidence.compare(&conforming);
+        assert_eq!(comparison.outcome, ComparisonOutcome::Divergent);
+        assert_eq!(comparison.reason, ComparisonReason::OutputDiffers);
+    });
+}
+
+#[test]
+fn l1_refusal_writes_no_evidence() {
+    with_temp_home("l1-refusal", || {
+        let refusal = serde_json::json!({
+            "node": "a".repeat(32),
+            "ok": false,
+            "error": "quota dépassé",
+        })
+        .to_string();
+        let (annotated, reproduced) = annotate_local_recomputation(&refusal, "hello").unwrap();
+        assert!(!reproduced);
+        let written =
+            persist_l1_evidence(&annotated, "echo hello", &"a".repeat(32), &"b".repeat(32))
+                .unwrap();
+        assert!(written.is_none(), "un refus n'a rien à recalculer");
+        assert!(
+            !evidence_dir().exists(),
+            "aucun répertoire de preuve ne doit être créé pour un refus"
+        );
+    });
+}
+
+#[test]
+fn l1_evidence_subject_binds_ghost_and_command() {
+    use polygone_core::evidence::{ComparisonOutcome, ComparisonReason, EvidenceV1};
+    with_temp_home("l1-subject", || {
+        let (annotated, _) = annotate_local_recomputation(&l1_grant("hello"), "hello").unwrap();
+        let p1 = persist_l1_evidence(&annotated, "echo hello", &"a".repeat(32), &"b".repeat(32))
+            .unwrap()
+            .unwrap();
+        let p2 = persist_l1_evidence(&annotated, "echo autre", &"a".repeat(32), &"b".repeat(32))
+            .unwrap()
+            .unwrap();
+        assert_ne!(p1, p2, "deux tâches distinctes = deux fichiers distincts");
+        let e1 = EvidenceV1::from_json(&std::fs::read(&p1).unwrap()).unwrap();
+        let e2 = EvidenceV1::from_json(&std::fs::read(&p2).unwrap()).unwrap();
+        let comparison = e1.compare(&e2);
+        assert_eq!(comparison.outcome, ComparisonOutcome::Inconclusive);
+        assert_eq!(comparison.reason, ComparisonReason::SubjectDiffers);
+    });
+}

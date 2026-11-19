@@ -2,8 +2,10 @@
 //!
 //! Ce module fixe **ce qu'est une preuve** et **comment deux preuves se
 //! comparent**. Il ne lit aucun fichier, n'écrit rien, ne signe rien et
-//! n'ouvre aucun socket. Aucun binaire ne l'appelle aujourd'hui : même statut
-//! que `reuse` avant câblage — une primitive testée, pas une fonctionnalité.
+//! n'ouvre aucun socket. La persistance est portée par le client
+//! (`net::persist_l1_evidence`, ADR-0003) : la vérification L1 de
+//! `--verifier-local` émet une preuve canonique sur disque, accord comme
+//! divergence. Le module reste pur ; l'E/S vit ailleurs.
 //!
 //! **Pourquoi.** `net::annotate_local_recomputation` (L1) compare deux sorties
 //! en mémoire et annote un grant. Tant qu'une preuve n'a pas de forme
@@ -14,8 +16,8 @@
 //! **Ce que ce module ne décide pas** :
 //! - l'attribution de faute (producteur / demandeur / partagée) : décision
 //!   humaine, à porter par un ADR si un quorum est engagé ;
-//! - la persistance : écrire un fichier de preuve est un **format persisté**,
-//!   donc un ADR au titre du §9.6 de `project/AUTONOMOUS_EXECUTION.md` ;
+//! - la persistance : tranchée par `docs/decisions/ADR-0003-preuve-l1-persistee.md`
+//!   (`~/.polygone/evidence-*.json`, écriture atomique 0600, un fichier par vérification) ;
 //! - le transport : aucun champ de ce module n'entre dans une enveloppe, et
 //!   `docs/architecture/API-CONTRACTS.md` n'est pas modifié par ce module ;
 //! - les niveaux de preuve : le mapping méthode → L0/L1/L2 appartient à

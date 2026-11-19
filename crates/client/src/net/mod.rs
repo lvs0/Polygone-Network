@@ -1056,6 +1056,86 @@ pub fn annotate_local_recomputation(grant: &str, local_output: &str) -> Result<(
     Ok((body.to_string(), reproduced))
 }
 
+/// Directory holding persisted L1 evidence files (ADR-0003): the private
+/// `.polygone` root itself. The private-write helper hardens only that
+/// directory, so evidence files carry an `evidence-` prefix rather than living
+/// in a subdirectory.
+pub fn evidence_dir() -> std::path::PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    home.join(".polygone")
+}
+
+/// Persist an L1 verification as a canonical `polygone.evidence.v1` file
+/// (ADR-0003). `annotated_grant` is the output of
+/// [`annotate_local_recomputation`]; a refusal carries no `recompute` and
+/// yields `Ok(None)`.
+///
+/// The producer's signed output digest is the **prior commitment**
+/// (`committed_blake3`); the local recomputation is the **observation**
+/// (`observed_blake3`). The measurement is attributed to the requester
+/// (`producer_node`) — never to the ghost. The subject binds the ghost and the
+/// exact command, so two different tasks never compare. Write is atomic with
+/// 0600 permissions via the existing private-write helper; no new I/O
+/// mechanism is introduced.
+pub fn persist_l1_evidence(
+    annotated_grant: &str,
+    command: &str,
+    ghost: &str,
+    producer_node: &str,
+) -> Result<Option<std::path::PathBuf>> {
+    use polygone_core::evidence::{
+        Commitments, EvidenceKind, EvidenceMethod, EvidenceSubject, EvidenceV1, Provenance,
+    };
+    let body: serde_json::Value = serde_json::from_str(annotated_grant)?;
+    let Some(recompute) = body.get("recompute") else {
+        return Ok(None);
+    };
+    let committed = recompute
+        .get("grant_output_blake3")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("recompute sans digest du grant"))?;
+    let observed = recompute
+        .get("local_output_blake3")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("recompute sans digest local"))?;
+    let task_hash = blake3::hash(command.as_bytes()).to_hex().to_string();
+    let subject_id = format!("{ghost}:{}", &task_hash[..16]);
+    let measured_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .ok()
+        .map(|h| h.trim().to_string())
+        .filter(|h| !h.is_empty());
+    let evidence = EvidenceV1::new(
+        EvidenceKind::TaskOutput,
+        EvidenceSubject { subject_id },
+        Commitments {
+            committed_blake3: Some(committed.to_string()),
+            observed_blake3: observed.to_string(),
+        },
+        Provenance {
+            method: EvidenceMethod::LocalRecompute,
+            measured_at,
+            producer: producer_node.to_string(),
+            host,
+        },
+    )
+    .map_err(|e| anyhow::anyhow!("preuve L1 invalide : {e}"))?;
+    let canonical = evidence
+        .canonical_json()
+        .map_err(|e| anyhow::anyhow!("preuve L1 non sérialisable : {e}"))?;
+    let digest = evidence
+        .digest_hex()
+        .map_err(|e| anyhow::anyhow!("digest de preuve impossible : {e}"))?;
+    let path = evidence_dir().join(format!("evidence-{measured_at}-{}.json", &digest[..8]));
+    crate::identity::write_private_atomic(&path, &canonical)?;
+    Ok(Some(path))
+}
+
 /// Sign a reply bound to the request's session and the requester's node id.
 /// Signing failure is fatal: an unsigned reply is never emitted.
 fn signed_compute_reply(

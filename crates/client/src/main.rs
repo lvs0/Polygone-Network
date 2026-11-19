@@ -1290,7 +1290,28 @@ async fn main() -> Result<()> {
                             50,
                             std::time::Duration::from_secs(30),
                         ) {
-                            Ok(local) => net::annotate_local_recomputation(&grant, &local)?,
+                            Ok(local) => {
+                                let (annotated, reproduced) =
+                                    net::annotate_local_recomputation(&grant, &local)?;
+                                // ADR-0003 : la vérification L1 laisse une preuve
+                                // canonique persistée, accord comme divergence.
+                                // Un échec d'écriture n'invalide pas le résultat.
+                                match net::persist_l1_evidence(
+                                    &annotated,
+                                    &command,
+                                    &ghost,
+                                    &net::node_id(&identity),
+                                ) {
+                                    Ok(Some(path)) => {
+                                        println!("  preuve L1 : {}", path.display())
+                                    }
+                                    Ok(None) => {}
+                                    Err(error) => {
+                                        println!("  ⚠ preuve L1 non persistée : {error}")
+                                    }
+                                }
+                                (annotated, reproduced)
+                            }
                             Err(error) => {
                                 println!("  ⚠ recalcul local impossible : {error}");
                                 (grant, false)
