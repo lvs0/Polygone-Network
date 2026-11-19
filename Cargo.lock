@@ -3230,7 +3230,7 @@ dependencies = [
 
 [[package]]
 name = "polygone-client"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3254,7 +3254,7 @@ dependencies = [
 
 [[package]]
 name = "polygone-core"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "aes-gcm",
  "blake3",
@@ -3275,7 +3275,7 @@ dependencies = [
 
 [[package]]
 name = "polygone-fabric"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3289,7 +3289,7 @@ dependencies = [
 
 [[package]]
 name = "polygone-gateway"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3307,7 +3307,7 @@ dependencies = [
 
 [[package]]
 name = "polygone-petals"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3335,7 +3335,7 @@ dependencies = [
 
 [[package]]
 name = "polygone-relay"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3349,7 +3349,7 @@ dependencies = [
 
 [[package]]
 name = "polygone-serverless"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3363,7 +3363,7 @@ dependencies = [
 
 [[package]]
 name = "polygoned"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "chrono",

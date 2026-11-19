@@ -1,0 +1,33 @@
+
+== 0. garde-fous ==
+version 2.0.0 · hôte x86_64-unknown-linux-gnu · plateforme linux-x86_64
+
+== 1. réutilisation des binaires existants (aucune compilation) ==
+répertoire : /home/lvs0/Polygone-canonical/target/release
+
+== 2. contrat de install.sh ==
+contrat vérifié : 4 binaires + web/ + SHA256SUMS
+
+== 3. rassemblement ==
+  + polygone           7146080 octets
+  + polygone-relay     2373440 octets
+  + polygoned          3281344 octets
+  + polygone-gateway   2655328 octets
+  + web/               19 fichiers
+
+== 4. archive reproductible ==
+polygone-linux-x86_64.tar.gz (6543355 octets)
+
+== 5. manifeste ==
+b2d6685359afa9fb45c840afb9d26b2e54c77411bf0388270c9847626281b6c2  polygone-linux-x86_64.tar.gz
+
+== 6. règles d'acceptation de l'installeur ==
+archive acceptée : 24 membres, 4 binaires réguliers, web/ complet
+
+== 7. preuve de détection d'altération ==
+altération détectée (empreinte différente, attendu)
+
+== DRY RUN ==
+artefact : /home/lvs0/Polygone-canonical/dist/polygone-linux-x86_64.tar.gz
+manifeste : /home/lvs0/Polygone-canonical/dist/SHA256SUMS
+Aucune publication, aucun tag, aucun push. Rien n a été téléversé.

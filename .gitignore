@@ -68,3 +68,6 @@ NIGHT-REPORT.md
 
 # Ruflo provider configuration (may contain credentials)
 claude-flow.config.json
+
+# artefacts de release (dry-run et publication)
+dist/
