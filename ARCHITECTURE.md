@@ -120,13 +120,13 @@ polygone/
 | `core` | 15 | 3655 | — (lib) | 77 |
 | `client` | 33 | 16842 | `polygone` | 217 |
 | `relay` | 4 | 1675 | `polygone-relay` | 28 |
-| `gateway` | 13 | 5551 | `polygone-gateway` | 89 |
+| `gateway` | 13 | 5785 | `polygone-gateway` | 96 |
 | `petals` | 12 | 3104 | — (lib) | 19 |
 | `serverless` | 3 | 776 | — (lib) | 17 |
 | `fabric` | 8 | 3026 | `polygone-fabric` | 32 |
 | `daemon` | 17 | 11224 | `polygoned` | 133 |
 | doc-tests | — | — | — | comptés dans leur crate |
-| **Total** | **105** | **45853** | **5 binaires** | **612** |
+| **Total** | **105** | **46087** | **5 binaires** | **619** |
 
 > Base de mesure initiale du **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
@@ -171,6 +171,12 @@ polygone/
 > +1 521 lignes ; +25 tests gateway dont 14 tests de contrat `local_api.rs`,
 > +1 test ledger daemon). Clippy workspace `-D warnings` RC=0. Smoke vivant
 > daemon + gateway : tâches signées, événements, 503 daemon absent, refus relayés.
+> **2026-11-20 (`mission/nodes-revocation`)** : domaine nodes local livré
+> (`GET /api/v1/nodes`, `POST /api/v1/nodes/{id}/revoke`, contrats §2.5,
+> événement `node_revoked`), écran Réseau/Appareils (`mesh.html`/`mesh.js`),
+> coque PWA `polygone-v4`. Mesure : **105 fichiers, 46 087 lignes,
+> 619 tests, 0 échec** (+234 lignes gateway, +7 tests nodes dont heartbeat
+> bloqué après révocation). Clippy workspace `-D warnings` RC=0, fmt RC=0.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
@@ -195,8 +201,8 @@ polygone/
 > divergent — c'est lui qui a trouvé les six écarts précédents.
 
 Méthode : `find <crate> -name '*.rs' | wc -l` pour les lignes (fichiers de test
-comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **586 tests, 0 échec**
-> (recompté le 2026-11-19 après le câblage de la preuve L1 et la preuve deux hôtes).
+comptés dans leur crate), `cargo test --workspace -j 2` pour les tests — **619 tests, 0 échec**
+> (recompté le 2026-11-20 après le domaine nodes local, 25 suites).
 Les tests sont comptés par crate de rattachement, pas par fichier.
 
 No `unsafe` except libc calls in the daemon. Zero libp2p. The crypto is

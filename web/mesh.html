@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Mesh — Polygone</title>
+<title>Réseau — Polygone</title>
+<link rel="manifest" href="./manifest.webmanifest" />
+<meta name="theme-color" content="#030306" />
+<link rel="icon" href="./icon.svg" type="image/svg+xml" />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="dashboard.css" />
 <link rel="stylesheet" href="mesh.css" />
@@ -21,82 +24,86 @@
     </a>
     <nav>
       <a href="index.html">Accueil</a>
-      <a href="node.html">Nœud</a>
+      <a href="node.html">Console</a>
+      <a href="mesh.html" class="active" aria-current="page">Réseau</a>
       <a href="compute.html">Compute</a>
       <a href="activity.html">Activité</a>
       <a href="drive.html">Drive</a>
-      <a href="mesh.html" class="active">Mesh</a>
     </nav>
   </div>
 </header>
 
 <main class="dashboard">
-  <section class="mesh">
-    <div class="mesh__main">
-      <div class="mesh__canvas">
-        <canvas id="canvas" width="800" height="500"></canvas>
-        <div class="mesh__legend">
-          <span><i style="background:#22d3ee"></i> Toi</span>
-          <span><i style="background:#22c55e"></i> Disponible</span>
-          <span><i style="background:#fbbd24"></i> Occupé</span>
-          <span><i style="background:#a78bfa"></i> Bluetooth</span>
-        </div>
+  <!-- ── État du réseau (mesures réelles) ─────────────────────────── -->
+  <section class="banner" data-state="unknown" id="banner">
+    <div class="banner__left">
+      <span class="banner__dot"></span>
+      <div>
+        <h1 id="banner-title">Connexion…</h1>
+        <p id="banner-sub">interrogation de la gateway locale</p>
       </div>
     </div>
+    <div class="banner__right">
+      <dl class="kv">
+        <dt>Appareils appairés</dt><dd id="net-nodes">—</dd>
+        <dt>Actifs (5 min)</dt><dd id="net-active">—</dd>
+        <dt>Latence médiane</dt><dd id="net-latency">—</dd>
+      </dl>
+    </div>
+  </section>
 
-    <aside class="mesh__side">
-      <h2 class="panel__title">Pairs détectés</h2>
-      <ul class="peers" id="peers"></ul>
+  <!-- ── Appareils appairés + révocation ──────────────────────────── -->
+  <section class="panels">
+    <div class="panel panel--wide">
+      <h2 class="panel__title">Appareils appairés</h2>
+      <p class="panel__hint" id="devices-note">route <code>/api/v1/nodes</code> — ancres publiques, révocation locale</p>
+      <div id="devices-state" class="devices-state" hidden></div>
+      <ul class="devices" id="devices"></ul>
+    </div>
 
-      <h2 class="panel__title" style="margin-top: 24px;">Tâches</h2>
-      <ul class="tasks" id="tasks">
-        <li class="task task--light">
-          <span class="task__icon">⚡</span>
-          <div>
-            <div class="task__name">Légère</div>
-            <div class="task__hint">Locale uniquement</div>
-          </div>
-        </li>
-        <li class="task task--medium">
-          <span class="task__icon">🔄</span>
-          <div>
-            <div class="task__name">Moyenne</div>
-            <div class="task__hint">Délégué si pair CPU &gt; 70%</div>
-          </div>
-        </li>
-        <li class="task task--heavy">
-          <span class="task__icon">🧮</span>
-          <div>
-            <div class="task__name">Lourde</div>
-            <div class="task__hint">Délégué si pair CPU &gt; 50%</div>
-          </div>
-        </li>
-        <li class="task task--massive">
-          <span class="task__icon">🧩</span>
-          <div>
-            <div class="task__name">Massive</div>
-            <div class="task__hint">Fragmentée et distribuée</div>
-          </div>
-        </li>
+    <div class="panel">
+      <h2 class="panel__title">Ce que cet écran montre</h2>
+      <ul class="limits">
+        <li>Chaque appareil est une ancre appairée : clé publique ML-DSA-65 épinglée (TOFU).</li>
+        <li>« Actif » = vu dans les 5 dernières minutes (heartbeat). Ce n'est pas une connexion permanente.</li>
+        <li>Latence = mesure ping/pong réelle ; « — » tant qu'aucune mesure n'existe.</li>
+        <li>Révoquer retire l'approbation sur <strong>cet hôte</strong> : révocation locale, pas un CRL distribué.</li>
+        <li>Aucune topologie physique inventée : pas de graphe simulé, pas de CPU/RAM fictif par pair.</li>
+        <li>Gateway injoignable → valeurs inconnues ; rien n'est simulé.</li>
       </ul>
-    </aside>
+      <p class="panel__hint">
+        Appairer un appareil : <code>POST /api/v1/pair/request</code> puis <code>/pair/accept</code>, ou la CLI <code>polygone</code>.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── Événements réseau récents ────────────────────────────────── -->
+  <section class="panels">
+    <div class="panel panel--wide">
+      <h2 class="panel__title">Événements réseau récents</h2>
+      <ul class="log" id="net-events"></ul>
+      <p class="panel__hint" id="events-note">route <code>/api/v1/events</code> — appairages, révocations, heartbeats</p>
+    </div>
   </section>
 </main>
 
-<template id="peer-template">
-  <li class="peer">
-    <span class="peer__dot"></span>
-    <div class="peer__main">
-      <div class="peer__name"></div>
-      <div class="peer__addr"></div>
+<template id="device-template">
+  <li class="device">
+    <span class="device__dot" aria-hidden="true"></span>
+    <div class="device__main">
+      <div class="device__name"></div>
+      <div class="device__id"></div>
+      <div class="device__meta"></div>
     </div>
-    <div class="peer__metrics">
-      <div class="peer__metric" data-label="CPU"><span></span>%</div>
-      <div class="peer__metric" data-label="RAM"><span></span>%</div>
+    <div class="device__metrics">
+      <div class="device__latency"></div>
+      <div class="device__services"></div>
     </div>
+    <button class="device__revoke" type="button">Révoquer</button>
   </li>
 </template>
 
 <script src="mesh.js"></script>
+<script src="pwa.js" defer></script>
 </body>
 </html>

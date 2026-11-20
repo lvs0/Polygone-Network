@@ -300,3 +300,23 @@ CI verte run 44582207237 : ubuntu ✓ macos ✓ smoke ✓, canari Windows échec
 attendu). Prototype livré et publié. Suite : F1-OBS-01 (diagnostic exportable
 sans secret), puis F1-SEC-02 (écritures bornées) ; mesures inter-hôtes dès Cue
 réveillé (RTT/débit → placement et planificateur de coût).
+
+## 14. Domaine nodes local — 2026-11-20 (mandat « finis Polygone »)
+
+WIP trouvé sur `mission/nodes-revocation` (routes + écran Réseau non commités) :
+inspecté, complété, vérifié, publié. Le disque fait foi.
+
+| Élément | État | Preuve |
+|---|---|---|
+| `GET /api/v1/nodes` | **FAIT** — ancres appairées, champs publics seulement (clé de vérification, jamais privée), ordre stable, `active` ≤ 300 s, `latency_ms: null` si non mesuré, `persisted` honnête | `routes.rs::list_nodes`, tests `nodes_list_empty_is_honest`, `nodes_list_shows_paired_node_public_only` (refuse tout champ hors liste publique) |
+| `POST /api/v1/nodes/{id}/revoke` | **FAIT** — retire l'ancre, persiste hors verrou, événement `node_revoked` ; 404 sans écriture, 400 id invalide | `routes.rs::revoke_node`, 5 tests dont persistance rechargée et **heartbeat bloqué après révocation** (ajouté ce jour) |
+| Contrats | **FAIT** — `API-CONTRACTS.md` §2 (table), **§2.5** (domaine nodes), §6 et §8 à jour ; kinds d'événements 13 → 14 | diffs du commit |
+| Écran Réseau/Appareils | **FAIT** — `mesh.html`/`mesh.js` : données réelles (`/network/status`, `/nodes`, `/events`), bouton Révoquer avec état `revoking`, null ≠ 0, aucune donnée fictive ; nav « Mesh » → « Réseau » ; coque `polygone-v4` | `node --check` OK, `UI-API-MAPPING.md` §9 |
+| Gates | fmt RC=0 ; clippy workspace `-D warnings` RC=0 ; **619 tests / 25 suites / 0 échec** ; ARCHITECTURE re-mesuré (105 fichiers, 46 087 lignes) | log `~/.hermes/cache/scratch/nodes-gates.log` |
+| Limites assumées | révocation **locale** : pas de CRL distribué (décision protocole ouverte) ; `peers.json` CLI non modifié par la route ; un ré-appairage explicite recrée l'ancre (nouvelle décision de confiance) | §2.5 |
+| Cue | hors ligne (SSH timeout 2026-11-20) — mesures RTT/débit toujours bloquées | tentative datée |
+
+**Prochaine action** : fusion de la PR nodes (CI verte exigée), puis
+F1-OBS-01 (rapport de diagnostic exportable sans secret), écritures bornées
+identité/réglages, F1-NET-02/F1-SVC-01..03 (câbler ou requalifier honnêtement).
+LAN/NAT, quorum L2, TEE, Babel : physiques / décision humaine, hors autonomie.

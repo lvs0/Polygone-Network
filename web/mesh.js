@@ -1,162 +1,195 @@
-/* ──────────────────────────────────────────────────────────────────
-   Polygone — Mesh canvas visualization
-   Force-directed-ish layout drawn on HTMLCanvas. No external libs.
-   ────────────────────────────────────────────────────────────────── */
-
+/* Polygone — écran Réseau / Appareils (données réelles).
+ *
+ * Lit la gateway locale : /api/v1/network/status, /api/v1/nodes,
+ * /api/v1/events. Révoque un appareil via POST /api/v1/nodes/{id}/revoke.
+ * Aucune donnée fictive : pas de pair codé en dur, pas de CPU/RAM inventé,
+ * pas d'IP aléatoire. null ≠ 0 (« — »), une erreur s'affiche, rien n'est simulé.
+ */
 (() => {
   "use strict";
 
-  // ── State ────────────────────────────────────────────────────────
-  const peers = [
-    { id: "self", name: "toi",     x: 0.5,  y: 0.5,  cpu: 35, ram: 58, kind: "self" },
-    { id: "p1",   name: "dell-e6540",  x: 0.18, y: 0.22, cpu: 22, ram: 41, kind: "wifi" },
-    { id: "p2",   name: "thinkpad-x250", x: 0.82, y: 0.28, cpu: 47, ram: 64, kind: "wifi" },
-    { id: "p3",   name: "raspi-4",   x: 0.12, y: 0.78, cpu: 71, ram: 38, kind: "wifi" },
-    { id: "p4",   name: "macbook-air", x: 0.85, y: 0.78, cpu: 12, ram: 22, kind: "wifi" },
-    { id: "p5",   name: "phone-ble", x: 0.42, y: 0.88, cpu: 18, ram: 33, kind: "ble" },
-  ];
+  const POLL_MS = 5000;
+  const DASH = "—";
+  const $ = (id) => document.getElementById(id);
+  const shown = (value) => (Number.isFinite(value) ? String(value) : DASH);
+  const revoking = new Set();
 
-  const KIND_COLOR = {
-    self: "#22d3ee",
-    wifi: "#22c55e",
-    ble:  "#a78bfa",
-  };
+  function hexFingerprint(hex) {
+    if (typeof hex !== "string" || hex.length === 0) return DASH;
+    return `${hex.slice(0, 16)}…${hex.slice(-8)}`;
+  }
 
-  // ── Canvas ───────────────────────────────────────────────────────
-  const canvas = document.getElementById("canvas");
-  const ctx = canvas.getContext("2d");
-  let w = 800, h = 500, dpr = 1;
-
-  const resize = () => {
-    const r = canvas.getBoundingClientRect();
-    dpr = window.devicePixelRatio || 1;
-    canvas.width = r.width * dpr;
-    canvas.height = r.height * dpr;
-    w = r.width; h = r.height;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  };
-  window.addEventListener("resize", resize);
-
-  // ── Render loop ──────────────────────────────────────────────────
-  const t0 = performance.now();
-  const tick = (now) => {
-    const t = (now - t0) / 1000;
-    draw(t);
-    requestAnimationFrame(tick);
-  };
-
-  const draw = (t) => {
-    ctx.clearRect(0, 0, w, h);
-
-    // Subtle grid
-    ctx.strokeStyle = "rgba(30, 41, 59, 0.6)";
-    ctx.lineWidth = 0.5;
-    for (let x = 0; x < w; x += 40) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-    }
-    for (let y = 0; y < h; y += 40) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-    }
-
-    const self = peers[0];
-
-    // Connection lines (from self)
-    peers.slice(1).forEach((p, i) => {
-      const x1 = self.x * w, y1 = self.y * h;
-      const x2 = p.x * w,   y2 = p.y * h;
-      const pulse = (Math.sin(t * 1.4 + i) + 1) / 2;
-      ctx.strokeStyle = `rgba(34, 211, 238, ${0.15 + pulse * 0.35})`;
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  async function fetchRoute(url) {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
     });
-
-    // Lateral connections (peers between themselves)
-    for (let i = 1; i < peers.length; i++) {
-      for (let j = i + 1; j < peers.length; j++) {
-        const a = peers[i], b = peers[j];
-        const dx = (a.x - b.x) * w, dy = (a.y - b.y) * h;
-        const dist = Math.hypot(dx, dy);
-        if (dist < 280) {
-          ctx.strokeStyle = "rgba(167, 139, 250, 0.08)";
-          ctx.lineWidth = 0.6;
-          ctx.beginPath();
-          ctx.moveTo(a.x * w, a.y * h);
-          ctx.lineTo(b.x * w, b.y * h);
-          ctx.stroke();
-        }
-      }
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const code = body && body.error ? body.error : `HTTP ${response.status}`;
+      const hint = body && body.hint ? ` — ${body.hint}` : "";
+      throw new Error(`${code}${hint}`);
     }
+    return body;
+  }
 
-    // Nodes
-    peers.forEach((p) => {
-      const x = p.x * w, y = p.y * h;
-      const color = KIND_COLOR[p.kind] || "#94a3b8";
-      const r = p.kind === "self" ? 14 : 6;
-      const breathe = p.kind === "self" ? 1 + Math.sin(t * 1.5) * 0.1 : 1;
+  function setBanner(state, title, sub) {
+    $("banner").dataset.state = state;
+    $("banner-title").textContent = title;
+    $("banner-sub").textContent = sub;
+  }
 
-      // Glow
-      if (p.kind === "self") {
-        const grd = ctx.createRadialGradient(x, y, 0, x, y, 50);
-        grd.addColorStop(0, "rgba(34, 211, 238, 0.4)");
-        grd.addColorStop(1, "rgba(34, 211, 238, 0)");
-        ctx.fillStyle = grd;
-        ctx.beginPath(); ctx.arc(x, y, 50, 0, Math.PI * 2); ctx.fill();
-      }
-
-      // Node circle
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(x, y, r * breathe, 0, Math.PI * 2); ctx.fill();
-
-      // Label
-      ctx.fillStyle = "#cbd5e1";
-      ctx.font = "11px ui-monospace, monospace";
-      ctx.textAlign = "center";
-      const labelY = y + r + 14;
-      ctx.fillText(p.name, x, labelY);
-
-      // Sub label (CPU%)
-      ctx.fillStyle = "#475569";
-      ctx.font = "10px ui-monospace, monospace";
-      ctx.fillText(`${Math.round(p.cpu)}%`, x, labelY + 12);
-    });
-  };
-
-  // ── DOM list ─────────────────────────────────────────────────────
-  const peersEl = document.getElementById("peers");
-  const tpl = document.getElementById("peer-template");
-  const renderList = () => {
-    peersEl.innerHTML = "";
-    peers.forEach((p) => {
-      if (p.kind === "self") return;
-      const node = tpl.content.firstElementChild.cloneNode(true);
-      const dot = node.querySelector(".peer__dot");
-      dot.classList.add(
-        p.kind === "ble" ? "peer__dot--bt" :
-        p.cpu > 65 ? "peer__dot--busy" : "peer__dot--off"
+  function renderStatus(status) {
+    $("net-nodes").textContent = shown(status.nodes);
+    $("net-active").textContent = shown(status.active);
+    $("net-latency").textContent =
+      status.latency_ms_median == null
+        ? "aucune mesure"
+        : `${status.latency_ms_median} ms`;
+    if (Number.isFinite(status.nodes) && status.nodes > 0) {
+      setBanner(
+        "active",
+        "Réseau actif",
+        `${shown(status.active)} appareil(s) actif(s) sur ${status.nodes} appairé(s)`,
       );
-      node.querySelector(".peer__name").textContent = p.name;
-      node.querySelector(".peer__addr").textContent =
-        p.kind === "ble" ? "Bluetooth · BLE" : `192.168.1.${Math.floor(Math.random() * 200 + 10)}`;
-      const metrics = node.querySelectorAll(".peer__metric span");
-      metrics[0].textContent = p.cpu;
-      metrics[1].textContent = p.ram;
-      peersEl.appendChild(node);
-    });
-  };
+    } else {
+      setBanner("unknown", "Aucun appareil appairé", "appairez un appareil pour le voir ici");
+    }
+  }
 
-  // ── Init ─────────────────────────────────────────────────────────
-  resize();
-  renderList();
-  requestAnimationFrame(tick);
-
-  // Random walk on peers (very gentle)
-  setInterval(() => {
-    peers.slice(1).forEach((p) => {
-      p.x += (Math.random() - 0.5) * 0.01;
-      p.y += (Math.random() - 0.5) * 0.01;
-      p.x = Math.max(0.05, Math.min(0.95, p.x));
-      p.y = Math.max(0.1, Math.min(0.9, p.y));
-      p.cpu = Math.max(5, Math.min(95, p.cpu + (Math.random() - 0.5) * 8));
+  function renderDevices(data) {
+    const list = $("devices");
+    const template = $("device-template");
+    const state = $("devices-state");
+    const note = $("devices-note");
+    list.innerHTML = "";
+    delete note.dataset.error;
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+    if (nodes.length === 0) {
+      state.hidden = false;
+      state.textContent =
+        "Aucun appareil appairé pour l'instant. Lancez un appairage (pair/request + pair/accept) ou utilisez la CLI polygone.";
+      return;
+    }
+    state.hidden = true;
+    nodes.forEach((node) => {
+      const el = template.content.firstElementChild.cloneNode(true);
+      el.querySelector(".device__dot").classList.add(
+        node.active ? "device__dot--on" : "device__dot--off",
+      );
+      el.querySelector(".device__name").textContent =
+        node.device_name || "appareil sans nom";
+      const idEl = el.querySelector(".device__id");
+      idEl.textContent = hexFingerprint(node.node_id);
+      idEl.title = node.node_id || "";
+      el.querySelector(".device__meta").textContent = node.active
+        ? "actif (vu il y a moins de 5 min)"
+        : "inactif";
+      el.querySelector(".device__latency").textContent =
+        node.latency_ms == null ? "latence —" : `${node.latency_ms} ms`;
+      el.querySelector(".device__services").textContent =
+        Array.isArray(node.services) && node.services.length > 0
+          ? node.services.join(", ")
+          : "aucun service";
+      const button = el.querySelector(".device__revoke");
+      button.disabled = revoking.has(node.node_id);
+      button.addEventListener("click", () => revoke(node, button));
+      list.appendChild(el);
     });
-  }, 3000);
+  }
+
+  async function revoke(node, button) {
+    const name = node.device_name || hexFingerprint(node.node_id);
+    const ok = window.confirm(
+      `Révoquer « ${name} » ? Cet appareil ne sera plus approuvé sur cet hôte.`,
+    );
+    if (!ok) return;
+    button.disabled = true;
+    revoking.add(node.node_id);
+    const note = $("devices-note");
+    try {
+      const response = await fetch(
+        `/api/v1/nodes/${encodeURIComponent(node.node_id)}/revoke`,
+        { method: "POST", cache: "no-store", headers: { Accept: "application/json" } },
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        const code = body && body.error ? body.error : `HTTP ${response.status}`;
+        throw new Error(code);
+      }
+      note.textContent = `« ${name} » révoqué : ancre locale retirée.`;
+      delete note.dataset.error;
+      await refresh();
+    } catch (error) {
+      note.textContent = `Échec de la révocation : ${error.message}`;
+      note.dataset.error = "true";
+      button.disabled = false;
+    } finally {
+      revoking.delete(node.node_id);
+    }
+  }
+
+  function renderEvents(page) {
+    const list = $("net-events");
+    list.innerHTML = "";
+    const events = Array.isArray(page.events) ? page.events : [];
+    const kinds = ["pair_request", "pair_accepted", "node_revoked", "heartbeat"];
+    const relevant = events.filter((event) => kinds.includes(event.kind));
+    if (relevant.length === 0) {
+      const li = document.createElement("li");
+      li.className = "log__entry";
+      li.textContent = "Aucun événement réseau récent.";
+      list.appendChild(li);
+      return;
+    }
+    relevant
+      .slice(-12)
+      .reverse()
+      .forEach((event) => {
+        const li = document.createElement("li");
+        li.className = "log__entry";
+        const time = document.createElement("span");
+        time.className = "log__time";
+        time.textContent = new Date(event.at * 1000).toLocaleTimeString();
+        const who = event.data.device_name || hexFingerprint(event.data.node_id);
+        const label =
+          event.kind === "pair_accepted"
+            ? `appairé : ${who}`
+            : event.kind === "node_revoked"
+              ? `révoqué : ${who}`
+              : event.kind === "pair_request"
+                ? `demande d'appairage : ${event.data.device_name || ""}`
+                : event.kind;
+        li.appendChild(time);
+        li.appendChild(document.createTextNode(` ${label}`));
+        list.appendChild(li);
+      });
+  }
+
+  async function refresh() {
+    await Promise.all([
+      fetchRoute("/api/v1/network/status")
+        .then(renderStatus)
+        .catch((error) => setBanner("error", "Gateway injoignable", error.message)),
+      fetchRoute("/api/v1/nodes")
+        .then(renderDevices)
+        .catch((error) => {
+          $("devices").innerHTML = "";
+          const state = $("devices-state");
+          state.hidden = false;
+          state.textContent = `Gateway injoignable : ${error.message}`;
+          const note = $("devices-note");
+          note.textContent = `erreur : ${error.message}`;
+          note.dataset.error = "true";
+        }),
+      fetchRoute("/api/v1/events?limit=50")
+        .then(renderEvents)
+        .catch(() => {
+          /* les événements sont secondaires ; le panneau appareils prime */
+        }),
+    ]);
+  }
+
+  refresh();
+  setInterval(refresh, POLL_MS);
 })();

@@ -3,6 +3,18 @@
 > Mis à jour par l'orchestrateur après chaque bloc de travail.
 > Ne jamais écrire ici une valeur non vérifiée.
 
+## Domaine nodes — liste + révocation locale — 2026-11-20 (CORVUS)
+
+| Champ | Valeur vérifiée |
+|---|---|
+| Branche | `mission/nodes-revocation` (base `main` = `5252e76`, PR #6 prototype fusionnée) |
+| Routes | `GET /api/v1/nodes` (liste publique) + `POST /api/v1/nodes/{id}/revoke` (révocation locale, persistée, événement `node_revoked`) — contrats `API-CONTRACTS.md` §2.5 |
+| Tests | gateway **96** (74+3+14+5) dont **7 nodes** ; workspace **619 passés / 0 échec / 25 suites** (`TMPDIR=/tmp cargo test --workspace --no-fail-fast -j 2`, log `~/.hermes/cache/scratch/nodes-gates.log`) |
+| Clippy / fmt | `--workspace --all-targets -D warnings` RC=0 ; `cargo fmt --all -- --check` RC=0 |
+| Écran | Réseau/Appareils (`web/mesh.html` + `mesh.js`, données réelles, bouton Révoquer) ; coque PWA `polygone-v4` ; `node --check` OK |
+| ARCHITECTURE | re-mesuré : 105 fichiers, 46 087 lignes, 619 tests (gateway 13/5 785/96) |
+| Limites | révocation **locale** (pas de CRL distribué) ; le magasin de pairs CLI `peers.json` n'est pas modifié ; Cue hors ligne (mesures RTT/débit toujours bloquées, SSH timeout 2026-11-20) |
+
 ## Réconciliation github/main + contrats F1-API-01 — 2026-11-19 (soir, CORVUS)
 
 | Champ | Valeur vérifiée |

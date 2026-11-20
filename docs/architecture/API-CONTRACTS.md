@@ -158,6 +158,8 @@ borné (`MAX_BODY_BYTES`). Réponses JSON, erreurs en texte ou JSON.
 | POST | `/api/v1/nodes/heartbeat` | `{node_id, timestamp, signature_hex}` | `{ok, node_id, last_seen}` | 400 (horodatage), 403 (signature), 404 (nœud inconnu) |
 | POST | `/api/v1/nodes/ping` | `{node_id, timestamp, signature_hex}` | `{ok, challenge, expires_in_seconds: 30}` | 400, 403, 404 |
 | POST | `/api/v1/nodes/pong` | `{node_id, timestamp, challenge, rtt_ms, signature_hex}` | `{ok, latency_ms}` | 400 (borne), 403, 404, 409 (sans ping / expiré / rejoué) |
+| GET | `/api/v1/nodes` | — | `{nodes, count, active, persisted}` (voir §2.5) | — |
+| POST | `/api/v1/nodes/{id}/revoke` | — (corps ignoré) | `{ok, node_id, revoked}` (voir §2.5) | 400 (id invalide), 404 (nœud inconnu) |
 | GET | `/api/v1/node/{id}` | — | `NodeInfo` | 404 |
 | POST | `/api/v1/tasks` | `{owner, kind, input_hex?, cpu_cores?, ram_bytes?, storage_bytes?, gpu_vram_bytes?, deadline_in_seconds?, max_attempts?, allow_network?, allow_filesystem_write?, max_output_bytes?}` | 201 `{task, executor_attached}` | 400 (`invalid_task`), 429 (`too_many_tasks`), 500 (`task_storage_failure`) |
 | GET | `/api/v1/tasks?state=&limit=&offset=` | — | `{tasks, total, limit, offset, executor_attached}` | 400 (`invalid_task`) |
@@ -389,10 +391,44 @@ couche HTTP est volontairement minimale (une requête, une réponse, fermeture).
   → 400, jamais ignoré.
 - **Kinds réels émis** : `gateway_up`, `task_created`, `task_cancelled`,
   `task_resumed`, `task_expired`, `pair_request` (sans le jeton, secret),
-  `pair_accepted`, `node_seen`, `ping_issued` (sans le challenge),
-  `rtt_measured`, `resources` (quand le `seq` du daemon change, sonde 5 s),
-  `daemon_up` / `daemon_absent` (transitions de joignabilité). Aucun
-  événement décoratif ou simulé.
+  `pair_accepted`, `node_seen`, `node_revoked` (§2.5), `ping_issued` (sans le
+  challenge), `rtt_measured`, `resources` (quand le `seq` du daemon change,
+  sonde 5 s), `daemon_up` / `daemon_absent` (transitions de joignabilité).
+  Aucun événement décoratif ou simulé.
+
+### 2.5 Domaine nodes — liste et révocation locale (`beta`, livré le 2026-11-20)
+
+Deux routes, testées dans `crates/gateway/src/routes.rs` (7 tests unitaires :
+liste vide, champs publics seulement, révocation + événement, 404, 400,
+persistance rechargée, heartbeat bloqué après révocation).
+
+**`GET /api/v1/nodes`** — ancres appairées, données publiques seulement.
+
+```json
+{ "nodes": [ { "node_id": "…", "device_name": "…", "services": ["…"],
+               "signing_key_hex": "…", "last_seen": 1800000000,
+               "latency_ms": null, "active": true } ],
+  "count": 1, "active": 1, "persisted": true }
+```
+
+- `signing_key_hex` est la clé de **vérification** épinglée à l'appairage.
+  Jamais une clé privée. Un test refuse tout champ hors de la liste publique.
+- Ordre stable : vus le plus récemment d'abord, puis `node_id`.
+- `active` = vu depuis ≤ 300 s. `latency_ms: null` = jamais mesuré, pas zéro.
+- Table vide → liste vide. `persisted` = vrai si un fichier de nœuds est
+  configuré ; la mémoire seule ne se présente pas comme durable.
+
+**`POST /api/v1/nodes/{id}/revoke`** — retire l'ancre locale, persiste la table.
+
+- 200 : `{ok: true, node_id, revoked: true}`. Événement `node_revoked` émis
+  (`node_id`, `device_name` ; aucun secret).
+- Nœud inconnu → 404, **aucune écriture**. Id vide ou contenant `/` → 400.
+- Effet vérifié : heartbeat/ping/pong de ce nœud → 404 (ancre absente).
+- Révocation **locale** : cet hôte n'approuve plus le pair. Ce n'est pas un
+  CRL distribué. Le magasin de pairs CLI (`~/.polygone/peers.json`) n'est pas
+  modifié par cette route.
+- Un nouvel appairage explicite (request + accept) recrée l'ancre : c'est une
+  nouvelle décision de confiance, pas une résurrection.
 
 ---
 
@@ -452,7 +488,7 @@ Les commandes de diagnostic (`doctor`, `verite`, `ecosysteme`) affichent
 | Domaine attendu par une UI | État |
 |---|---|
 | `identity` (créer, restaurer, révoquer via API) | **lecture publique livrée** (`GET /api/v1/identity`, §2.4) ; créer/restaurer/révoquer : CLI seulement |
-| `nodes` (liste enrichie, permissions par nœud) | partiel via gateway (nœuds appairés) |
+| `nodes` (liste enrichie, permissions par nœud) | **liste + révocation locale livrées** (`GET /api/v1/nodes`, `POST /api/v1/nodes/{id}/revoke`, §2.5) ; permissions par nœud et CRL distribué absents |
 | `resources` (capacités détaillées par ressource) | **relayé tel quel** (`GET /api/v1/resources`, §2.4) ; pas de capacités par processus |
 | `network` (pairs, connexions, découverte) | partiel via gateway et CLI |
 | `tasks` (créer, suivre, annuler, résultat) | **partiel** : création, lecture, annulation et résultat signé en local via gateway ; aucun placement multi-nœuds ni historique |
@@ -499,13 +535,13 @@ lire/agir sans types internes ».
 | Domaine | Prochain pas | Test de contrat | Dépendance |
 |---|---|---|---|
 | `identity` | **FAIT (2026-11-19)** : `GET /api/v1/identity` (§2.4). Prochain pas : écritures (créer/restaurer/révoquer) via API, après F1-SEC-02 | `local_api.rs` : aucun matériel secret publié, node_id conforme ADR-0002, absence → 404 | — |
-| `nodes` | Révocation d'un pair par API (aujourd'hui locale seulement) | révocation → l'appairage suivant refuse ; grant signé par la clé révoquée refusé | décision protocole (révocation distribuée, §6 P0 restant) |
+| `nodes` | **FAIT (2026-11-20, volet local)** : `GET /api/v1/nodes` + `POST /api/v1/nodes/{id}/revoke` (§2.5). Prochain pas : révocation distribuée (CRL) — décision protocole | `routes.rs` : 7 tests dont heartbeat bloqué après révocation, persistance rechargée, champs publics seulement | décision protocole (révocation distribuée, §6 P0 restant) |
 | `resources` | **FAIT (2026-11-19)** : `GET /api/v1/resources` + `GET /api/v1/daemon` (§2.4). Prochain pas : capacités par processus (non mesurées aujourd'hui) | `local_api.rs` : parité champ par champ avec un vrai daemon (omissions comprises), absence → 503 jamais des zéros | socket local (§1) — acquis |
 | `network` | Graphe de routage du relais + débit par pair exposés | valeurs issues de mesures réelles, `null` si non mesuré | mesures RTT/débit inter-hôtes (mission en cours, Cue sandbox) |
 | `tasks` | Ordonnanceur multi-nœuds (placement) | placement fondé sur RTT/débit mesurés ; reçu signé vérifié par le demandeur | mesures inter-hôtes + F1-TASK-01..03 (faits) |
 | `usage` | **FAIT (2026-11-19)** : `GET /api/v1/usage` = instantané du ledger (capacité `ledger` additive, §1). Prochain pas : historique borné de consommation (ticket F1-USG à ouvrir — le ledger n'enregistre pas les baux clos) | `local_api.rs` + `client.rs` : parité socket, allocation/release reflétées, daemon ancien → 501 pas un ledger vide | resources exposé — acquis |
 | `settings` | **FAIT (2026-11-19)** : `GET /api/v1/settings` lecture seule (§2.4). Prochain pas : écriture bornée (F1-SEC-02) | `local_api.rs` : defaults produit si absent, config invalide → 500 jamais masquée, vocabulaire tier du fil | — |
-| `events` | **FAIT (2026-11-19)** : F1-EVT-01, flux borné à curseur `GET /api/v1/events` (§2.4), 13 kinds réels. Prochain pas : kinds erreur détaillés quand les services publieront leurs erreurs | `events.rs` + `local_api.rs` : ordre monotone, gap à l'éviction, rejeu curseur, plafond de page, paramètres invalides → 400 | F1-API-01 — acquis |
+| `events` | **FAIT (2026-11-19)** : F1-EVT-01, flux borné à curseur `GET /api/v1/events` (§2.4), 14 kinds réels (`node_revoked` ajouté le 2026-11-20). Prochain pas : kinds erreur détaillés quand les services publieront leurs erreurs | `events.rs` + `local_api.rs` : ordre monotone, gap à l'éviction, rejeu curseur, plafond de page, paramètres invalides → 400 | F1-API-01 — acquis |
 
 **Sources revérifiées le 2026-11-19 sur `8307094`** : table de routage
 `crates/gateway/src/routes.rs` (1263 lignes ; `/api/*` inconnu → 404 JSON sans
@@ -519,7 +555,12 @@ alloc_granted, alloc_denied, renewed, released, pong, error, refusals_response) 
 **Mise à jour 2026-11-19 (prototype, branche `prototype-complet`)** : les pas
 `identity`, `resources`, `usage`, `settings`, `events` sont LIVRÉS et testés
 (§2.4 ; `Request`/`Reply` portent désormais `ledger_request`/`ledger_response`,
-capacité `ledger` annoncée dans le `hello`). Restent ouverts : révocation de
-pair par API (`nodes`), graphe de routage + débit (`network`, dépend des
-mesures inter-hôtes), placement multi-nœuds (`tasks`), écritures d'identité et
-de réglages (F1-SEC-02), historique de consommation (F1-USG à ouvrir).
+capacité `ledger` annoncée dans le `hello`).
+
+**Mise à jour 2026-11-20 (branche `mission/nodes-revocation`)** : le volet
+local de `nodes` est LIVRÉ (§2.5 : liste publique + révocation locale,
+événement `node_revoked`, 7 tests). Restent ouverts : révocation distribuée
+(`nodes`, décision protocole), graphe de routage + débit (`network`, dépend
+des mesures inter-hôtes), placement multi-nœuds (`tasks`), écritures
+d'identité et de réglages (F1-SEC-02), historique de consommation (F1-USG à
+ouvrir).
