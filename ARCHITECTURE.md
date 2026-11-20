@@ -117,16 +117,16 @@ polygone/
 
 | Crate        | Fichiers | LOC (rust) | Binaries             | Tests |
 | ------------ | -------- | ---------- | -------------------- | ----- |
-| `core` | 15 | 3655 | — (lib) | 77 |
-| `client` | 33 | 16842 | `polygone` | 217 |
+| `core` | 15 | 3716 | — (lib) | 77 |
+| `client` | 33 | 16861 | `polygone` | 309 |
 | `relay` | 4 | 1675 | `polygone-relay` | 28 |
-| `gateway` | 13 | 5785 | `polygone-gateway` | 96 |
-| `petals` | 12 | 3104 | — (lib) | 19 |
+| `gateway` | 15 | 6260 | `polygone-gateway` | 97 |
+| `petals` | 12 | 3104 | — (lib) | 18 |
 | `serverless` | 3 | 776 | — (lib) | 17 |
 | `fabric` | 8 | 3026 | `polygone-fabric` | 32 |
 | `daemon` | 17 | 11224 | `polygoned` | 133 |
 | doc-tests | — | — | — | comptés dans leur crate |
-| **Total** | **105** | **46087** | **5 binaires** | **619** |
+| **Total** | **107** | **46642** | **5 binaires** | **711** |
 
 > Base de mesure initiale du **2026-11-05** après `GW.2` (latence ping/pong), `SEC.1`
 > (modèle de menace par service) et `CLI.6` (refus traduits en actions) :
@@ -174,9 +174,8 @@ polygone/
 > **2026-11-20 (`mission/nodes-revocation`)** : domaine nodes local livré
 > (`GET /api/v1/nodes`, `POST /api/v1/nodes/{id}/revoke`, contrats §2.5,
 > événement `node_revoked`), écran Réseau/Appareils (`mesh.html`/`mesh.js`),
-> coque PWA `polygone-v4`. Mesure : **105 fichiers, 46 087 lignes,
-> 619 tests, 0 échec** (+234 lignes gateway, +7 tests nodes dont heartbeat
-> bloqué après révocation). Clippy workspace `-D warnings` RC=0, fmt RC=0.
+> coque PWA `polygone-v4`. Mesure : **107 fichiers, 46 642 lignes,
+> 711 tests, 0 échec** (+2 fichiers gateway, +555 lignes, +92 tests dont remote compute et nodes). Clippy workspace `-D warnings` RC=0, fmt RC=0.
 > Le 4 novembre, `CLI.1` ajoute l'isolation OS **lue** du cgroup au diagnostic,
 > `CLI.2` une pause bornée dont l'intention survit au processus mais pas au reboot,
 > `CLI.5` une désinstallation énumérée qui refuse de sortir de ses racines, et
