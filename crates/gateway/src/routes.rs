@@ -149,11 +149,17 @@ impl Gateway {
             ("GET", "/api/v1/settings") => self.settings(),
             ("GET", "/api/v1/usage") => self.usage().await,
             ("GET", "/api/v1/events") => self.events_page(&request.query),
+            // Domaine nodes (F1-API-01) : liste des ancres appairées (données
+            // publiques) et révocation locale bornée.
+            ("GET", "/api/v1/nodes") => self.list_nodes().await,
             ("POST", "/api/v1/pair/request") => self.pair_request(&request.body).await,
             ("POST", "/api/v1/pair/accept") => self.pair_accept(&request.body).await,
             ("POST", "/api/v1/nodes/heartbeat") => self.heartbeat(&request.body).await,
             ("POST", "/api/v1/nodes/ping") => self.ping(&request.body).await,
             ("POST", "/api/v1/nodes/pong") => self.pong(&request.body).await,
+            ("POST", path) if path.starts_with("/api/v1/nodes/") && path.ends_with("/revoke") => {
+                self.revoke_node(path).await
+            }
             ("POST", "/api/v1/tasks") => self.create_task(&request.body).await,
             ("GET", "/api/v1/tasks") => self.list_tasks(&request.query).await,
             ("POST", path) if path.starts_with("/api/v1/tasks/") && path.ends_with("/cancel") => {
@@ -532,6 +538,74 @@ impl Gateway {
         }
     }
 
+    /// Liste les nœuds appairés. Chaque ancre ne porte que des données
+    /// publiques : `signing_key_hex` est la clé de vérification, jamais une
+    /// clé privée. Une table vide donne une liste vide, pas une donnée fictive.
+    async fn list_nodes(&self) -> HttpResponse {
+        let nodes = self.nodes.read().await;
+        let now = now_secs();
+        let mut list: Vec<serde_json::Value> = nodes
+            .values()
+            .map(|node| {
+                json!({
+                    "node_id": node.id,
+                    "device_name": node.device_name,
+                    "services": node.services,
+                    "signing_key_hex": node.signing_key_hex,
+                    "last_seen": node.last_seen,
+                    "latency_ms": node.latency_ms,
+                    "active": crate::status::is_active(node.last_seen, now),
+                })
+            })
+            .collect();
+        // Ordre stable : les nœuds les plus récemment vus d'abord.
+        list.sort_by(|a, b| {
+            b["last_seen"]
+                .as_u64()
+                .cmp(&a["last_seen"].as_u64())
+                .then_with(|| a["node_id"].as_str().cmp(&b["node_id"].as_str()))
+        });
+        let active = list
+            .iter()
+            .filter(|node| node["active"].as_bool() == Some(true))
+            .count();
+        HttpResponse::json(
+            200,
+            &json!({
+                "nodes": list,
+                "count": nodes.len(),
+                "active": active,
+                "persisted": self.nodes_file.is_some(),
+            }),
+        )
+    }
+
+    /// Révoque un nœud : retire son ancre locale, puis persiste la table.
+    /// La révocation est LOCALE : ce pair n'est plus approuvé sur cet hôte.
+    /// Ce n'est pas un CRL distribué (limites : voir API-CONTRACTS.md).
+    /// Un nœud inconnu donne 404 ; aucune écriture n'a lieu dans ce cas.
+    async fn revoke_node(&self, path: &str) -> HttpResponse {
+        let id = path
+            .trim_start_matches("/api/v1/nodes/")
+            .trim_end_matches("/revoke");
+        if id.is_empty() || id.contains('/') {
+            return HttpResponse::json(400, &json!({ "error": "node_id invalide" }));
+        }
+        let removed = self.nodes.write().await.remove(id);
+        let Some(node) = removed else {
+            return HttpResponse::json(404, &json!({ "error": "nœud inconnu" }));
+        };
+        // Persiste hors du verrou d'écriture : une I/O disque ne bloque pas
+        // les autres opérations sur les nœuds.
+        let snapshot = self.nodes.read().await.clone();
+        self.persist_nodes(&snapshot).await;
+        self.events.emit(
+            "node_revoked",
+            json!({ "node_id": id, "device_name": node.device_name }),
+        );
+        HttpResponse::json(200, &json!({ "ok": true, "node_id": id, "revoked": true }))
+    }
+
     /// `GET /api/v1/identity` — identité publique locale (F1-API-01).
     ///
     /// Lecture seule de `~/.polygone/identity.json`, champs publics seulement.
@@ -834,6 +908,166 @@ mod tests {
 
     fn body_json(response: &HttpResponse) -> serde_json::Value {
         serde_json::from_slice(&response.body).unwrap()
+    }
+
+    /// Appaire un nœud par le flux réel (request + accept) et rend
+    /// `(node_id, clé_publique_signature)`. Le node_id est dérivé de la clé
+    /// ML-DSA-65, comme le fait `pair/accept` (ADR-0002).
+    async fn pair_node(gateway: &Gateway, device_name: &str) -> (String, String) {
+        let (kem_hex, sign_hex) = public_keys();
+        let request = json!({
+            "device_name": device_name,
+            "kem_public_key_hex": kem_hex,
+            "sign_public_key_hex": sign_hex,
+        })
+        .to_string();
+        let response = gateway.route(post("/api/v1/pair/request", &request)).await;
+        assert_eq!(response.status, 200, "pair/request");
+        let token = body_json(&response)["token"].as_str().unwrap().to_string();
+        let accept = json!({ "token": token }).to_string();
+        let response = gateway.route(post("/api/v1/pair/accept", &accept)).await;
+        assert_eq!(response.status, 200, "pair/accept");
+        let node_id = polygone_core::sign::node_id_from_sign_pk_hex(&sign_hex).unwrap();
+        (node_id, sign_hex)
+    }
+
+    #[tokio::test]
+    async fn nodes_list_empty_is_honest() {
+        let response = gateway().route(get("/api/v1/nodes")).await;
+        assert_eq!(response.status, 200);
+        let body = body_json(&response);
+        assert_eq!(body["count"], 0);
+        assert_eq!(body["active"], 0);
+        assert!(body["nodes"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn nodes_list_shows_paired_node_public_only() {
+        let gateway = gateway();
+        let (node_id, sign_hex) = pair_node(&gateway, "appareil-test").await;
+        let response = gateway.route(get("/api/v1/nodes")).await;
+        assert_eq!(response.status, 200);
+        let body = body_json(&response);
+        assert_eq!(body["count"], 1);
+        assert_eq!(body["active"], 1);
+        let node = &body["nodes"][0];
+        assert_eq!(node["node_id"], node_id);
+        assert_eq!(node["device_name"], "appareil-test");
+        assert_eq!(node["signing_key_hex"], sign_hex);
+        assert_eq!(node["active"], true);
+        // Aucun champ privé : la réponse ne porte que les champs publics connus.
+        for key in node.as_object().unwrap().keys() {
+            assert!(
+                [
+                    "node_id",
+                    "device_name",
+                    "services",
+                    "signing_key_hex",
+                    "last_seen",
+                    "latency_ms",
+                    "active"
+                ]
+                .contains(&key.as_str()),
+                "champ inattendu (fuite potentielle) : {key}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn revoke_removes_anchor_and_emits_event() {
+        let gateway = gateway();
+        let (node_id, _) = pair_node(&gateway, "a-revoquer").await;
+        let response = gateway
+            .route(post(&format!("/api/v1/nodes/{node_id}/revoke"), ""))
+            .await;
+        assert_eq!(response.status, 200);
+        let body = body_json(&response);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["revoked"], true);
+        assert_eq!(body["node_id"], node_id);
+        // La table ne contient plus le nœud.
+        let after = body_json(&gateway.route(get("/api/v1/nodes")).await);
+        assert_eq!(after["count"], 0);
+        // L'événement de révocation est émis et filtrable.
+        let events = body_json(&gateway.route(get("/api/v1/events?kind=node_revoked")).await);
+        let list = events["events"].as_array().unwrap();
+        assert!(
+            list.iter()
+                .any(|e| e["kind"] == "node_revoked" && e["data"]["node_id"] == node_id),
+            "événement node_revoked émis"
+        );
+    }
+
+    #[tokio::test]
+    async fn revoke_unknown_node_is_404() {
+        let response = gateway()
+            .route(post("/api/v1/nodes/inconnu/revoke", ""))
+            .await;
+        assert_eq!(response.status, 404);
+    }
+
+    #[tokio::test]
+    async fn revoke_empty_id_is_400() {
+        let response = gateway().route(post("/api/v1/nodes//revoke", "")).await;
+        assert_eq!(response.status, 400);
+    }
+
+    #[tokio::test]
+    async fn revoke_persists_removal() {
+        let (dir, path) = temp_nodes_path("revoke");
+        let gateway = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        let (node_id, _) = pair_node(&gateway, "persistant").await;
+        // Flush l'ancre sur disque : pair/accept garde la mémoire, la
+        // persistance est explicite (heartbeat ou flush).
+        gateway
+            .persist_nodes(&gateway.nodes.read().await.clone())
+            .await;
+        let on_disk: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(
+            on_disk.get(&node_id).is_some(),
+            "ancre présente avant révocation"
+        );
+        // Révoque via la route.
+        let response = gateway
+            .route(post(&format!("/api/v1/nodes/{node_id}/revoke"), ""))
+            .await;
+        assert_eq!(response.status, 200);
+        // Recharge depuis le disque : le nœud a disparu.
+        let reloaded = Gateway::with_nodes_file(PathBuf::from("."), Some(path.clone()));
+        let after = body_json(&reloaded.route(get("/api/v1/nodes")).await);
+        assert_eq!(after["count"], 0, "révocation persistée");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn revoke_blocks_heartbeat_of_the_revoked_node() {
+        let gateway = gateway();
+        let keys = polygone_core::sign::generate_keypair().unwrap();
+        let sign_hex = keys.verifier.public_key().to_hex();
+        let node_id = polygone_core::sign::node_id_from_sign_pk_hex(&sign_hex).unwrap();
+        seed_node(&gateway, &node_id, &sign_hex).await;
+        // Avant révocation : le heartbeat signé est accepté.
+        let response = gateway
+            .route(post(
+                "/api/v1/nodes/heartbeat",
+                &heartbeat_body(&keys, &node_id, now_secs()),
+            ))
+            .await;
+        assert_eq!(response.status, 200, "heartbeat avant révocation");
+        // Révocation via la route.
+        let response = gateway
+            .route(post(&format!("/api/v1/nodes/{node_id}/revoke"), ""))
+            .await;
+        assert_eq!(response.status, 200);
+        // Après révocation : l'ancre n'existe plus, le heartbeat est refusé.
+        let response = gateway
+            .route(post(
+                "/api/v1/nodes/heartbeat",
+                &heartbeat_body(&keys, &node_id, now_secs()),
+            ))
+            .await;
+        assert_eq!(response.status, 404, "un nœud révoqué n'est plus approuvé");
     }
 
     #[tokio::test]

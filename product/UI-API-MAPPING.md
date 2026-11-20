@@ -171,8 +171,9 @@ un bouton mort.
 | Console (Overview + Mon nœud) | `web/node.html` + `dashboard.js` + `node-local.js` | `/network/status`, `/services`, `/diagnostics`, `/identity`, `/daemon`, `/resources`, `/settings` | null ≠ 0 ; `mesurée/réservable/appliquée` distinguées ; erreur = code + hint ; identité publique seulement ; réglages lecture seule |
 | Compute | `web/compute.html` + `compute.js` | `POST/GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/cancel` | `executor_attached` affiché ; résultat signé montré (producteur, blake3, signature) sans prétendre vérifier la signature dans le navigateur ; annulation seulement sur état non terminal |
 | Activité | `web/activity.html` + `activity.js` | `/events?since=&limit=`, `/usage` | curseur monotone ; bandeau de gap explicite ; ledger actif seulement (pas d'historique inventé) ; daemon absent = message, pas zéro |
-| Drive / Mesh | `web/drive.html`, `web/mesh.html` | existants | inchangés (nav étendue) |
+| Drive | `web/drive.html` | existant | inchangé (nav étendue) |
+| Réseau / Appareils | `web/mesh.html` + `mesh.js` | `/network/status`, `/nodes`, `/events?limit=50`, `POST /nodes/{id}/revoke` | aucun pair codé en dur, pas de CPU/RAM/IP inventés ; null ≠ 0 (« — ») ; erreur = code + hint ; révocation par bouton avec état `revoking` (pas de double clic) ; empreinte de clé tronquée, jamais la clé complète affichée comme secret |
 
-Coque PWA : `sw.js` version `polygone-v3`, nouveaux fichiers précachés ; les
-réponses API ne sont jamais mises en cache. Démarrage :
+Coque PWA : `sw.js` version `polygone-v4` (2026-11-20, écran Réseau), nouveaux
+fichiers précachés ; les réponses API ne sont jamais mises en cache. Démarrage :
 `polygone-gateway --site-dir ./web` (loopback uniquement).
