@@ -85,6 +85,18 @@ pub struct CreateTaskRequest {
     pub allow_filesystem_write: bool,
     #[serde(default = "default_max_output_bytes")]
     pub max_output_bytes: u64,
+    /// Cible distante : node_id du pair approuvé (ancre TOFU `peers.json`).
+    /// Si présent, la tâche est exécutée à distance via le relais (chemin
+    /// compute prouvé deux hôtes), pas par l'exécuteur local déterministe.
+    #[serde(default)]
+    pub target_node: Option<String>,
+    /// Relais (host:port) pour l'exécution distante. Requis si `target_node`.
+    #[serde(default)]
+    pub relay: Option<String>,
+    /// Recalcul local L1 de la commande déterministe (sinon L0 : signature
+    /// producteur seule). Défaut : false.
+    #[serde(default)]
+    pub verify_local: Option<bool>,
 }
 
 impl CreateTaskRequest {
@@ -121,6 +133,41 @@ impl CreateTaskRequest {
                 },
             },
         })
+    }
+
+    /// Extrait et valide une cible d'exécution distante. `None` = tâche locale
+    /// (chemin inchangé). La commande distante est l'entrée UTF-8 ; le pair
+    /// doit être un node_id hex 32 et un relais est exigé (fail-closed en aval).
+    fn remote_target(&self) -> Result<Option<crate::compute::RemoteTarget>, StoreError> {
+        let Some(node) = self.target_node.as_ref() else {
+            return Ok(None);
+        };
+        let node = node.trim().to_string();
+        if node.len() != 32 || !node.chars().all(|ch| ch.is_ascii_hexdigit()) {
+            return Err(StoreError::Invalid(
+                "target_node : node_id hexadécimal de 32 caractères attendu".into(),
+            ));
+        }
+        let relay = self
+            .relay
+            .as_ref()
+            .map(|r| r.trim().to_string())
+            .filter(|r| !r.is_empty())
+            .ok_or_else(|| StoreError::Invalid("relay requis pour une tâche distante".into()))?;
+        let input = hex::decode(&self.input_hex)
+            .map_err(|_| StoreError::Invalid("input_hex invalide".into()))?;
+        let command = String::from_utf8(input).map_err(|_| {
+            StoreError::Invalid("commande distante : encodage UTF-8 attendu".into())
+        })?;
+        if command.trim().is_empty() {
+            return Err(StoreError::Invalid("commande distante vide".into()));
+        }
+        Ok(Some(crate::compute::RemoteTarget {
+            node,
+            relay,
+            command,
+            verify_local: self.verify_local.unwrap_or(false),
+        }))
     }
 }
 
@@ -301,6 +348,11 @@ impl TaskStore {
         request: CreateTaskRequest,
         now: u64,
     ) -> Result<TaskRecord, StoreError> {
+        // Cible distante → chemin compute prouvé (méthode dédiée, verrou relâché
+        // pendant l'appel réseau). Sans cible, le chemin local est inchangé.
+        if let Some(target) = request.remote_target()? {
+            return self.create_remote(request, target, now).await;
+        }
         let mut inner = self.inner.lock().await;
         let swept = self.sweep_and_emit(&mut inner, now);
         if inner.tasks.len() >= MAX_TASKS {
@@ -345,6 +397,103 @@ impl TaskStore {
             "task_created",
             serde_json::json!({ "id": task.spec.id.as_str(), "state": task.state.as_str() }),
         );
+        Ok(task)
+    }
+
+    /// Crée et exécute une tâche DISTANTE via le chemin compute prouvé deux
+    /// hôtes. Le verrou est relâché pendant l'appel réseau (jusqu'à 40 s) pour
+    /// ne pas bloquer les autres opérations. Le reçu porte le niveau de
+    /// vérification honnête (`producer-signed` ≠ `recomputed-local`) ; tout
+    /// échec produit `failed`, jamais un faux succès.
+    async fn create_remote(
+        &self,
+        request: CreateTaskRequest,
+        target: crate::compute::RemoteTarget,
+        now: u64,
+    ) -> Result<TaskRecord, StoreError> {
+        let id = {
+            let mut inner = self.inner.lock().await;
+            let swept = self.sweep_and_emit(&mut inner, now);
+            if inner.tasks.len() >= MAX_TASKS {
+                if swept {
+                    persist_locked(&inner);
+                }
+                return Err(StoreError::Full);
+            }
+            let id = loop {
+                let candidate = TaskId::parse(format!("task_{}", crate::uuid_short()))
+                    .map_err(|error| StoreError::Invalid(error.to_string()))?;
+                if !inner.tasks.contains_key(candidate.as_str()) {
+                    break candidate;
+                }
+            };
+            let spec = request.into_spec(id, now)?;
+            let mut task = TaskRecord::new(spec, now)
+                .map_err(|error| StoreError::Invalid(error.to_string()))?;
+            task.mark_validated(now)
+                .and_then(|_| task.publish(now))
+                .and_then(|_| task.assign(target.node.clone(), now))
+                .map_err(|error| StoreError::Invalid(error.to_string()))?;
+            let id = task.spec.id.as_str().to_string();
+            inner.tasks.insert(id.clone(), task.clone());
+            if let Some(path) = inner.file.clone()
+                && let Err(error) = persist(&path, &inner.tasks)
+            {
+                inner.tasks.remove(&id);
+                return Err(StoreError::Persistence(error));
+            }
+            self.emit(
+                "task_created",
+                serde_json::json!({ "id": id, "state": task.state.as_str(), "target_node": target.node }),
+            );
+            id
+        };
+
+        // Appel réseau SANS verrou : les autres opérations restent servies.
+        let outcome = crate::compute::borrow_remote(&target).await;
+
+        let mut inner = self.inner.lock().await;
+        let mut task = inner.tasks.get(&id).cloned().ok_or(StoreError::NotFound)?;
+        // Une annulation ou expiration concurrente prime : ne pas l'écraser.
+        if task.state.is_terminal() {
+            return Ok(task);
+        }
+        match outcome {
+            Ok(receipt) => {
+                let _ = task.accept(now);
+                let _ = task.start(now);
+                match task.complete_remote(receipt, now) {
+                    Ok(()) => self.emit(
+                        "task_succeeded",
+                        serde_json::json!({
+                            "id": id,
+                            "state": task.state.as_str(),
+                            "verification": task.remote_receipt.as_ref().map(|r| r.verification.clone()),
+                        }),
+                    ),
+                    Err(error) => {
+                        let _ = task.fail(format!("reçu distant invalide : {error}"), now);
+                        self.emit(
+                            "task_failed",
+                            serde_json::json!({ "id": id, "state": task.state.as_str() }),
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                let _ = task.fail(format!("exécution distante : {error}"), now);
+                self.emit(
+                    "task_failed",
+                    serde_json::json!({ "id": id, "state": task.state.as_str() }),
+                );
+            }
+        }
+        inner.tasks.insert(id.clone(), task.clone());
+        if let Some(path) = inner.file.clone()
+            && let Err(error) = persist(&path, &inner.tasks)
+        {
+            return Err(StoreError::Persistence(error));
+        }
         Ok(task)
     }
 
@@ -784,6 +933,9 @@ mod tests {
             allow_network: false,
             allow_filesystem_write: false,
             max_output_bytes: 64 * 1024,
+            target_node: None,
+            relay: None,
+            verify_local: None,
         }
     }
 

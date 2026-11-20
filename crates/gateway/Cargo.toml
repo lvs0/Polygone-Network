@@ -11,6 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 polygone-core = { path = "../core" }
+# Le client expose le sous-système compute/réseau prouvé (net::borrow_compute,
+# exec::run_sandboxed, identity::LocalIdentity). Le gateway le réutilise pour
+# l'exécution distante au lieu de réécrire un chemin crypto déjà vérifié.
+polygone-client = { path = "../client" }
 # Le daemon est une bibliothèque embeddable : la gateway réutilise SON client
 # de protocole et SES types (Reply, DaemonConfig) au lieu de les dupliquer —
 # la parité du relais est garantie par le compilateur, pas par une copie.
@@ -31,3 +35,6 @@ toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
+# Relais réel en boucle locale pour le test d'intégration compute distant.
+polygone-relay = { path = "../relay" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

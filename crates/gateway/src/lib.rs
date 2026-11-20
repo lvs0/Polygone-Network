@@ -28,6 +28,7 @@
 //!   GET  /api/v1/tasks/:id       → détail d'une tâche
 //!   POST /api/v1/tasks/:id/cancel→ annulation
 
+mod compute;
 pub mod diagnostics;
 pub mod events;
 pub mod http;
