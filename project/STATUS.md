@@ -4,15 +4,16 @@
 > (journal des vérifications) : il dit **où en est la mission, quelle est la
 > prochaine action, et comment la prouver.**
 > Règle : aucune ligne `FAIT` sans commande et sortie associées.
-> Dernière mise à jour : 2026-11-19 (production : WIP commité, D2 tranchée, preuve L1
-> persistée, test deux hôtes exécuté, push + PR #4, CI sur l'arbre — voir §11).
+> Dernière mise à jour : 2026-11-20 (fusions PR #7 calcul distant + PR #8 nodes,
+> gates rejoués sur l'arbre fusionné : 711 tests, fmt/clippy/check-docs verts ;
+> PR #3 obsolète fermée — voir §15)
 
 ## 1. Où travailler
 
 | Élément | Valeur |
 |---|---|
 | Dépôt canonique | `~/Polygone-canonical` |
-| Branche | `reconcile/2026-11` |
+| Branche | `main` (`20cf055` — PR #7 et #8 fusionnées le 2026-11-20, §15) |
 | Base | `main` (`f3d09c0`) + `realign/v2` (`967afdb`) + `p0/first-secure-network` (`d6e7229`) |
 | Histoire d'archive | `realign/realign/v2` (jamais réécrite) |
 | Anciens emplacements | `~/Projects/Polygone-real`, `~/Polygone-Atlas/03-REALIGNED` — **lecture seule** |
@@ -48,6 +49,9 @@
 | Publication / push | FAIT — `reconcile/2026-11` poussée sur `lvs0/Polygone-Network`, PR #4 **fusionnée** le 2026-11-19 (merge `8307094`), réconciliation ADR-0004 | §11-12 |
 
 ## 3. Prochaine action, dans l'ordre
+
+> **État au 2026-11-20 : voir §15** — les trois premiers points ci-dessous sont
+> clos (PR #4, #6, #7 et #8 fusionnées ; release v2.1.0 publiée ; aucun PR ouvert).
 
 1. Vérifier le verdict de la CI GitHub Actions (run 44486416115, branche
    `reconcile/2026-11`) ; corriger si rouge, ne pas contourner.
@@ -320,3 +324,20 @@ inspecté, complété, vérifié, publié. Le disque fait foi.
 F1-OBS-01 (rapport de diagnostic exportable sans secret), écritures bornées
 identité/réglages, F1-NET-02/F1-SVC-01..03 (câbler ou requalifier honnêtement).
 LAN/NAT, quorum L2, TEE, Babel : physiques / décision humaine, hors autonomie.
+
+## 15. Fusion finale — 2026-11-20 (mandat « finis Polygone »)
+
+| Élément | État | Preuve |
+|---|---|---|
+| PR #7 calcul distant | **FUSIONNÉE** — checks bloquants verts (ubuntu, macos, smoke) ; canari Windows échec attendu | `gh pr merge 7 --merge`, RC=0 ; run 44703014260 **vert** |
+| PR #8 nodes + révocation | **FUSIONNÉE** — `mergeable=MERGEABLE`, ubuntu/macos/smoke verts | `gh pr merge 8 --merge`, RC=0 ; run 44703480350 **vert** |
+| `main` | `f123965` (fusions) → `20cf055` (état documentaire) ; gates rejoués sur l'arbre fusionné | `git log --oneline` |
+| Gates arbre fusionné | fmt RC=0 ; clippy `--workspace --all-targets -D warnings` RC=0 ; **711 tests / 0 échec** ; check-docs « documents cohérents avec le code » ; gitleaks 0 fuite | logs `~/.hermes/cache/scratch/main-*.log` |
+| Mesure | **107 fichiers Rust, 46 642 lignes, 711 tests** ; gateway 15 fichiers / 6 260 lignes / 97 tests | `scripts/check-docs.mjs --tests 711` |
+| PR #3 | **fermée (obsolète)** — basée sur `23d27ac` (septembre), CONFLICTING ; son objet fmt/clippy est déjà vert sur `main` | commentaire + `gh pr close 3` |
+
+**Prochaine action** : plus aucun PR ouvert. Suite fonctionnelle non bloquante —
+F1-OBS-01 (diagnostic exportable sans secret), écritures bornées identité/réglages
+(F1-SEC-02), câblage F1-NET-02/F1-SVC-01..03. Bloqués par la physique ou une
+décision humaine : mesures RTT/débit inter-hôtes (Cue hors ligne), LAN/NAT,
+quorum L2, TEE L3, Babel.
